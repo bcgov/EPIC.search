@@ -75,7 +75,7 @@ def load_data(s3_key, base_metadata):
         if not data_to_upsert:
             raise ValueError(f"No valid text content found in file {s3_key}")
 
-        vec.upsert(os.environ.get("CHUNK_DUMB_TABLE_NAME"), data_to_upsert)
+        vec.upsert(os.environ.get("CHUNK_DUMP_TABLE_NAME"), data_to_upsert)
 
     
         # Extract tags

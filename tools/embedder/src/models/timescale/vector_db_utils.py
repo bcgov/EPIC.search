@@ -3,4 +3,4 @@ import os
 def init_vec_db():
     vec = VectorStore()
     vec.create_table(os.environ.get("INDEX_TABLE_NAME"))
-    vec.create_table(os.environ.get("CHUNK_DUMB_TABLE_NAME"))
+    vec.create_table(os.environ.get("CHUNK_DUMP_TABLE_NAME"))
