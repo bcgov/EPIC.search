@@ -25,3 +25,11 @@ requests
 flask_cors
 pyhumps
 importlib-resources
+pandas
+timescale-vector
+sentence-transformers
+transformers
+keybert
+nomic
+numpy
+gpt4all

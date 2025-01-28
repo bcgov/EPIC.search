@@ -27,6 +27,7 @@ from flask import Blueprint
 from .apihelper import Api
 
 from .user import API as USER_API
+from .search import API as SEARCH_API
 
 __all__ = ('API_BLUEPRINT',)
 
@@ -53,3 +54,4 @@ API = Api(
 # HANDLER = ExceptionHandler(API)
 
 API.add_namespace(USER_API)
+API.add_namespace(SEARCH_API)

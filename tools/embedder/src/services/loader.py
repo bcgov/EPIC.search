@@ -75,7 +75,7 @@ def load_data(s3_key, base_metadata):
         if not data_to_upsert:
             raise ValueError(f"No valid text content found in file {s3_key}")
 
-        vec.upsert("document_details", data_to_upsert)
+        vec.upsert(os.environ.get("CHUNK_DUMB_TABLE_NAME"), data_to_upsert)
 
     
         # Extract tags
@@ -93,7 +93,7 @@ def load_data(s3_key, base_metadata):
                     chunk_info["chunk_embedding"],
                 )
                 tags_to_upsert.append(tag_record)
-        vec.upsert("document_tags", tags_to_upsert)
+        vec.upsert(os.environ.get("INDEX_TABLE_NAME"), tags_to_upsert)
 
         return s3_key
 

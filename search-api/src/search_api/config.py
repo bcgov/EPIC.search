@@ -21,7 +21,7 @@ rather than reading environment variables directly or by accessing this configur
 
 import os
 import sys
-
+from datetime import timedelta
 from dotenv import find_dotenv, load_dotenv
 
 # this will load all the envars from a .env file located in the project root (api)
@@ -84,6 +84,17 @@ class _Config():  # pylint: disable=too-few-public-methods
     # TODO API client wont need user management roles in keycloak.
     KEYCLOAK_ADMIN_USERNAME = os.getenv('MET_ADMIN_CLIENT_ID')
     KEYCLOAK_ADMIN_SECRET = os.getenv('MET_ADMIN_CLIENT_SECRET')
+
+    #Vector Database
+    VECTOR_DB_URL = os.getenv('VECTOR_DB_URL')
+    EMBEDDING_DIMENSIONS: int = os.getenv('EMBEDDING_DIMENSIONS')
+    TIME_PARTITION_INTERVAL: timedelta = timedelta(days=7)
+
+    #Search Config
+    DEFAULT_VECTOR_TABLE = os.getenv('DEFAULT_VECTOR_TABLE')
+    KEYWORD_FETCH_COUNT = os.getenv('KEYWORD_FETCH_COUNT')
+    SEMANTIC_FETCH_COUNT = os.getenv('SEMANTIC_FETCH_COUNT')
+    TOP_RECORD_COUNT = os.getenv('TOP_RECORD_COUNT')
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods
