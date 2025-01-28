@@ -45,7 +45,7 @@ Step 2 - Install the dependencies
 pip install -r requirements.txt
 ```
 
-Step 3 - Run the embedder Add Documents to Database
+Step 3 - Run the embedder to add documents to the vector database
 
 ```bash
   python main.py
