@@ -1,6 +1,3 @@
-
-## TEST
-
 # EPIC.search - Embedder
 
 The Embedder will convert the PDF file contents into a vector database
