@@ -3,12 +3,13 @@ from .re_raker import rerank_results
 from .vector_store import VectorStore
 from flask import current_app
 import numpy as np
+
 def search(question
     ) -> pd.DataFrame:
       table_name= current_app.config['DEFAULT_VECTOR_TABLE']
-      keyword_k=5
-      semantic_k=5
-      top_n: int = 5
+      keyword_k= current_app.config['KEYWORD_FETCH_COUNT']
+      semantic_k= current_app.config['SEMANTIC_FETCH_COUNT']
+      top_n: int = current_app.config['TOP_RECORD_COUNT']
       data = hybrid_search(table_name,question,keyword_k,semantic_k,True,top_n)
       return format_data(data)
       
