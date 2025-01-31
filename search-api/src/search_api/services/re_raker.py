@@ -8,7 +8,6 @@ def rerank_results(
         documents=items["content"].tolist()
         pairs = [[query, doc] for doc in documents]
         scores = model.predict(pairs)
-       
         reranked_df = pd.DataFrame(
             [
                 {
@@ -21,7 +20,7 @@ def rerank_results(
                for i, (_, result) in enumerate(items.iterrows())
             ]
         )
-
         sorted_df = reranked_df.sort_values("relevance_score", ascending=False)
-        top_n_records = sorted_df.head(top_n)
+        top_n_records = sorted_df.head(int(top_n))
+      
         return top_n_records

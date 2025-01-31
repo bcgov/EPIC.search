@@ -33,3 +33,5 @@ keybert
 nomic
 numpy
 gpt4all
+ollama
+streamlit

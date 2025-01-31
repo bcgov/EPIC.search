@@ -91,10 +91,14 @@ class _Config():  # pylint: disable=too-few-public-methods
     TIME_PARTITION_INTERVAL: timedelta = timedelta(days=7)
 
     #Search Config
-    DEFAULT_VECTOR_TABLE = os.getenv('DEFAULT_VECTOR_TABLE')
+    VECTOR_TABLE = os.getenv('VECTOR_TABLE')
     KEYWORD_FETCH_COUNT = os.getenv('KEYWORD_FETCH_COUNT')
     SEMANTIC_FETCH_COUNT = os.getenv('SEMANTIC_FETCH_COUNT')
     TOP_RECORD_COUNT = os.getenv('TOP_RECORD_COUNT')
+
+    #LLM Config
+    LLM_MODEL = os.getenv('LLM_MODEL')
+    LLM_TEMPERATURE = os.getenv('LLM_TEMPERATURE')
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods

@@ -55,8 +55,8 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     app.register_blueprint(API_BLUEPRINT)  # Create the database (run once)
 
     # Setup jwt for keycloak
-    if os.getenv("FLASK_ENV", "production") != "testing":
-        setup_jwt_manager(app, jwt)
+    #if os.getenv("FLASK_ENV", "production") != "testing":
+    #    setup_jwt_manager(app, jwt)
 
     # Database connection initialize
     db.init_app(app)
@@ -76,7 +76,7 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     @app.after_request
     def set_secure_headers(response):
         """Set CORS headers for security."""
-        secure_headers.framework.flask(response)
+       # secure_headers.framework.flask(response)
         response.headers.add("Cross-Origin-Resource-Policy", "*")
         response.headers["Cross-Origin-Opener-Policy"] = "*"
         response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"

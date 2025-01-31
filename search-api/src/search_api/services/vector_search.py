@@ -6,7 +6,7 @@ import numpy as np
 
 def search(question
     ) -> pd.DataFrame:
-      table_name= current_app.config['DEFAULT_VECTOR_TABLE']
+      table_name= current_app.config['VECTOR_TABLE']
       keyword_k= current_app.config['KEYWORD_FETCH_COUNT']
       semantic_k= current_app.config['SEMANTIC_FETCH_COUNT']
       top_n: int = current_app.config['TOP_RECORD_COUNT']
@@ -74,6 +74,7 @@ def format_data(data):
                 "document_saved_name" : document_saved_name,
                 "page_number": page_number,
                 "project_id" : project_id,
-                "project_name" : project_name
+                "project_name" : project_name,
+                "content" :  row[1]
             })
         return result
