@@ -1,14 +1,19 @@
-from nomic import embed
-import numpy as np
-
+# Global model instance - loaded only once
+_model = None
 
 def get_embedding(texts):
-    output = embed.text(
-        texts=texts,
-        model='nomic-embed-text-v1',
-        inference_mode='local',
-        task_type='search_document',
-        dimensionality=768,
-    )
-    return output['embeddings']
-
+    global _model
+    
+    # Initialize the model only on first call
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer('all-mpnet-base-v2') #, device='cuda') - compile with cuda if possible
+    
+    # Convert single string to list if needed
+    if isinstance(texts, str):
+        texts = [texts]
+        
+    # Generate embeddings
+    embeddings = _model.encode(texts)
+    
+    return embeddings

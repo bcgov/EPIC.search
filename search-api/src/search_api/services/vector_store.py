@@ -10,10 +10,16 @@ from .bert_keyword_extractor import get_keywords
 from .embedding import get_embedding
 from transformers import pipeline
 from .tag_extractor import get_tags
+
 class VectorStore:
 
     def __init__(self):
-        self.ner_pipeline = pipeline("ner", grouped_entities=True)
+        self.ner_pipeline = pipeline(
+            "ner", 
+            model="dbmdz/bert-large-cased-finetuned-conll03-english",
+            revision="f2482bf",
+            aggregation_strategy="simple"  # instead of grouped_entities=True
+        )
         # A dictionary to store vec_clients keyed by table name for dynamic usage
         self._vec_clients = {}
 
