@@ -11,5 +11,5 @@ class SearchService:
     def get_documents_by_question(cls, _question):
         """Get documents by question."""
         documents = search(_question)
-        synthResponse = generate_response(_question, documents)
-        return {"response": synthResponse}
+        response = generate_response(_question, documents)
+        return {"result": response}

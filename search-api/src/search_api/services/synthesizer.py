@@ -42,8 +42,10 @@ def generate_response(question: str, documents):
 
     response = generate_ollama_response(prompt_template, {"temperature": 0})
 
-    return response
-    # format response with documents    
+    return {
+        "documents": documents,
+        "response": response.get("response")
+    }    
 
 
 def generate_ollama_response(prompt_template, options=None):
