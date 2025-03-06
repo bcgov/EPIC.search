@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { SearchResponse } from "@/models/Search";
+import { OnErrorType, OnSuccessType, request } from "@/utils/axiosUtils";
 
 const dummyResponse: SearchResponse = {
   result: {
@@ -24,7 +25,7 @@ const dummyResponse: SearchResponse = {
         page_number: "48",
         project_id: "650b5adc5d77c20022fb59fc",
         project_name: "Coyote Hydrogen Project",
-        content: "Page Chunk Content...",
+        content: "suggestions directing the proponent to conduct an Agricultural Impact Assessment of the Project to determine the",
       },
       {
         document_id: "65130ee0381111002240b49e",
@@ -35,6 +36,39 @@ const dummyResponse: SearchResponse = {
         page_number: "47",
         project_id: "650b5adc5d77c20022fb59fc",
         project_name: "Coyote Hydrogen Project",
+        content: "Page Chunk Content suggestions directing the proponent to conduct of the Project to determine the",
+      },
+      {
+        document_id: "65130ee0381111002140b49e",
+        document_type: null,
+        document_name: "d6fe758b28bbec5afd071db53a2760f2.pdf",
+        document_saved_name:
+          "Mount Clifford Wind Energy Plan.pdf",
+        page_number: "18",
+        project_id: "650b5adc5d77c20022fb67fc",
+        project_name: "Mount Clifford Wind Energy",
+        content: "Page Chunk Content....",
+      },
+      {
+        document_id: "65130ee0381111001240b49e",
+        document_type: null,
+        document_name: "d6fe758b28bbec5afd071db53a2760f2.pdf",
+        document_saved_name:
+          "Fortescue Mount Clifford Wind Energy Report.pdf",
+        page_number: "46",
+        project_id: "650b5adc5d77c20022fb67fc",
+        project_name: "Mount Clifford Wind Energy",
+        content: "Page Chunk Content....",
+      },
+      {
+        document_id: "65130ee0386111001240b49e",
+        document_type: null,
+        document_name: "d6fe758b28bbec5afd071db53a2760f2.pdf",
+        document_saved_name:
+          "Arctos Anthracite - Early Engagement Plan.pdf",
+        page_number: "36",
+        project_id: "650b5adc5d07c20022fb67fc",
+        project_name: "Arctos Anthracite",
         content: "Page Chunk Content....",
       },
     ],
@@ -43,19 +77,33 @@ const dummyResponse: SearchResponse = {
   },
 };
 
-const dummySearch = () => {
+const dummySearch = (searchText: string) => {
+  console.log("searchText", searchText);
   return new Promise((resolve) => {
     setTimeout(() => {
       resolve(dummyResponse);
-    }, 3000);
+    }, 1000);
   });
 };
 
+const doSearch = (searchText: string) => {
+  return request({ url: "/search", method: "post" , data: {
+    question: searchText
+  }});;
+};
+
 export const useSearchData = (searchText: string) => {
-  console.log("searchText", searchText);
   return useQuery({
     queryKey: ["search"],
-    queryFn: dummySearch,
+    queryFn: () => dummySearch(searchText),
     enabled: !!searchText,
   });
+};
+
+export const useSearchQuery = (onSuccess: OnSuccessType, onError: OnErrorType) => {
+  return useMutation({
+    mutationFn: doSearch,
+    onSuccess,
+    onError
+  })
 };

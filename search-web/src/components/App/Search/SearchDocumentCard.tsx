@@ -1,13 +1,18 @@
-import { Box, Button, Chip, Typography } from "@mui/material";
+import { Box, Button, Chip, Link, Typography } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { useState, useRef, useEffect } from "react";
+import { DescriptionTwoTone } from "@mui/icons-material";
 
 interface SearchDocumentCardProps {
   document: Document;
+  searchText: string;
 }
 
-const SearchDocumentCard = ({ document }: SearchDocumentCardProps) => {
+const SearchDocumentCard = ({
+  document,
+  searchText,
+}: SearchDocumentCardProps) => {
   const [expanded, setExpanded] = useState(false);
   const [contentOverflows, setContentOverflows] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -24,6 +29,26 @@ const SearchDocumentCard = ({ document }: SearchDocumentCardProps) => {
     setExpanded(!expanded);
   };
 
+  // Function to highlight search text in content
+  const highlightSearchText = (text: string, searchTerm: string) => {
+    if (!searchTerm.trim()) return text;
+
+    const parts = text.split(new RegExp(`(${searchTerm})`, "gi"));
+
+    return parts.map((part, index) =>
+      part.toLowerCase() === searchTerm.toLowerCase() ? (
+        <span
+          key={index}
+          style={{ backgroundColor: BCDesignTokens.themeGold40 }}
+        >
+          {part}
+        </span>
+      ) : (
+        part
+      )
+    );
+  };
+
   return (
     <Box
       sx={{
@@ -31,33 +56,35 @@ const SearchDocumentCard = ({ document }: SearchDocumentCardProps) => {
         background: BCDesignTokens.themeBlue10,
         padding: 2,
         borderRadius: 2,
+        height: expanded ? "auto" : 260,
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <Typography
-        variant="h5"
-        fontWeight="normal"
-        color={BCDesignTokens.themePrimaryBlue}
-      >
-        {document.project_name}
-      </Typography>
-      <Typography variant="body2" sx={{ fontWeight: "bold"}}>
+      <Link href="#" underline="none" sx={{ fontWeight: "bold" }}>
         {document.document_saved_name}
-      </Typography>
-      <Chip
-        size="small"
-        label={`Page ${document.page_number}`}
-        sx={{
-          fontWeight: "normal",
-          my: 0.75,
-          borderRadius: 1.5,
-        }}
-      />
+      </Link>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <DescriptionTwoTone color="primary" sx={{ fontSize: 20 }} />
+        <Chip
+          size="small"
+          color="primary"
+          variant="outlined"
+          label={`Page ${document.page_number}`}
+          sx={{
+            fontWeight: "bold",
+            my: 0.75,
+            borderRadius: 1.5,
+          }}
+        />
+      </Box>
       <Box
         sx={{
           position: "relative",
           overflow: "hidden",
           height: expanded ? "auto" : "150px",
           transition: "height 0.3s ease",
+          flex: 1,
         }}
       >
         <Typography
@@ -65,7 +92,7 @@ const SearchDocumentCard = ({ document }: SearchDocumentCardProps) => {
           variant="body2"
           color={BCDesignTokens.themeGray80}
         >
-          " {document.content} "
+          " {highlightSearchText(document.content, searchText)} "
         </Typography>
         {!expanded && contentOverflows && (
           <Box

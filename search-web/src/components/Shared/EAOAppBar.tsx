@@ -2,12 +2,18 @@ import { AppBar, Box, Button, Grid, Typography } from "@mui/material";
 import EAO_Logo from "@/assets/images/EAO_Logo.png";
 import { AppConfig } from "@/utils/config";
 import { useAuth } from "react-oidc-context";
+import { BCDesignTokens } from "epic.theme";
 
 export default function EAOAppBar() {
   const auth = useAuth();
   return (
     <>
-      <AppBar position="fixed" color="inherit" elevation={2}>
+      <AppBar
+        position="fixed"
+        color="inherit"
+        elevation={2}
+        sx={{ backgroundColor: BCDesignTokens.themeGray10 }}
+      >
         <Grid
           container
           padding={"0.5rem"}
@@ -26,7 +32,12 @@ export default function EAOAppBar() {
               {AppConfig.appTitle}
             </Typography>
           </Grid>
-          <Grid display="flex" justifyContent="center" alignItems="center" paddingRight={"0.75rem"}>
+          <Grid
+            display="flex"
+            justifyContent="center"
+            alignItems="center"
+            paddingRight={"0.75rem"}
+          >
             {auth.isAuthenticated ? (
               <>
                 <Box

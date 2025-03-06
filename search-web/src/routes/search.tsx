@@ -1,39 +1,53 @@
-import { Search as SearchIcon } from "@mui/icons-material";
-import { Box, Container, Grid, Typography } from "@mui/material";
+import { Cancel, Search as SearchIcon } from "@mui/icons-material";
+import { Box, Container, Typography } from "@mui/material";
 import { InputBase } from "@mui/material";
 import { IconButton } from "@mui/material";
 import { Paper } from "@mui/material";
 import { createFileRoute } from "@tanstack/react-router";
 import { BCDesignTokens } from "epic.theme";
 import { useEffect, useState } from "react";
-import { useSearchData } from "@/hooks/useSearch";
+import { useSearchQuery } from "@/hooks/useSearch";
 import { SearchResponse } from "@/models/Search";
-import SearchDocumentCard from "@/components/App/SearchDocumentCard";
-import SearchSkelton from "@/components/App/SearchSkelton";
+import SearchSkelton from "@/components/App/Search/SearchSkelton";
+import SearchResult from "@/components/App/Search/SearchResult";
+import SearchLanding from "@/components/App/Search/SearchLanding";
 export const Route = createFileRoute("/search")({
   component: Search,
 });
 
 function Search() {
   const [searchText, setSearchText] = useState("");
-  const [searchableText, setSearchableText] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(
     null
   );
 
-  const { data: searchData, isLoading, error } = useSearchData(searchableText);
+  const onSuccess = (data: SearchResponse) => {
+    setSearchResults(data);
+  };
+
+  const onError = (error: any) => {
+    console.error(error);
+  };
 
   useEffect(() => {
-    if (searchData) {
-      console.log("searchData", searchData);
-      setSearchResults(searchData as SearchResponse);
+    if (!searchText) {
+      setSearchResults(null);
+      reset();
     }
-  }, [searchData]);
+  }, [searchText]);
+
+  const {
+    mutate: doSearch,
+    isPending,
+    error,
+    isSuccess,
+    reset
+  } = useSearchQuery(onSuccess, onError);
 
   const onSubmitSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     console.log("searchText", searchText);
-    setSearchableText(searchText);
+    doSearch(searchText);
   };
 
   return (
@@ -84,15 +98,28 @@ function Search() {
             }
           }}
         />
-        <IconButton
-          type="button"
-          sx={{ p: "10px" }}
-          aria-label="search"
-          size="large"
-          onClick={onSubmitSearch}
-        >
-          <SearchIcon sx={{ fontSize: 30 }} />
-        </IconButton>
+        {searchText && (
+          <IconButton
+            type="button"
+            sx={{ p: "10px" }}
+            aria-label="search"
+            size="large"
+            onClick={() => setSearchText("")}
+          >
+            <Cancel sx={{ fontSize: 30 }} />
+          </IconButton>
+        )}
+        {!searchText && (
+          <IconButton
+            type="button"
+            sx={{ p: "10px" }}
+            aria-label="search"
+            size="large"
+            onClick={onSubmitSearch}
+          >
+            <SearchIcon sx={{ fontSize: 30 }} />
+          </IconButton>
+        )}
       </Paper>
 
       <Box
@@ -104,29 +131,11 @@ function Search() {
           alignItems: "center",
         }}
       >
-        {isLoading && <SearchSkelton />}
+        {!searchResults && !isPending && !error && <SearchLanding />}
+        {isPending && <SearchSkelton />}
         {error && <Typography>Error: {error.message}</Typography>}
-        {searchResults?.result && (
-          <>
-            <Typography
-              variant="body1"
-              sx={{
-                my: 1,
-                background: BCDesignTokens.themeBlue10,
-                padding: 2,
-                borderRadius: 2,
-              }}
-            >
-              {searchResults.result.response}
-            </Typography>
-            <Grid container spacing={2}>
-              {searchResults?.result.documents.map((document) => (
-                <Grid item xs={12} md={6} lg={4} key={document.document_id}>
-                  <SearchDocumentCard document={document} />
-                </Grid>
-              ))}
-            </Grid>
-          </>
+        {isSuccess && searchResults?.result && (
+          <SearchResult searchResults={searchResults} searchText={searchText} />
         )}
       </Box>
     </Container>
