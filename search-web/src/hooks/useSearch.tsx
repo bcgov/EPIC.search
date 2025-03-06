@@ -89,7 +89,9 @@ const dummySearch = (searchText: string) => {
 const doSearch = (searchText: string) => {
   return request({ url: "/search", method: "post" , data: {
     question: searchText
-  }});;
+  }}).then((res) => {
+    return res.data;
+  });
 };
 
 export const useSearchData = (searchText: string) => {

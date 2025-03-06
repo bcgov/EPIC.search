@@ -1,8 +1,12 @@
-import { Grid, Skeleton } from "@mui/material";
-
+import { Grid, Skeleton, Typography } from "@mui/material";
+import loading from "@/assets/images/loading.gif";
 const SearchSkelton = () => {
   return (
     <>
+      <img src={loading} height={48} style={{ margin: "16px auto" }} />
+      <Typography variant="body2" sx={{ textAlign: "center" }} color="primary">
+        please wait while we search for your documents...
+      </Typography>
       <Skeleton
         variant="rounded"
         height={100}

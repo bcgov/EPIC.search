@@ -59,6 +59,8 @@ const SearchDocumentCard = ({
         height: expanded ? "auto" : 260,
         display: "flex",
         flexDirection: "column",
+        whiteSpace: "normal",
+        overflow: "auto",
       }}
     >
       <Link href="#" underline="none" sx={{ fontWeight: "bold" }}>

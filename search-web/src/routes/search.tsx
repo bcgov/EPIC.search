@@ -46,7 +46,6 @@ function Search() {
 
   const onSubmitSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    console.log("searchText", searchText);
     doSearch(searchText);
   };
 
@@ -56,6 +55,7 @@ function Search() {
         variant="h2"
         sx={{
           mb: 0,
+          mt: 2,
           textAlign: "center",
           color: BCDesignTokens.themePrimaryBlue,
         }}
@@ -64,7 +64,7 @@ function Search() {
       </Typography>
       <Typography
         variant="body1"
-        sx={{ mb: 3, textAlign: "center", color: BCDesignTokens.themeBlue90 }}
+        sx={{ mb: 4, textAlign: "center", color: BCDesignTokens.themeBlue90 }}
       >
         Search for documents by entering a keyword or phrase below.
       </Typography>

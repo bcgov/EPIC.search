@@ -14,6 +14,7 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
     <>
       <Box
         sx={{
+          width: "calc(100% - 32px)",
           mt: 1,
           mb: 3,
           background: BCDesignTokens.themeBlue10,
@@ -87,9 +88,9 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
             }
           >
         )
-      ).map(([projectId, group]) => (
+      ).map(([projectId, group], index) => (
         <Box
-          key={projectId}
+          key={index}
           sx={{
             width: "100%",
             mb: 3,
@@ -106,18 +107,19 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
               alignItems: "center",
               gap: 1,
             }}
+            aria-label={`Project ${projectId}`}
           >
             <CategoryTwoTone />
             {group.projectName}
           </Typography>
           <Grid container spacing={2} alignItems="stretch">
-            {group.documents.map((document) => (
+            {group.documents.map((document, index) => (
               <Grid
                 item
                 xs={12}
                 md={6}
                 lg={4}
-                key={document.document_id}
+                key={index}
                 sx={{ display: "flex" }}
               >
                 <SearchDocumentCard
