@@ -18,6 +18,15 @@ def format_llm_input(documents):
 
 def generate_response(question: str, documents):
 
+    skip_llm_Reponse = os.environ.get("SKIP_LLM_RESPONSE", "false")
+    print("SKIP_LLM_RESPONSE:", skip_llm_Reponse)
+    
+    if (skip_llm_Reponse == "true"):
+        return {
+            "documents": documents,
+            "response": "Skippped LLM Response"
+        }
+
     context = format_llm_input(documents)
     prompt_template = f"""\
             # Role and Purpose
@@ -56,8 +65,7 @@ def generate_ollama_response(prompt_template, options=None):
     # Get Ollama host from environment or use default
     host = os.environ.get("OLLAMA_HOST", "http://0.0.0.0:11434")
     requestHost = os.environ.get("OLLAMA_REQUEST_HOST", "http://localhost:11434")
-
-    print("prompt_template:", prompt_template)
+    
     print("OLLAMA_HOST:", host)
     print("OLLAMA_REQUEST_HOST:", requestHost)
 
