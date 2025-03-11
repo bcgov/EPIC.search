@@ -63,6 +63,7 @@ def format_data(data):
         document_name = metadata.get("doc_internal_name")
         document_saved_name = metadata.get("document_name")
         page_number = metadata.get("page_number")
+        proponent_name = metadata.get("proponent_name")
 
         # Append to a list or process as needed
         result.append(
@@ -75,6 +76,7 @@ def format_data(data):
                 "project_id": project_id,
                 "project_name": project_name,
                 "content": row[1],
+                "proponent_name": proponent_name,
             }
         )
     return result
