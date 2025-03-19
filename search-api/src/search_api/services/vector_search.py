@@ -173,6 +173,7 @@ def format_data(data):
                 "project_name": project_name,
                 "proponent_name": proponent_name,
                 "content": row[1],
+                "proponent_name": proponent_name,
             }
         )
     return result
