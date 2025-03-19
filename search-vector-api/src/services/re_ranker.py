@@ -7,7 +7,7 @@ from functools import lru_cache
 def get_cross_encoder():
     """Return a cached instance of the CrossEncoder model."""
     model = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")
-    return CrossEncoder(model)     
+    return CrossEncoder(model)
 
 def rerank_results(query: str, items: pd.DataFrame, top_n: int) -> pd.DataFrame:
     # Use the cached model instead of creating a new one each time

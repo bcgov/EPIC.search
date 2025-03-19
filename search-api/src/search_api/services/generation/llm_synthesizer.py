@@ -1,13 +1,28 @@
-from .llm_factory import LLMFactory
-from flask import current_app
-from ..formatter import format_llm_input
-class Synthesizer:
-   
-    @staticmethod
-    def generate_response(question: str, documents):
+from abc import ABC, abstractmethod
 
-        context= format_llm_input(documents)
-        prompt_template = f"""\
+
+class LLMSynthesizer(ABC):
+
+    @abstractmethod
+    def pre_query_llm(query: str) -> bool:
+        pass
+
+    @abstractmethod
+    def format_documents_for_context(documents):
+        return [
+            {
+                "project_name": item.get("project_name"),
+                "proponent_name": item.get("proponent_name"),
+                "text": item.get("content"),
+                "page_number": item.get("page_number"),
+                "document_name": item.get("document_name"),
+            }
+            for item in documents
+        ]
+
+    @abstractmethod
+    def create_prompt(query: str, formatted_documents):
+        return f"""\
             # Role and Purpose
             You are an AI assistant for employees in FAQ system. Your task is to synthesize a coherent and helpful answer 
             based on the given question and relevant context retrieved from a knowledge database.
@@ -23,16 +38,16 @@ class Synthesizer:
             8. Adhere strictly to company guidelines and policies by using only the provided knowledge base.
             
             Review the question from the user:
-            {question}
+            {query}
             Provide the answer based on the following context
-            {context}
+            {formatted_documents}
             """
 
-        llm = LLMFactory(current_app.config.get('LLM_MODEL', 'llama3.1'))
-        response =llm.generate(
-            prompt=prompt_template,
-        )
-        return response
-        
+    @abstractmethod
+    def query_llm(query: str, context: str):
+        pass
 
-    
+    @abstractmethod
+    def format_llm_response(response):
+        pass
+
