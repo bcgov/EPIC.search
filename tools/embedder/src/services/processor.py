@@ -1,8 +1,5 @@
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from src.models import (
-    get_session
-)
 
 from  .logger import (
     load_completed_files,
@@ -14,7 +11,6 @@ from .loader import load_data
 def process_files(project_id,file_keys, metadata_list, batch_size=2):
     if len(file_keys) != len(metadata_list):
         raise ValueError("file_keys and metadata_list must have the same length.")
-
 
     already_completed = load_completed_files(project_id)
     already_incomplete = load_incomplete_files(project_id)

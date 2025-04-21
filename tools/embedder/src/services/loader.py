@@ -10,6 +10,7 @@ from .markdown_splitter import chunk_markdown_text
 from .tag_extractor import explicit_and_semantic_search_large_document
 from .data_formatter import aggregate_tags_by_chunk
 from .embedding import get_embedding
+
 def load_data(s3_key, base_metadata):
     temp_path = None
     try:

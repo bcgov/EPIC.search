@@ -1,9 +1,4 @@
-import logging
-import time
-from typing import Any, List, Optional, Tuple, Union
-from datetime import datetime
-
-import pandas as pd
+from typing import List, Optional
 from src.config import get_settings
 
 from timescale_vector import client
