@@ -4,7 +4,7 @@ TIMEOUT=${GUNICORN_TIMEOUT:-300}
 WORKERS=4
 # Execute preload_models.py to download models at container startup
 # echo "Preloading models..."
-python preload_models.py
+# python preload_models.py
 echo "Workers set : $WORKERS"
 echo "Timeout set : $TIMEOUT"
 # Start Gunicorn with increased timeout

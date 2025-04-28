@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Execute and embed the models in the image if needed
-# RUN chmod +x /opt/app-root/preload_models.py
+RUN chmod +x /opt/app-root/preload_models.py
 
 # Set environment variables
 ENV PYTHONPATH=/opt/app-root/src
