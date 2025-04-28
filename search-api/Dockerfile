@@ -22,5 +22,8 @@ ENV PYTHONPATH=/opt/app-root/src
 
 ENV GUNICORN_TIMEOUT=300
 
+# Expose port 8080 for the application
+EXPOSE 8080
+
 # Define the entry point for your application
 ENTRYPOINT ["bash", "docker-entrypoint.sh"]

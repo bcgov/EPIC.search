@@ -2,11 +2,6 @@ from abc import ABC, abstractmethod
 
 
 class LLMSynthesizer(ABC):
-
-    @abstractmethod
-    def pre_query_llm(query: str) -> bool:
-        pass
-
     @abstractmethod
     def format_documents_for_context(documents):
         return [

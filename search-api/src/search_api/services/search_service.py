@@ -3,10 +3,10 @@
 import os
 import time
 import requests
+from datetime import datetime, timezone
 
 from flask import current_app
 from .synthesizer_resolver import get_synthesizer
-from .vector_search import search
 
 
 class SearchService:
@@ -43,29 +43,20 @@ class SearchService:
         """Get documents by user query."""
         metrics = {}
         start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
         # Get the synthesizer
+        get_synthesizer_time = time.time()
         synthesizer = get_synthesizer()
-
-        # Call pre_query_llm before performing the search
-        pre_query_start = time.time()
-        pre_query_result = synthesizer.pre_query_llm(query)
-        metrics["pre_query_time_ms"] = round((time.time() - pre_query_start) * 1000, 2)
-
-        if not pre_query_result:
-            return {
-                "result": {
-                    "response": "Pre-query check failed. No documents retrieved.",
-                    "documents": [],
-                    "metrics": metrics,
-                }
-            }
-
-        # Perform the vector DB search
+        metrics["get_synthesizer_time"] = round((time.time() - get_synthesizer_time) * 1000, 2)
+ 
+        # Perform the vector DB search by calling the vector search api
         search_start = time.time()
-        documents, search_metrics = cls.call_vector_search_api(
-            query
-        )  # call the vector search API
+        documents, search_metrics = cls.call_vector_search_api(query)
+        
+        if not documents:
+            return {"result": {"response": "No relevant information found.", "documents": [], "metrics": metrics}}  
+
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
         metrics["search_breakdown"] = search_metrics  # Include detailed metrics
 

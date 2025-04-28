@@ -4,11 +4,6 @@ from .ollama_factory import OllamaFactory
 
 
 class OllamaSynthesizer(LLMSynthesizer):
-
-    @staticmethod
-    def pre_query_llm(query):
-        return True
-
     @classmethod
     def format_documents_for_context(cls, documents):
         return super().format_documents_for_context(documents)

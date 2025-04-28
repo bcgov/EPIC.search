@@ -9,4 +9,4 @@ echo "Workers set : $WORKERS"
 echo "Timeout set : $TIMEOUT"
 # Start Gunicorn with increased timeout
 echo 'Starting application'
-exec gunicorn --bind 0.0.0.0:3200 --workers $WORKERS --timeout $TIMEOUT wsgi:application
+exec gunicorn --bind 0.0.0.0:8080 --workers $WORKERS --timeout $TIMEOUT wsgi:application
