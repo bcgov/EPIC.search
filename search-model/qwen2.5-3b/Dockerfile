@@ -4,6 +4,13 @@ FROM ollama/ollama:0.6.1
 # Install curl
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
+# Start the Ollama service, pull the model, and stop the service
+RUN ollama serve > /var/log/ollama.log 2>&1 & \
+    OLLAMA_PID=$! && \
+    sleep 10 && \
+    ollama pull qwen2.5:3b && \
+    kill $OLLAMA_PID
+
 # Create the entrypoint script directly in the Dockerfile to avoid copy issues
 RUN echo '#!/bin/bash\n\
 echo "Starting Ollama service..."\n\
@@ -16,9 +23,6 @@ sleep 10\n\
 echo "Checking Ollama service status..."\n\
 if curl -s http://localhost:11434/api/version > /dev/null; then\n\
     echo "✓ Ollama service is running"\n\
-    \n\
-    echo "Ensuring model is pulled and cached..."\n\
-    ollama pull qwen2.5:3b\n\
     \n\
     echo "Testing model with warm-up query..."\n\
     echo "Hello" | ollama run qwen2.5:3b --verbose=false\n\
