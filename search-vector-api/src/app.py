@@ -15,6 +15,7 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     # pylint: disable=import-outside-toplevel
     from resources import (
         API_BLUEPRINT,
+        HEALTH_BLUEPRINT
     )
 
     # Flask app initialize
@@ -22,6 +23,7 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
 
     # Register blueprints
     app.register_blueprint(API_BLUEPRINT)
+    app.register_blueprint(HEALTH_BLUEPRINT)
 
     # All configuration are in config file
     app.config.from_object(get_named_config(run_mode))

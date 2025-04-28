@@ -16,7 +16,7 @@
 from flask_restx import Namespace, Resource
 from sqlalchemy import exc, text
 
-API = Namespace('OPS', description='Service - OPS checks')
+API = Namespace('', description='Service - OPS checks')
 
 SQL = text('select 1')
 

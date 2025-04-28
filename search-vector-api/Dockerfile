@@ -15,12 +15,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
-RUN chmod +x /opt/app-root/preload_models.py
+# Execute and embed the models in the image if needed
+# RUN chmod +x /opt/app-root/preload_models.py
 
 # Set environment variables
 ENV PYTHONPATH=/opt/app-root/src
 
 ENV GUNICORN_TIMEOUT=300
+
+EXPOSE 8080
 
 # Define the entry point for your application
 ENTRYPOINT ["bash", "docker-entrypoint.sh"]

@@ -26,12 +26,16 @@ from flask import Blueprint
 from .apihelper import Api
 
 from .search import API as SEARCH_VECTOR_API
+from .ops import API as OPS_API
 
-__all__ = ("API_BLUEPRINT",)
+__all__ = ("API_BLUEPRINT", "HEALTH_BLUEPRINT")
 
 URL_PREFIX = "/api/"
 API_BLUEPRINT = Blueprint("API", __name__, url_prefix=URL_PREFIX)
 
+
+HEALTH_URL_PREFIX = "/"
+HEALTH_BLUEPRINT = Blueprint("HEALTH", __name__, url_prefix=HEALTH_URL_PREFIX)
 
 API = Api(
     API_BLUEPRINT,
@@ -40,4 +44,12 @@ API = Api(
     description="Query Vector Database",
 )
 
+HEALTH = Api(
+    HEALTH_BLUEPRINT,
+    title="VECTOR HEALTH ENDPOINTS",
+    version="1.0",
+    description="Check Vector Api Health",
+)
+
 API.add_namespace(SEARCH_VECTOR_API)
+HEALTH.add_namespace(OPS_API)
