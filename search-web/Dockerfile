@@ -26,23 +26,13 @@ RUN npm run build
 FROM nginx:1.17 as production-stage
 RUN mkdir /app
 
-# RUN  touch /var/run/nginx.pid && \
-#     chown -R nginx:nginx /var/cache/nginx /var/run/nginx.pid
-
-# ARG user=nginx
-# RUN usermod -a -G root $user
+# Install envsubst for environment variable substitution
+RUN apt-get update && apt-get install -y gettext-base
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
-COPY /nginx/nginx.conf /etc/nginx/
+COPY /nginx/nginx.conf.template /etc/nginx/nginx.conf.template
 
-# Set ownership and permissions
-# Set scripts as executable (make files and python files do not have to be marked)
-# Make /etc/passwd writable for the root group so an entry can be created for an OpenShift assigned user account.
-# RUN chown -R $user:root /etc/nginx/ \
-#     && chmod -R ug+rw /etc/nginx/ \
-#     && chmod ug+x docker-entrypoint.sh \
-#     && chmod g+rw /etc/passwd
+EXPOSE 8080
 
-# USER $user
-EXPOSE 8081:8081
-CMD ["nginx", "-g", "daemon off;"]
+# Replace environment variables in the template and start nginx
+CMD ["/bin/sh", "-c", "envsubst '$$PROXY_API_URL' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
