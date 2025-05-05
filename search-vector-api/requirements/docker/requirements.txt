@@ -17,7 +17,7 @@ jsonschema==4.19.2
 keybert==0.8.5
 marshmallow-sqlalchemy==1.0.0
 marshmallow_enum==1.5.1
-numpy==2.0.2
+numpy==2.2.2
 ollama==0.1.6
 pandas==2.2.3
 psycopg2-binary==2.9.9

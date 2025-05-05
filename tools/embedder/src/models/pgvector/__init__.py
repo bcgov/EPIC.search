@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This exports all of the models and schemas used by the application."""
+"""
+PostgreSQL Vector Database Package.
+
+This package provides interfaces for interacting with PostgreSQL databases
+that use the pgvector extension for storing and querying vector embeddings.
+It includes a VectorStore class for handling vector operations and utility
+functions for initializing the vector database tables and indexes.
+"""
+
 
 from .vector_db_utils import init_vec_db
 from .vector_store import VectorStore

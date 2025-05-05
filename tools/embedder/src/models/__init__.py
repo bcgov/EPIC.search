@@ -14,5 +14,7 @@
 
 """This exports all of the models and schemas used by the application."""
 
-from .postgres import get_session, init_db,ProcessingLog
-from .timescale import VectorStore, init_vec_db
+from .postgres import get_session, init_db, ProcessingLog
+
+from .pgvector import VectorStore as PgVectorStore
+from .pgvector import init_vec_db as init_pgvector_vec_db

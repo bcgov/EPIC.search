@@ -12,7 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This exports all of the models and schemas used by the application."""
+"""
+Schemas Package for Data Validation and Serialization.
+
+This package provides Marshmallow schemas for validating, serializing, and 
+deserializing data structures used in the application. The schemas define
+how data objects are converted to and from JSON format and provide validation
+for the data fields.
+"""
 
 from .processing_logs import ProcessingLogSchema
 

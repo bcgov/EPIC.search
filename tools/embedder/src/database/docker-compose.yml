@@ -1,17 +1,25 @@
+# EPIC.search Vector Database Docker Compose Configuration
+# 
+# This docker-compose file sets up a PostgreSQL database with the pgvector extension,
+# which is required for storing and querying vector embeddings. It uses the TimescaleDB
+# version that includes pgvector support for efficient vector similarity search.
+
 name: timescaledb
 
 services:
   timescaledb:
-    image: timescale/timescaledb-ha:pg16
-    container_name: timescaledb
+    # Using TimescaleDB image with pgvector extension for vector similarity search
+    image: timescale/pgvector/pgvector:pg17
+    container_name: pgvectordb
     environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres # Default database name
+      - POSTGRES_PASSWORD=password # Database password (consider using secrets in production)
     ports:
-      - "5432:5432"
+      - "5432:5432" # Expose PostgreSQL port to the host
     volumes:
-      - timescaledb_data:/var/lib/postgresql/data
-    restart: unless-stopped
+      - timescaledb_data:/var/lib/postgresql/data # Persistent storage for database data
+    restart: unless-stopped # Automatically restart container unless manually stopped
 
+# Persistent volume for database data
 volumes:
   timescaledb_data:
