@@ -1,8 +1,7 @@
 # Global model instance - loaded only once
-import os
+from flask import current_app
 
 _keymodel = None
-
 
 def get_keywords(text):
     global _keymodel
@@ -12,10 +11,9 @@ def get_keywords(text):
         from keybert import KeyBERT
         from sentence_transformers import SentenceTransformer
 
-        # Use a smaller, faster model that still performs well for keyword extraction
-        sentence_model = SentenceTransformer(
-            os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-mpnet-base-v2")
-        )
+        # Use strongly typed configuration instead of environment variables
+        model_name = current_app.model_settings.keyword_model_name
+        sentence_model = SentenceTransformer(model_name)
         _keymodel = KeyBERT(model=sentence_model)
 
     try:

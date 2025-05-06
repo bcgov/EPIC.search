@@ -1,5 +1,17 @@
+"""Vector search implementation combining semantic and keyword search capabilities.
+
+This module provides the core search functionality that combines semantic vector search
+with keyword-based search. It handles the complete search pipeline including:
+1. Performing keyword-based search
+2. Performing semantic vector search
+3. Combining and deduplicating results
+4. Re-ranking results using a cross-encoder model
+5. Formatting results for the API response
+"""
+
 import pandas as pd
 import time
+
 from .re_ranker import rerank_results
 from .vector_store import VectorStore
 from flask import current_app
@@ -7,14 +19,28 @@ import numpy as np
 
 
 def search(question):
-    """Main search function that combines all search operations."""
+    """Main search function that combines all search operations.
+    
+    This function orchestrates the complete search pipeline, performing both
+    semantic and keyword searches, combining results, removing duplicates,
+    re-ranking, and formatting the final response.
+    
+    Args:
+        question (str): The search query text
+        
+    Returns:
+        tuple: A tuple containing:
+            - list: Formatted search results as a list of dictionaries
+            - dict: Search performance metrics in milliseconds for each search stage
+    """
     metrics = {}
     start_time = time.time()
     
-    table_name = current_app.config["VECTOR_TABLE"]
-    keyword_k = current_app.config["KEYWORD_FETCH_COUNT"]
-    semantic_k = current_app.config["SEMANTIC_FETCH_COUNT"]
-    top_n = current_app.config["TOP_RECORD_COUNT"]
+    # Use strongly typed configuration properties
+    table_name = current_app.vector_settings.vector_table_name
+    keyword_k = current_app.search_settings.keyword_fetch_count
+    semantic_k = current_app.search_settings.semantic_fetch_count
+    top_n = current_app.search_settings.top_record_count
     
     # Instantiate VectorStore
     vec_store = VectorStore()
@@ -35,13 +61,10 @@ def search(question):
     deduplicated_results, dedup_time = remove_duplicates(combined_results)
     metrics["deduplication_ms"] = dedup_time
     
-    # Re-rank results if needed
-    if True:  # Always rerank for now
-        reranked_results, rerank_time = perform_reranking(question, deduplicated_results, top_n)
-        metrics["reranking_ms"] = rerank_time
-        results = reranked_results
-    else:
-        results = deduplicated_results    
+    # Re-rank results    
+    reranked_results, rerank_time = perform_reranking(question, deduplicated_results, top_n)
+    metrics["reranking_ms"] = rerank_time
+    results = reranked_results    
     
     # Format the data
     format_start = time.time()
@@ -55,7 +78,22 @@ def search(question):
 
 
 def perform_keyword_search(vec_store, table_name, query, limit):
-    """Perform keyword search using vector store."""
+    """Perform keyword search using vector store.
+    
+    Executes a keyword-based search using PostgreSQL's full-text search capabilities
+    through the VectorStore interface.
+    
+    Args:
+        vec_store (VectorStore): The vector store instance
+        table_name (str): The database table to search in
+        query (str): The search query text
+        limit (int): Maximum number of results to return
+        
+    Returns:
+        tuple: A tuple containing:
+            - DataFrame: Search results with id, content, search_type, and metadata columns
+            - float: Time taken in milliseconds
+    """
     start_time = time.time()
     
     # Perform keyword search
@@ -71,7 +109,22 @@ def perform_keyword_search(vec_store, table_name, query, limit):
 
 
 def perform_semantic_search(vec_store, table_name, query, limit):
-    """Perform semantic search using vector store."""
+    """Perform semantic search using vector store.
+    
+    Executes a semantic vector-based search using pgvector for similarity matching
+    through the VectorStore interface.
+    
+    Args:
+        vec_store (VectorStore): The vector store instance
+        table_name (str): The database table to search in
+        query (str): The search query text
+        limit (int): Maximum number of results to return
+        
+    Returns:
+        tuple: A tuple containing:
+            - DataFrame: Search results with id, content, search_type, and metadata columns
+            - float: Time taken in milliseconds
+    """
     start_time = time.time()
     
     # Perform semantic search
@@ -87,7 +140,19 @@ def perform_semantic_search(vec_store, table_name, query, limit):
 
 
 def combine_search_results(keyword_results, semantic_results):
-    """Combine keyword and semantic search results."""
+    """Combine keyword and semantic search results.
+    
+    Concatenates the results from keyword and semantic searches into a single DataFrame.
+    
+    Args:
+        keyword_results (DataFrame): Results from keyword search
+        semantic_results (DataFrame): Results from semantic search
+        
+    Returns:
+        tuple: A tuple containing:
+            - DataFrame: Combined search results
+            - float: Time taken in milliseconds
+    """
     start_time = time.time()
     
     # Combine results
@@ -98,7 +163,19 @@ def combine_search_results(keyword_results, semantic_results):
 
 
 def remove_duplicates(combined_results):
-    """Remove duplicate results based on ID."""
+    """Remove duplicate results based on ID.
+    
+    Removes duplicate entries from the combined results, keeping the first occurrence
+    which preserves the original order and prioritization.
+    
+    Args:
+        combined_results (DataFrame): Combined search results potentially with duplicates
+        
+    Returns:
+        tuple: A tuple containing:
+            - DataFrame: Deduplicated search results
+            - float: Time taken in milliseconds
+    """
     start_time = time.time()
     
     # Remove duplicates, keeping the first occurrence (which maintains the original order)
@@ -109,7 +186,21 @@ def remove_duplicates(combined_results):
 
 
 def perform_reranking(query, combined_results, top_n):
-    """Re-rank the results using the re-ranker."""
+    """Re-rank the results using the cross-encoder re-ranker model.
+    
+    Takes the combined search results and re-ranks them using a more powerful
+    cross-encoder model to improve the relevance ordering.
+    
+    Args:
+        query (str): The original search query
+        combined_results (DataFrame): Combined search results 
+        top_n (int): Number of top results to return after re-ranking
+        
+    Returns:
+        tuple: A tuple containing:
+            - DataFrame: Re-ranked search results limited to top_n
+            - float: Time taken in milliseconds
+    """
     start_time = time.time()
     
     # Re-rank the results
@@ -127,7 +218,22 @@ def hybrid_search(
     rerank: bool = False,
     top_n: int = 5,
 ) -> pd.DataFrame:
-    """Legacy function for backwards compatibility."""
+    """Hybrid search combining keyword and semantic search with optional re-ranking.
+    
+    Legacy function maintained for backwards compatibility. Use the main search function
+    for new implementations.
+    
+    Args:
+        table_name (str): The database table to search in
+        query (str): The search query text
+        keyword_k (int): Maximum number of keyword search results
+        semantic_k (int): Maximum number of semantic search results
+        rerank (bool): Whether to re-rank the results
+        top_n (int): Number of top results to return after re-ranking
+        
+    Returns:
+        DataFrame: Search results, optionally re-ranked
+    """
     vec_store = VectorStore()
     
     # Perform operations using the refactored functions
@@ -145,7 +251,17 @@ def hybrid_search(
 
 
 def format_data(data):
-    """Format the search results into a list of dictionaries."""
+    """Format the search results into a list of dictionaries.
+    
+    Transforms the DataFrame results into a list of dictionaries with a consistent
+    structure for API responses.
+    
+    Args:
+        data (DataFrame): Search results data
+        
+    Returns:
+        list: List of dictionaries containing formatted document information
+    """
     result = []
     documents = np.array(data)
     for row in documents:

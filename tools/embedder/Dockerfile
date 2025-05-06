@@ -3,10 +3,10 @@
 # This Dockerfile builds an image for the EPIC.search Embedder application,
 # which processes documents and creates vector embeddings for semantic search.
 #
-# The image is based on Python 3.13 on Debian Bullseye for stability and security.
+# The image is based on Python 3.12.9 on Debian Bullseye for stability and security.
 
-# Use the python:3.13-bullseye image as the base image
-FROM python:3.13-bullseye
+# Use the python:3.12.9-bullseye image as the base image
+FROM python:3.12.9-bullseye
 
 # Define build-time arguments for model preloading
 ARG PRELOAD_EMBEDDING_MODEL=""

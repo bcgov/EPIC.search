@@ -1,12 +1,13 @@
-import os
 import pandas as pd
+
+from flask import current_app
 from sentence_transformers import CrossEncoder
 from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def get_cross_encoder():
     """Return a cached instance of the CrossEncoder model."""
-    model = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")
+    model = current_app.model_settings.cross_encoder_model
     return CrossEncoder(model)
 
 def rerank_results(query: str, items: pd.DataFrame, top_n: int) -> pd.DataFrame:

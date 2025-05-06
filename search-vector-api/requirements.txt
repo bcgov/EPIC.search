@@ -1,36 +1,36 @@
-# Compatible ML stack
-Flask-Caching==2.3.1
-flask-jwt-oidc==0.7.0
-Flask-Mail==0.9.1
-flask-marshmallow==1.2.1
-Flask-Migrate==4.0.1
-Flask-Moment==1.0.5
-flask-restx==1.3.0
-Flask-SQLAlchemy==3.0.3
+# Flask and web framework dependencies
 Flask==3.1.0
-flask_cors==4.0.0
+Flask-Caching==2.3.1
+Flask-Cors==4.0.0
+Flask-Marshmallow==1.2.1
+Flask-Migrate==4.0.1
+Flask-RESTX==1.3.0
+Flask-SQLAlchemy==3.0.3
 gunicorn==23.0.0
-huggingface-hub==0.25.0
-importlib-resources==6.1.1
 itsdangerous==2.2.0
-jsonschema==4.19.2
-keybert==0.8.5
-marshmallow-sqlalchemy==1.0.0
-marshmallow_enum==1.5.1
+werkzeug==3.1.0
+
+# Database and ORM
+SQLAlchemy==2.0.37
+SQLAlchemy-Continuum==1.3.15
+SQLAlchemy-Utils==0.41.1
+psycopg[binary,pool]==3.2.7
+pgvector==0.3.6
+
+# Machine Learning and AI
 numpy==2.0.2
-ollama==0.1.6
 pandas==2.2.3
-psycopg2-binary==2.9.9
-pyhumps==3.8.0
+scikit-learn==1.6.1
+sentence-transformers==2.2.2
+transformers==4.48.1
+keybert==0.8.5
+huggingface-hub==0.25.0
+
+# API and Schema
+jsonschema==4.19.2
+marshmallow-sqlalchemy==1.0.0
+
+# Utilities
+importlib-resources==6.1.1
 python-dotenv==1.0.0
 requests==2.31.0
-scikit-learn==1.6.1
-secure==0.3.0
-sentence-transformers==2.2.2
-SQLAlchemy-Continuum==1.3.15
-sqlalchemy-utils==0.41.1
-sqlalchemy==2.0.23
-streamlit==1.41.1
-timescale-vector==0.0.4
-transformers==4.48.1
-werkzeug==3.1.0

@@ -1,5 +1,5 @@
-# Use the python:3.9-buster image as the base image
-FROM python:3.9-buster
+# Use the python:3.12.9-bullseye image as the base image
+FROM python:3.12.9-bullseye
 
 # Create working directory
 RUN mkdir /opt/app-root && chmod 755 /opt/app-root
