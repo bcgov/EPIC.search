@@ -1,6 +1,9 @@
-"""The App Initiation file.
+"""Application initialization module.
 
-This module is for the initiation of the flask app.
+This module handles the initialization and configuration of the Flask application
+for the Vector Search API. It's responsible for registering blueprints,
+loading configuration settings, and initializing the structured configuration
+objects that will be used throughout the application.
 """
 
 import os
@@ -11,7 +14,20 @@ from utils.config import get_named_config, VectorSettings, SearchSettings, Model
 
 
 def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
-    """Create flask app."""
+    """Create and configure the Flask application.
+    
+    Initializes a Flask application instance with the appropriate configuration
+    based on the specified run mode. Registers all necessary blueprints and
+    sets up configuration objects that provide structured access to settings.
+    
+    Args:
+        run_mode (str): The environment to run the application in.
+                       Options: 'development', 'testing', 'production', 'docker'
+                       Defaults to the FLASK_ENV environment variable or 'development'.
+    
+    Returns:
+        Flask: A configured Flask application instance ready to run.
+    """
     # pylint: disable=import-outside-toplevel
     from resources import (
         API_BLUEPRINT,
@@ -33,5 +49,4 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     app.search_settings = SearchSettings(app.config)
     app.model_settings = ModelSettings(app.config)
 
-    # Return App for run in run.py file
     return app

@@ -29,6 +29,7 @@ The application uses strongly-typed configuration classes for different aspects 
    - `keyword_fetch_count`: Number of results to fetch in keyword search
    - `semantic_fetch_count`: Number of results to fetch in semantic search
    - `top_record_count`: Number of top records to return after re-ranking
+   - `reranker_batch_size`: Batch size for processing document re-ranking
 
 3. **ModelSettings**: Configuration related to machine learning models
    - `cross_encoder_model`: Model name for the cross-encoder re-ranker
@@ -84,6 +85,7 @@ LIMIT limit
 ```
 
 Key features of semantic search:
+
 - Vector similarity using cosine distance
 - Filtering by tags and metadata
 - Time range filtering
@@ -114,11 +116,12 @@ After retrieving results from both search methods, a cross-encoder model is used
 
 ### Search Endpoint
 
-```
+``` code
 POST /api/vector-search
 ```
 
 Request Body:
+
 ```json
 {
   "query": "climate change impacts"
@@ -126,6 +129,7 @@ Request Body:
 ```
 
 Response:
+
 ```json
 {
   "vector_search": {
@@ -157,19 +161,55 @@ Response:
 
 ## Configuration
 
-The application uses environment variables for configuration with sensible defaults:
+The application uses environment variables for configuration with sensible defaults. Environment variables can be set directly or through a `.env` file in the root directory. A sample configuration is provided in the `sample.env` file.
 
+### Environment Variables
+
+The configuration variables are organized into logical groups:
+
+#### Flask Application Environment
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| FLASK_ENV | Application environment mode (development, production, testing, docker) | development |
+
+#### Vector Database Configuration
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | VECTOR_DB_URL | PostgreSQL connection string | postgresql://postgres:postgres@localhost:5432/postgres |
 | EMBEDDING_DIMENSIONS | Dimensions of embedding vectors | 768 |
 | VECTOR_TABLE | Default table name for vector storage | document_tags |
+
+#### Search Configuration
+| Parameter | Description | Default |
+|-----------|-------------|---------|
 | KEYWORD_FETCH_COUNT | Number of results to fetch in keyword search | 100 |
 | SEMANTIC_FETCH_COUNT | Number of results to fetch in semantic search | 100 |
-| TOP_RECORD_COUNT | Number of top records to return | 10 |
+| TOP_RECORD_COUNT | Number of top records to return after re-ranking | 10 |
+| RERANKER_BATCH_SIZE | Batch size for the cross-encoder re-ranker | 8 |
+
+#### ML Model Configuration
+| Parameter | Description | Default |
+|-----------|-------------|---------|
 | CROSS_ENCODER_MODEL | Model for re-ranking results | cross-encoder/ms-marco-MiniLM-L-2-v2 |
 | EMBEDDING_MODEL_NAME | Model for generating embeddings | all-mpnet-base-v2 |
 | KEYWORD_MODEL_NAME | Model for keyword extraction | all-mpnet-base-v2 |
+
+### Configuration Classes
+
+The environment variables are loaded into strongly-typed configuration classes:
+
+```python
+# Accessed in code via current_app.vector_settings.database_url
+class VectorSettings:
+    def __init__(self, config_dict):
+        self._config = config_dict
+    
+    @property
+    def database_url(self):
+        return self._config.get("VECTOR_DB_URL")
+    
+    # Additional properties...
+```
 
 ## Usage Examples
 
@@ -199,6 +239,23 @@ This solution uses pgvector directly with raw SQL queries for vector similarity 
 3. Strongly-typed configuration with property-based access and sensible defaults
 4. Performance optimizations through parameterized SQL queries
 5. Comprehensive search pipeline with deduplication and re-ranking
+
+## Development and Deployment
+
+### Local Development
+
+1. Create a `.env` file in the root directory with your configuration (based on `sample.env`)
+2. Install dependencies: `pip install -r requirements.txt`
+3. Run the application: `python wsgi.py`
+
+### Docker Deployment
+
+The application includes Docker configuration for containerized deployment:
+
+1. Build the image: `docker build -t vector-search-api .`
+2. Run the container: `docker run -p 8080:8080 --env-file .env vector-search-api`
+
+The `docker-entrypoint.sh` script handles initialization tasks like preloading models.
 
 ## Future Enhancements
 

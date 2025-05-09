@@ -45,19 +45,52 @@ The development scripts for this application allow customization via an environm
 The application uses typed configuration classes for different aspects of the system:
 
 #### Vector Database Configuration
-- `VECTOR_DB_URL`: PostgreSQL connection string (default: "postgresql://postgres:postgres@localhost:5432/postgres")
-- `EMBEDDING_DIMENSIONS`: Dimensions of embedding vectors (default: 768)
-- `VECTOR_TABLE`: Default table name for vector storage (default: "document_tags")
+
+* `VECTOR_DB_URL`: PostgreSQL connection string (default: "postgresql://postgres:postgres@localhost:5432/postgres")
+* `EMBEDDING_DIMENSIONS`: Dimensions of embedding vectors (default: 768)
+* `VECTOR_TABLE`: Default table name for vector storage (default: "document_tags")
 
 #### Search Configuration
-- `KEYWORD_FETCH_COUNT`: Number of results to fetch in keyword search (default: 100)
-- `SEMANTIC_FETCH_COUNT`: Number of results to fetch in semantic search (default: 100)
-- `TOP_RECORD_COUNT`: Number of top records to return after re-ranking (default: 10)
+
+* `KEYWORD_FETCH_COUNT`: Number of results to fetch in keyword search (default: 100)
+* `SEMANTIC_FETCH_COUNT`: Number of results to fetch in semantic search (default: 100)
+* `TOP_RECORD_COUNT`: Number of top records to return after re-ranking (default: 10)
+* `RERANKER_BATCH_SIZE`: Batch size for the cross-encoder re-ranker (default: 8)
 
 #### ML Model Configuration
-- `CROSS_ENCODER_MODEL`: Model name for the cross-encoder re-ranker (default: "cross-encoder/ms-marco-MiniLM-L-2-v2")
-- `EMBEDDING_MODEL_NAME`: Model name for semantic embeddings (default: "all-mpnet-base-v2")
-- `KEYWORD_MODEL_NAME`: Model name for keyword extraction (default: "all-mpnet-base-v2")
+
+* `CROSS_ENCODER_MODEL`: Model name for the cross-encoder re-ranker (default: "cross-encoder/ms-marco-MiniLM-L-2-v2")
+* `EMBEDDING_MODEL_NAME`: Model name for semantic embeddings (default: "all-mpnet-base-v2")
+* `KEYWORD_MODEL_NAME`: Model name for keyword extraction (default: "all-mpnet-base-v2")
+
+## Project Structure
+
+The application follows a structured layout to maintain separation of concerns:
+
+```
+search-vector-api/
+├── src/                         # Main application source code
+│   ├── app.py                   # Application initialization
+│   ├── resources/               # REST API endpoints
+│   │   ├── __init__.py          # Blueprint definitions
+│   │   ├── ops.py               # Health/operations endpoints
+│   │   └── search.py            # Search endpoints
+│   ├── services/                # Business logic layer
+│   │   ├── embedding.py         # Text to vector conversion
+│   │   ├── re_ranker.py         # Result re-ranking with cross-encoder
+│   │   ├── vector_search.py     # Main search orchestration
+│   │   └── vector_store.py      # Database access layer
+│   └── utils/                   # Utility modules
+│       ├── config.py            # Configuration settings
+│       └── cache.py             # Caching utilities
+├── tests/                       # Test suite
+├── wsgi.py                      # WSGI entrypoint
+├── Dockerfile                   # Docker container definition
+├── docker-entrypoint.sh         # Docker entrypoint script
+├── requirements.txt             # Python dependencies
+├── setup.py                     # Package setup
+└── sample.env                   # Example environment configuration
+```
 
 ## Commands
 
@@ -82,6 +115,20 @@ Open [http://localhost:5000/api](http://localhost:5000/api) to view it in the br
 >
 > Lints the application code.
 
+### Deployment
+
+The application can be deployed using Docker:
+
+```bash
+# Build the Docker image
+docker build -t vector-search-api .
+
+# Run the container
+docker run -p 8080:8080 --env-file .env vector-search-api
+```
+
+When deploying to production, make sure to set appropriate environment variables or provide a production `.env` file with proper configuration values.
+
 ## Documentation
 
 For more detailed technical documentation about the vector search implementation and API endpoints, see the [DOCUMENTATION.md](DOCUMENTATION.md) file.
@@ -96,11 +143,11 @@ The application follows a tiered architecture:
 
 ## Key Components
 
-- **Embedding Service** - Converts text queries to vector embeddings
-- **Keyword Extractor** - Extracts relevant keywords from search queries
-- **Vector Store** - Interface to the PostgreSQL database with pgvector
-- **Search Service** - Orchestrates the complete search process
-- **Re-Ranker** - Cross-encoder model for improving search result relevance
+* **Embedding Service** - Converts text queries to vector embeddings
+* **Keyword Extractor** - Extracts relevant keywords from search queries
+* **Vector Store** - Interface to the PostgreSQL database with pgvector
+* **Search Service** - Orchestrates the complete search process
+* **Re-Ranker** - Cross-encoder model for improving search result relevance
 
 ## Debugging in the Editor
 
@@ -109,3 +156,7 @@ The application follows a tiered architecture:
 Ensure the latest version of [VS Code](https://code.visualstudio.com) is installed.
 
 The [`launch.json`](.vscode/launch.json) is already configured with a launch task (SEARCH-API Launch) that allows you to launch chrome in a debugging capacity and debug through code within the editor.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the LICENSE file for details.

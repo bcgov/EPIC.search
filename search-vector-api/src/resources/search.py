@@ -12,30 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""API endpoints for managing search operations with vector-based similarity and keyword-based search.
+"""API endpoints for vector and keyword-based document search operations.
 
-This module provides REST API endpoints for searching documents using semantic vector search,
-keyword-based search, or a combination of both (hybrid search). It utilizes embeddings
-generated from sentence transformers and PostgreSQL with pgvector extension.
+This module provides REST API endpoints for searching documents using multiple search strategies:
+1. Semantic vector search using document embeddings for meaning-based matches
+2. Keyword-based search for traditional text matching
+3. Hybrid search combining both approaches for optimal results
+
+The implementation uses Flask-RESTx for API definition with Swagger documentation,
+Marshmallow for request validation, and delegates search logic to the SearchService.
+Results include both matched documents and detailed performance metrics for each
+search stage in the pipeline.
 """
 
 from http import HTTPStatus
 
 from flask_restx import Namespace, Resource
-
-from services.search_service import SearchService
-
-from .apihelper import Api as ApiHelper
 from flask import Response
 from marshmallow import EXCLUDE, Schema, fields
 
 import json
 
+from services.search_service import SearchService
+from .apihelper import Api as ApiHelper
+
 
 class SearchRequestSchema(Schema):
-    """Schema for validating search API requests.
+    """Schema for validating and deserializing search API requests.
     
-    Contains the query parameter that users will provide when searching documents.
+    Defines the structure and validation rules for incoming search requests,
+    ensuring that required fields are present and properly formatted.
+    
+    Attributes:
+        query: The required search query string provided by the user
     """
 
     class Meta:  # pylint: disable=too-few-public-methods
@@ -43,7 +52,8 @@ class SearchRequestSchema(Schema):
 
         unknown = EXCLUDE
 
-    query = fields.Str(data_key="query", required=True)
+    query = fields.Str(data_key="query", required=True, 
+                      metadata={"description": "Search query text to find relevant documents"})
 
 
 API = Namespace("vector-search", description="Endpoints for semantic and keyword vector search operations")
@@ -55,10 +65,14 @@ search_request_model = ApiHelper.convert_ma_schema_to_restx_model(
 
 @API.route("", methods=["POST", "OPTIONS"])
 class Search(Resource):
-    """Resource for performing vector and keyword-based document searches.
+    """REST resource for hybrid document search operations.
     
-    Exposes endpoints for searching documents using vector embeddings for semantic similarity
-    and keyword matching for traditional search capabilities.
+    This resource exposes endpoints for searching documents using a combination
+    of semantic vector similarity and keyword-based text matching. The search
+    results are re-ranked using a cross-encoder model to maximize relevance.
+    
+    The implementation prioritizes search quality through a multi-stage
+    pipeline while also providing detailed performance metrics for monitoring.
     """
 
     @staticmethod
@@ -67,15 +81,20 @@ class Search(Resource):
     @API.response(400, "Bad Request")
     @API.response(200, "Search successful")
     def post():
-        """Perform a search operation against the vector database.
+        """Perform a hybrid search operation against the document database.
         
-        Takes a query string, processes it using embedding models, and returns
-        relevant documents ranked by their similarity to the query. The search
-        combines semantic vector search with keyword-based search and uses a 
-        cross-encoder model to re-rank results for maximum relevance.
+        This endpoint takes a natural language query string and returns relevant
+        documents ranked by their similarity to the query. The search process:
+        
+        1. Extracts keywords and generates embeddings from the query
+        2. Performs parallel keyword and semantic vector searches
+        3. Combines and deduplicates the results
+        4. Re-ranks the combined results using a cross-encoder model
+        5. Returns the top N most relevant documents with search metrics
         
         Returns:
-            Response: JSON containing matched documents and metadata
+            Response: JSON containing matched documents and detailed search metrics
+                     for each stage of the search pipeline
         """
         request_data = SearchRequestSchema().load(API.payload)
         documents = SearchService.get_documents_by_query(request_data["query"])

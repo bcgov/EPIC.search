@@ -11,94 +11,190 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""All of the configuration for the service is captured here.
+"""Configuration management for the Vector Search API service.
 
-All items are loaded,
-or have Constants defined here that are loaded into the Flask configuration.
-All modules and lookups get their configuration from the Flask config,
-rather than reading environment variables directly or by accessing this configuration directly.
+This module centralizes all configuration settings for the application,
+implementing a strongly-typed approach to configuration management through
+specialized configuration classes. It handles:
+
+1. Loading environment variables from .env files
+2. Providing environment-specific configuration classes
+3. Defining strongly-typed access to configuration values
+4. Setting sensible defaults for all configuration parameters
+
+The configuration is organized into logical groups (VectorSettings, SearchSettings, 
+ModelSettings) to provide structured access to related settings throughout the application.
+All components should access configuration through these settings classes rather than
+directly reading environment variables.
 """
 
 import os
 import sys
 from datetime import timedelta
 from dotenv import find_dotenv, load_dotenv
+from typing import Dict, Any
 
-# this will load all the envars from a .env file located in the project root (api)
+# Load all environment variables from .env file in the project root
 load_dotenv(find_dotenv())
 
 
 class VectorSettings:
-    """Vector database configuration settings."""
+    """Vector database configuration settings.
+    
+    Provides strongly-typed access to configuration parameters related to
+    the vector database, including connection details, table names, and
+    vector dimensions.
+    
+    This class encapsulates all database-related configuration to provide
+    a clean interface for the application components that need these settings.
+    """
 
-    def __init__(self, config_dict):
-        """Initialize vector settings from config dictionary."""
+    def __init__(self, config_dict: Dict[str, Any]):
+        """Initialize vector settings from a configuration dictionary.
+        
+        Args:
+            config_dict: A dictionary containing configuration values,
+                        typically from Flask's app.config
+        """
         self._config = config_dict
     
     @property
-    def vector_table_name(self):
-        """Get the vector table name."""
+    def vector_table_name(self) -> str:
+        """Get the name of the database table storing vector embeddings.
+        
+        Returns:
+            str: The configured vector table name
+        """
         return self._config.get("VECTOR_TABLE")
     
     @property
-    def embedding_dimensions(self):
-        """Get the embedding dimensions."""
+    def embedding_dimensions(self) -> int:
+        """Get the dimensionality of the vector embeddings.
+        
+        Returns:
+            int: The number of dimensions in the embedding vectors (default: 768)
+        """
         return self._config.get("EMBEDDING_DIMENSIONS", 768)
     
     @property
-    def database_url(self):
-        """Get the vector database URL."""
+    def database_url(self) -> str:
+        """Get the PostgreSQL connection string for the vector database.
+        
+        Returns:
+            str: The database connection URL
+        """
         return self._config.get("VECTOR_DB_URL")
     
     @property
-    def time_partition_interval(self):
-        """Get the time partition interval."""
+    def time_partition_interval(self) -> timedelta:
+        """Get the time interval for database partitioning.
+        
+        Returns:
+            timedelta: The time partition interval
+        """
         return self._config.get("TIME_PARTITION_INTERVAL")
 
 
 class SearchSettings:
-    """Search configuration settings."""
+    """Search configuration settings.
+    
+    Provides strongly-typed access to configuration parameters related to
+    search operations, including result counts, batch sizes, and search limits.
+    
+    This class encapsulates search-specific settings to ensure consistent
+    configuration across all search-related components.
+    """
 
-    def __init__(self, config_dict):
-        """Initialize search settings from config dictionary."""
+    def __init__(self, config_dict: Dict[str, Any]):
+        """Initialize search settings from a configuration dictionary.
+        
+        Args:
+            config_dict: A dictionary containing configuration values,
+                        typically from Flask's app.config
+        """
         self._config = config_dict
     
     @property
-    def keyword_fetch_count(self):
-        """Get the number of keyword search results to fetch."""
+    def keyword_fetch_count(self) -> int:
+        """Get the number of keyword search results to retrieve initially.
+        
+        Returns:
+            int: The maximum number of keyword search results to fetch
+        """
         return self._config.get("KEYWORD_FETCH_COUNT")
     
     @property
-    def semantic_fetch_count(self):
-        """Get the number of semantic search results to fetch."""
+    def semantic_fetch_count(self) -> int:
+        """Get the number of semantic search results to retrieve initially.
+        
+        Returns:
+            int: The maximum number of semantic search results to fetch
+        """
         return self._config.get("SEMANTIC_FETCH_COUNT")
     
     @property
-    def top_record_count(self):
-        """Get the number of top records to return."""
+    def top_record_count(self) -> int:
+        """Get the number of top records to return after re-ranking.
+        
+        Returns:
+            int: The number of final results to return to the client
+        """
         return self._config.get("TOP_RECORD_COUNT")
+    
+    @property
+    def reranker_batch_size(self) -> int:
+        """Get the batch size for processing document pairs in the re-ranker.
+        
+        Returns:
+            int: The batch size for the re-ranker (default: 8)
+        """
+        return self._config.get("RERANKER_BATCH_SIZE", 8)
 
 
 class ModelSettings:
-    """ML model configuration settings."""
+    """Machine learning model configuration settings.
+    
+    Provides strongly-typed access to configuration parameters related to
+    ML models used in the application, including model names and paths.
+    
+    This class encapsulates all model-specific configuration to allow for
+    easy model swapping and configuration across the application.
+    """
 
-    def __init__(self, config_dict):
-        """Initialize model settings from config dictionary."""
+    def __init__(self, config_dict: Dict[str, Any]):
+        """Initialize model settings from a configuration dictionary.
+        
+        Args:
+            config_dict: A dictionary containing configuration values,
+                        typically from Flask's app.config
+        """
         self._config = config_dict
     
     @property
-    def cross_encoder_model(self):
-        """Get the cross-encoder model name."""
+    def cross_encoder_model(self) -> str:
+        """Get the name or path of the cross-encoder model for re-ranking.
+        
+        Returns:
+            str: The cross-encoder model identifier
+        """
         return self._config.get("CROSS_ENCODER_MODEL")
     
     @property
-    def embedding_model_name(self):
-        """Get the embedding model name."""
+    def embedding_model_name(self) -> str:
+        """Get the name or path of the embedding model for semantic search.
+        
+        Returns:
+            str: The embedding model identifier
+        """
         return self._config.get("EMBEDDING_MODEL_NAME")
     
     @property
-    def keyword_model_name(self):
-        """Get the keyword model name."""
+    def keyword_model_name(self) -> str:
+        """Get the name or path of the model used for keyword extraction.
+        
+        Returns:
+            str: The keyword model identifier
+        """
         return self._config.get("KEYWORD_MODEL_NAME")
 
 
@@ -140,6 +236,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     KEYWORD_FETCH_COUNT = int(os.getenv("KEYWORD_FETCH_COUNT", "100"))
     SEMANTIC_FETCH_COUNT = int(os.getenv("SEMANTIC_FETCH_COUNT", "100"))
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))
+    RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "8"))
 
     # ML Model Configuration
     CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")

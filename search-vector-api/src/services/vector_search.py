@@ -1,21 +1,28 @@
 """Vector search implementation combining semantic and keyword search capabilities.
 
 This module provides the core search functionality that combines semantic vector search
-with keyword-based search. It handles the complete search pipeline including:
-1. Performing keyword-based search
-2. Performing semantic vector search
-3. Combining and deduplicating results
-4. Re-ranking results using a cross-encoder model
-5. Formatting results for the API response
+with keyword-based search. It implements the complete search pipeline including:
+
+1. Performing keyword-based search using PostgreSQL full-text search
+2. Performing semantic vector search using pgvector similarity matching
+3. Combining results from both search methods
+4. Removing duplicate results based on document ID
+5. Re-ranking results using a cross-encoder model for improved relevance
+6. Formatting results for the API response
+7. Tracking performance metrics for each step of the pipeline
+
+The search pipeline is designed to provide high-quality search results by leveraging
+both traditional keyword matching and modern embedding-based semantic similarity.
 """
 
 import pandas as pd
 import time
 
-from .re_ranker import rerank_results
-from .vector_store import VectorStore
 from flask import current_app
 import numpy as np
+
+from .re_ranker import rerank_results
+from .vector_store import VectorStore
 
 
 def search(question):
@@ -203,8 +210,9 @@ def perform_reranking(query, combined_results, top_n):
     """
     start_time = time.time()
     
-    # Re-rank the results
-    reranked_results = rerank_results(query, combined_results, top_n)
+    # Re-rank the results using the batch size from config
+    batch_size = current_app.search_settings.reranker_batch_size
+    reranked_results = rerank_results(query, combined_results, top_n, batch_size=batch_size)
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return reranked_results, elapsed_ms

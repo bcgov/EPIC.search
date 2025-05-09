@@ -1,3 +1,18 @@
+"""PostgreSQL vector database interface for semantic search operations.
+
+This module provides a direct interface to PostgreSQL with pgvector extension,
+enabling both semantic vector similarity search and keyword-based full-text search.
+It handles the low-level database operations including:
+
+1. Vector similarity matching using pgvector's cosine similarity operators (<=>)
+2. Keyword-based search using PostgreSQL's full-text search capabilities
+3. Result filtering by tags, metadata, and time ranges
+4. Performance tracking of search operations
+
+The VectorStore class is designed to be agnostic of the specific embedding models
+or document structures, focusing purely on efficient database interaction.
+"""
+
 import logging
 import time
 import pandas as pd
