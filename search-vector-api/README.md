@@ -12,6 +12,7 @@ A search Python flask API application that provides semantic and keyword-based s
 * Time range filtering for temporal constraints
 * Detailed search performance metrics
 * Strongly-typed configuration with sensible defaults
+* Optional model preloading at container startup
 
 ## Getting Started
 
@@ -62,12 +63,13 @@ The application uses typed configuration classes for different aspects of the sy
 * `CROSS_ENCODER_MODEL`: Model name for the cross-encoder re-ranker (default: "cross-encoder/ms-marco-MiniLM-L-2-v2")
 * `EMBEDDING_MODEL_NAME`: Model name for semantic embeddings (default: "all-mpnet-base-v2")
 * `KEYWORD_MODEL_NAME`: Model name for keyword extraction (default: "all-mpnet-base-v2")
+* `PRELOAD_MODELS`: Whether to preload ML models at container startup (default: false)
 
 ## Project Structure
 
 The application follows a structured layout to maintain separation of concerns:
 
-```
+```filestructure
 search-vector-api/
 ├── src/                         # Main application source code
 │   ├── app.py                   # Application initialization

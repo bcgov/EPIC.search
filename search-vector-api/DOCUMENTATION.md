@@ -168,11 +168,13 @@ The application uses environment variables for configuration with sensible defau
 The configuration variables are organized into logical groups:
 
 #### Flask Application Environment
+
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | FLASK_ENV | Application environment mode (development, production, testing, docker) | development |
 
 #### Vector Database Configuration
+
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | VECTOR_DB_URL | PostgreSQL connection string | postgresql://postgres:postgres@localhost:5432/postgres |
@@ -180,6 +182,7 @@ The configuration variables are organized into logical groups:
 | VECTOR_TABLE | Default table name for vector storage | document_tags |
 
 #### Search Configuration
+
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | KEYWORD_FETCH_COUNT | Number of results to fetch in keyword search | 100 |
@@ -188,6 +191,7 @@ The configuration variables are organized into logical groups:
 | RERANKER_BATCH_SIZE | Batch size for the cross-encoder re-ranker | 8 |
 
 #### ML Model Configuration
+
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | CROSS_ENCODER_MODEL | Model for re-ranking results | cross-encoder/ms-marco-MiniLM-L-2-v2 |
@@ -256,6 +260,56 @@ The application includes Docker configuration for containerized deployment:
 2. Run the container: `docker run -p 8080:8080 --env-file .env vector-search-api`
 
 The `docker-entrypoint.sh` script handles initialization tasks like preloading models.
+
+#### Model Preloading
+
+The application offers three distinct options for managing ML model loading:
+
+1. **Build-time Preloading**: Embed models directly in the Docker image
+2. **Startup Preloading**: Download models when the container starts
+3. **Lazy Loading**: Download models on first use (default)
+
+##### Option 1: Build-time Preloading
+
+Models can be preloaded during the Docker build process to cache them in the image. This creates larger images but ensures models are always immediately available:
+
+```bash
+docker build \
+  --build-arg PRELOAD_EMBEDDING_MODEL="all-mpnet-base-v2" \
+  --build-arg PRELOAD_KEYWORD_MODEL="all-mpnet-base-v2" \
+  --build-arg PRELOAD_CROSS_ENCODER_MODEL="cross-encoder/ms-marco-MiniLM-L-2-v2" \
+  -t vector-search-api .
+```
+
+When preloading is enabled, the following must be specified:
+
+- `PRELOAD_EMBEDDING_MODEL`: Model to use for generating vector embeddings
+- `PRELOAD_KEYWORD_MODEL`: Model to use for keyword extraction (typically same as embedding model)
+- `PRELOAD_CROSS_ENCODER_MODEL`: Cross-encoder model for re-ranking search results
+
+##### Option 2: Startup Preloading
+
+Models can be preloaded when the container starts by setting the `PRELOAD_MODELS` environment variable to `true`. This keeps your image size smaller but ensures the models are ready when the first request arrives:
+
+```bash
+# Using environment variable
+docker run -p 8080:8080 -e PRELOAD_MODELS=true vector-search-api
+
+# Or using env file
+docker run -p 8080:8080 --env-file .env vector-search-api
+# (where .env contains PRELOAD_MODELS=true)
+```
+
+##### Option 3: Lazy Loading (Default)
+
+By default (`PRELOAD_MODELS=false`), models are downloaded and initialized only when they're first needed by the application. This provides the smallest image size and fastest container startup, but the first few requests that need the models will experience higher latency.
+
+```bash
+# Default behavior - no special flags needed
+docker run -p 8080:8080 vector-search-api
+```
+
+Choosing the appropriate model loading strategy depends on your specific deployment needs, performance requirements, and infrastructure constraints. Build-time preloading is ideal for production deployments where response time consistency is critical, while lazy loading may be more suitable for development environments.
 
 ## Future Enhancements
 
