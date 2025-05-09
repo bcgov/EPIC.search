@@ -35,6 +35,9 @@ def init_vec_db():
     """
     vec = VectorStore()
     
+    # Initialize the pgvector extension (will handle based on configuration)
+    vec.create_pgvector_extension()
+    
     # Create tables
     vec.create_table(settings.vector_store_settings.doc_tags_name)
     vec.create_table(settings.vector_store_settings.doc_chunks_name)

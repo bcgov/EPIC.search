@@ -37,6 +37,7 @@ To run this project, you will need to add the following environment variables to
 - `FILES_CONCURRENCY_SIZE` - Number of files to process in parallel (default: 4)
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
+- `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
 
 ### Model Configuration
 

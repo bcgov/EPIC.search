@@ -54,11 +54,13 @@ class VectorStoreSettings(BaseModel):
         doc_chunks_name (str): Name of the table storing untagged document chunks        
         db_url (str): Database connection URL for the vector database
         embedding_dimensions (int): Dimensionality of the embeddings
+        auto_create_extension (bool): Whether to automatically create the pgvector extension
     """
     doc_tags_name: str = Field(default_factory=lambda:os.environ.get("DOC_TAGS_TABLE_NAME", "document_tags"))
     doc_chunks_name: str = Field(default_factory=lambda:os.environ.get("DOC_CHUNKS_TABLE_NAME", "document_chunks"))    
     db_url: str = Field(default_factory=lambda: os.getenv("VECTOR_DB_URL"))
     embedding_dimensions: int = os.environ.get("EMBEDDING_DIMENSIONS", 768)
+    auto_create_extension: bool = Field(default_factory=lambda: os.environ.get("AUTO_CREATE_PGVECTOR_EXTENSION", "True").lower() == "true")
 
 
 class ChunkSettings(BaseModel):
@@ -89,9 +91,9 @@ class S3Settings(BaseModel):
     
     Attributes:
         bucket_name (str): Name of the S3 bucket
-        region_name (str): AWS region for the S3 bucket
-        access_key_id (str): AWS access key ID
-        secret_access_key (str): AWS secret access key
+        region_name (str): S3 region for the S3 bucket
+        access_key_id (str): S3 access key ID
+        secret_access_key (str): S3 secret access key
         endpoint_uri (str): Endpoint URI for S3-compatible storage
     """
     bucket_name: str = Field(default_factory=lambda: os.getenv("S3_BUCKET_NAME"))

@@ -250,6 +250,10 @@ The system uses two types of databases:
 1. **PostgreSQL with pgvector** - Stores document chunks and their vector embeddings
    - `index_table` - Stores document tags with their embeddings
    - `chunk_table` - Stores document chunks with their embeddings
+   - **pgvector Extension Management**:
+     - The system can automatically create the pgvector extension when needed
+     - This behavior is configurable with the `AUTO_CREATE_PGVECTOR_EXTENSION` environment variable
+     - When set to `False`, the system will check if the extension exists and throw an error if it doesn't
 
 2. **PostgreSQL** - Stores processing logs
    - `processing_logs` - Records which documents have been processed and their status

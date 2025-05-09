@@ -53,6 +53,59 @@ class VectorStore:
             self._connections[table_name] = conn
         return self._connections[table_name]
 
+    def check_extension_exists(self, conn) -> bool:
+        """
+        Check if the pgvector extension is already installed in the database.
+        
+        Args:
+            conn (psycopg.Connection): A PostgreSQL database connection
+            
+        Returns:
+            bool: True if the extension exists, False otherwise
+        """
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM pg_extension WHERE extname = 'vector'
+            """)
+            return bool(cur.fetchone())
+            
+    def create_pgvector_extension(self) -> bool:
+        """
+        Create the pgvector extension in the PostgreSQL database.
+        
+        This is required for vector operations and should be called once
+        during database initialization. It can be configured through the
+        AUTO_CREATE_PGVECTOR_EXTENSION environment variable.
+        
+        Returns:
+            bool: True if the extension was created or already exists, False otherwise
+        """
+        # Get a connection without specifying a table
+        conn = psycopg.connect(
+            self.settings.db_url,
+            row_factory=dict_row
+        )
+        
+        try:
+            # Check if we should auto-create the extension
+            if self.settings.auto_create_extension:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                conn.commit()
+                return True
+            else:
+                # If not auto-creating, check if the extension exists
+                exists = self.check_extension_exists(conn)
+                if not exists:
+                    raise RuntimeError(
+                        "The pgvector extension is not installed in the database and "
+                        "auto_create_extension is set to False. Please install the extension "
+                        "manually or set AUTO_CREATE_PGVECTOR_EXTENSION=True."
+                    )
+                return exists
+        finally:
+            conn.close()
+
     def create_table(self, table_name: str, embedding_dimensions: Optional[int] = None) -> None:
         """
         Create a new table with vector support.
@@ -70,9 +123,6 @@ class VectorStore:
             
         conn = self.get_connection_for_table(table_name)
         with conn.cursor() as cur:
-            # Ensure pgvector extension is available
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            
             # Create table with vector column
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS {table_name} (
