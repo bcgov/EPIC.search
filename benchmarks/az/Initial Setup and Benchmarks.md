@@ -292,7 +292,7 @@ As an alternate solution and keeping it simple, deploying a Azure VM and dealloc
 
 ## Updates (Round 2)
 
-For round 2 of testing, the following changes were intrdoduced from the above:
+For round 2 of testing, the following changes were introduced from the above:
 
 - Move the Model host from an Azure Application Service to a Azure VM instance:
 
