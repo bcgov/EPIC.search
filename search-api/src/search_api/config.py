@@ -108,7 +108,7 @@ class DevConfig(_Config):  # pylint: disable=too-few-public-methods
 
     TESTING = False
     DEBUG = True
-    print(f"SQLAlchemy URL (DevConfig): {_Config.SQLALCHEMY_DATABASE_URI}")
+    print(f"SQLAlchemy URL (DevConfig): {_Config.DB_HOST}:{_Config.DB_PORT}")
 
 
 class TestConfig(_Config):  # pylint: disable=too-few-public-methods
@@ -156,7 +156,7 @@ class DockerConfig(_Config):  # pylint: disable=too-few-public-methods
         SQLALCHEMY_DATABASE_URI = (
             f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}"
         )
-        print(f"SQLAlchemy URL (Docker): {SQLALCHEMY_DATABASE_URI}")
+        print(f"SQLAlchemy URL (Docker): {DB_HOST}:{DB_PORT}")
 
 
 class ProdConfig(_Config):  # pylint: disable=too-few-public-methods

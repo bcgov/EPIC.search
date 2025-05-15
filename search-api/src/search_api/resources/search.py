@@ -22,8 +22,9 @@ from search_api.schemas.search import SearchRequestSchema, SearchResponseSchema
 from search_api.exceptions import ResourceNotFoundError
 from search_api.auth import auth
 from .apihelper import Api as ApiHelper
-from flask import jsonify,Response
+from flask import jsonify, Response, current_app
 import json
+import logging
 
 API = Namespace("search", description="Endpoints for Search")
 """Custom exception messages
@@ -40,21 +41,28 @@ document_list_model = ApiHelper.convert_ma_schema_to_restx_model(
 @cors_preflight("GET, OPTIONS, POST")
 @API.route("", methods=["POST", "GET", "OPTIONS"])
 class Search(Resource):
-    """Resource for search."""
-
+    """Resource for search."""    
     @staticmethod
     #@auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="Search Query")
     @API.expect(search_request_model)
     # @API.response(code=201, model=document_list_model, description="SearchResult")
     @API.response(400, "Bad Request")
+    @API.response(500, "Internal Server Error")
     def post():
         """Search"""
-        request_data = SearchRequestSchema().load(API.payload)
-       # print("request_data",request_data)
-        documents = SearchService.get_documents_by_query(request_data["question"])
-        print("documents", documents)
-       # document_list_schema = SearchResponseSchema(many=True)
-       # return document_list_schema.dump(documents), HTTPStatus.OK
-        return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
+        try:
+            request_data = SearchRequestSchema().load(API.payload)
+           # print("request_data",request_data)
+            documents = SearchService.get_documents_by_query(request_data["question"])
+           # document_list_schema = SearchResponseSchema(many=True)
+           # return document_list_schema.dump(documents), HTTPStatus.OK
+            return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
+        except Exception as e:
+            # Log the error internally            
+            current_app = API.app
+            current_app.logger.error(f"Search error occurred: {str(e)}")
+            # Return a generic error message
+            error_response = {"error": "Internal server error occurred"}
+            return Response(json.dumps(error_response), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
 

@@ -16,5 +16,5 @@ class OllamaFactory:
         try:
             return self.client.generate(model=self.provider, prompt=prompt, options=options)
         except Exception as e:
-            print(f"Error generating with Ollama: {str(e)}")
-            return {"response": f"Error: {str(e)}"}
+            current_app.logger.error(f"Error generating with Ollama: {str(e)}")
+            return {"response": "An internal error occurred while processing the request."}            
