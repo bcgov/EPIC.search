@@ -1,0 +1,133 @@
+name: epic-search
+services:
+  epic-search-db:
+    image: timescale/timescaledb-ha:pg17
+    volumes:
+      - db-data:/home/postgres/pgdata/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres
+    ports:
+      - 5432:5432/tcp
+    restart: unless-stopped
+    networks: 
+      - common-network
+    deploy:
+      resources:
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+        limits:
+          cpus: '2.0'
+          memory: 4G
+
+  epic-search-model:
+    image: epic-search/model:latest
+    build:
+      context: /search-model/.
+      dockerfile: Dockerfile
+    volumes:
+      - llm-data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1
+    ports:
+      - 11434:11434/tcp
+    restart: unless-stopped
+    networks: 
+      - common-network
+    deploy:
+      resources:
+        reservations:
+          cpus: '3.0'
+          memory: 3G
+        limits:
+          cpus: '6.0'
+          memory: 4G
+   
+  epic-search-vector-api:
+    image: epic-search/vector-api:latest
+    build:
+      context: /search-vector-api/.
+      dockerfile: Dockerfile
+    volumes:
+      - torch-cache:/root/.cache/torch/sentence_transformers
+      - transformer-cache:/root/.cache/huggingface/transformers
+    environment:      
+      - VECTOR_TABLE=document_index
+      - EMBEDDING_DIMENSIONS=768
+      - KEYWORD_FETCH_COUNT=100
+      - SEMANTIC_FETCH_COUNT=100
+      - TOP_RECORD_COUNT=10
+      - VECTOR_DB_URL=postgresql://postgres:password@epic-search-db:5432/postgres      
+      - CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-2-v2
+      - SENTENCE_TRANSFORMER_MODEL=all-mpnet-base-v2
+    ports:
+      - 3300:3300/tcp
+    depends_on:
+      epic-search-db:
+        condition: service_started
+      epic-search-model:
+        condition: service_started      
+    restart: unless-stopped
+    networks: 
+      - common-network
+    deploy:
+      resources:
+        reservations:
+          cpus: '3.0'
+          memory: 3G
+        limits:
+          cpus: '3.0'
+          memory: 3G
+
+  epic-search-api:
+    image: epic-search/api:latest
+    build:
+      context: /search-api/.
+      dockerfile: Dockerfile
+    volumes:
+      - torch-cache:/root/.cache/torch/sentence_transformers
+      - transformer-cache:/root/.cache/huggingface/transformers
+    environment:
+      - LLM_MODEL=qwen2.5:3b
+      - LLM_TEMPERATURE=0.3
+      - LLM_HOST=http://epic-search-model:11434
+      - VECTOR_TABLE=document_index
+      - EMBEDDING_DIMENSIONS=768
+      - KEYWORD_FETCH_COUNT=100
+      - SEMANTIC_FETCH_COUNT=100
+      - TOP_RECORD_COUNT=10
+      - VECTOR_DB_URL=postgresql://postgres:password@epic-search-db:5432/postgres
+      - SQLALCHEMY_DATABASE_URI=postgresql://postgres:password@epic-search-db:5432/postgres      
+      - CORS_ORIGIN=*
+      - CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-2-v2
+      - VECTOR_SEARCH_API_URL=http://epic-search-vector-api:3300/api/vector-search
+    ports:
+      - 3200:3200/tcp
+    depends_on:
+      epic-search-db:
+        condition: service_started
+      epic-search-model:
+        condition: service_started
+    restart: unless-stopped
+    networks: 
+      - common-network
+    deploy:
+      resources:
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+        limits:
+          cpus: '1.0'
+          memory: 2G
+
+volumes:
+  db-data:    
+  llm-data:
+  transformer-cache:
+  torch-cache:
+
+networks:
+  common-network:
+    driver: bridge

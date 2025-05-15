@@ -27,11 +27,16 @@ from flask import Blueprint
 from .apihelper import Api
 
 from .user import API as USER_API
+from .search import API as SEARCH_API
+from .ops import API as OPS_API
 
 __all__ = ('API_BLUEPRINT',)
 
 URL_PREFIX = '/api/'
 API_BLUEPRINT = Blueprint('API', __name__, url_prefix=URL_PREFIX)
+
+URL_PREFIX = '/'
+HEALTH_BLUEPRINT = Blueprint('HEALTH', __name__, url_prefix=URL_PREFIX)
 
 authorizations = {
     'Bearer Auth': {
@@ -50,6 +55,17 @@ API = Api(
     authorizations=authorizations
 )
 
+HEALTH = Api(
+    HEALTH_BLUEPRINT,
+    title='HEALTH ENDPOINTS',
+    version='1.0',
+    description='Health Endpoints'    
+)
+
 # HANDLER = ExceptionHandler(API)
 
 API.add_namespace(USER_API)
+API.add_namespace(SEARCH_API)
+
+
+HEALTH.add_namespace(OPS_API)
