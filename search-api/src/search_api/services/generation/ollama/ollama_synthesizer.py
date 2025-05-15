@@ -18,7 +18,7 @@ class OllamaSynthesizer(LLMSynthesizer):
         llm_temperature = float(os.environ.get("LLM_TEMPERATURE", 0.3))
         llm_max_tokens = int(os.environ.get("LLM_MAX_TOKENS", 150))
         llm_max_context_length = int(os.environ.get("LLM_MAX_CONTEXT_LENGTH", 4096))
-        llm_model = os.environ.get("LLM_MODEL", "llama3.1:8b")
+        llm_model = os.environ.get("LLM_MODEL", "qwen2.5:0.5b")
 
         print("LLM_TEMPERATURE:", llm_temperature)
         print("LLM_MODEL:", llm_model)
