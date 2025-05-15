@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""This exports all of the models and schemas used by the application."""
+"""
+Configuration Package for Application Settings.
+
+This package provides centralized configuration management for the EPIC.search 
+Embedder application. It uses Pydantic models for type-safe settings and loads
+values from environment variables with sensible defaults where appropriate.
+"""
 
 from .settings import get_settings
 

@@ -15,13 +15,12 @@
 from flask_restx import Namespace, Resource
 from sqlalchemy import exc, text
 
-from api.models import db
+# from api.models import db
 
 
-API = Namespace('OPS', description='Service - OPS checks')
+API = Namespace('', description='Service - OPS checks')
 
 SQL = text('select 1')
-
 
 @API.route('healthz')
 class Healthz(Resource):
@@ -33,10 +32,10 @@ class Healthz(Resource):
     @staticmethod
     def get():
         """Return a JSON object stating the health of the Service and dependencies."""
-        try:
-            db.session.execute(SQL)
-        except exc.SQLAlchemyError:
-            return {'message': 'api is down'}, 500
+        #try:
+        #    db.session.execute(SQL)
+        #except exc.SQLAlchemyError:
+        #    return {'message': 'api is down'}, 500
 
         # made it here, so all checks passed
         return {'message': 'api is healthy'}, 200

@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Main with specific project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--project_id", "650b5adc5d77c20022fb59fc"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Main for all projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",            
+            "console": "integratedTerminal"
+        }
+    ]
+}

@@ -12,6 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+PostgreSQL Database Package for Processing Logs.
+
+This package provides interfaces for interacting with the PostgreSQL database
+that stores document processing logs. It includes utilities for session management,
+database initialization, and the ProcessingLog model for tracking document
+processing status.
+"""
 
 from .db_utils import get_session, init_db
 from .processing_logs import ProcessingLog

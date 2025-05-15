@@ -3,14 +3,45 @@ import uuid
 import tempfile
 import pymupdf4llm
 import strip_markdown
+import traceback
 
 from .s3_reader import read_file_from_s3
-from src.models import VectorStore
+from src.models import PgVectorStore as VectorStore
 from .markdown_splitter import chunk_markdown_text
 from .tag_extractor import explicit_and_semantic_search_large_document
 from .data_formatter import aggregate_tags_by_chunk
 from .embedding import get_embedding
+
+# Import and run path setup
+from src.path_setup import setup_paths
+setup_paths()
+
+from src.config.settings import get_settings
+settings = get_settings()
+
 def load_data(s3_key, base_metadata):
+    """
+    Load and process a document from S3, embedding its content into the vector store.
+    
+    This function:
+    1. Downloads the document from S3
+    2. Converts PDF to markdown
+    3. Splits markdown into chunks
+    4. Creates embeddings for each chunk
+    5. Stores chunks and embeddings in the vector store
+    6. Extracts and stores tags from the document
+    
+    Args:
+        s3_key (str): The S3 key of the file to process
+        base_metadata (dict): Base metadata to attach to all chunks
+    
+    Returns:
+        str: The S3 key of the processed file if successful
+        
+    Raises:
+        ValueError: If no valid text content is found in the file
+        Exception: Any exception that occurs during processing is re-raised
+    """
     temp_path = None
     try:
         pdf_bytes = read_file_from_s3(s3_key)
@@ -64,20 +95,19 @@ def load_data(s3_key, base_metadata):
                 embeddings = get_embedding(chunk_texts)
                 for i, text in enumerate(chunk_texts):
                     record_id = str(uuid.uuid1())
-                    record = (
-                        record_id,  
-                        chunk_metadatas[i],  
-                        text, 
-                        embeddings[i],
-                    )
+                    record = {
+                        "id": record_id,  
+                        "metadata": chunk_metadatas[i],  
+                        "content": text, 
+                        "embedding": embeddings[i],
+                    }
                     data_to_upsert.append(record)
 
         if not data_to_upsert:
             raise ValueError(f"No valid text content found in file {s3_key}")
 
-        vec.upsert(os.environ.get("CHUNK_DUMP_TABLE_NAME"), data_to_upsert)
+        vec.insert(settings.vector_store_settings.doc_chunks_name, data_to_upsert)
 
-    
         # Extract tags
         tags = explicit_and_semantic_search_large_document(data_to_upsert)
         unique_tags = aggregate_tags_by_chunk(tags)
@@ -86,19 +116,21 @@ def load_data(s3_key, base_metadata):
             if chunk_info:
                 tag_metadata = chunk_info["chunk_metadata"]
                 tag_metadata["tags"] = chunk_info["tags"]
-                tag_record = (
-                    str(uuid.uuid1()),
-                    tag_metadata,
-                    chunk_info["chunk_text"],
-                    chunk_info["chunk_embedding"],
-                )
+                tag_record = {
+                    "id": str(uuid.uuid1()),
+                    "metadata": tag_metadata,
+                    "content": chunk_info["chunk_text"],
+                    "embedding": chunk_info["chunk_embedding"],
+                }
                 tags_to_upsert.append(tag_record)
-        vec.upsert(os.environ.get("INDEX_TABLE_NAME"), tags_to_upsert)
+
+        vec.insert(settings.vector_store_settings.doc_tags_name, tags_to_upsert)
 
         return s3_key
 
     except Exception as e:
-        print(f"Exception processing {s3_key}: {e}")
+        traceback_str = traceback.format_exc()
+        print(f"Exception processing {s3_key}: {e} : {str(e)}\nTraceback:\n{traceback_str}")
         raise
     finally:
         if temp_path and os.path.exists(temp_path):

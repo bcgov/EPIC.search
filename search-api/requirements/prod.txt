@@ -35,3 +35,4 @@ numpy
 gpt4all
 ollama
 streamlit
+scikit-learn

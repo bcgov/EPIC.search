@@ -8,68 +8,36 @@ from timescale_vector import client
 import psycopg2
 from .bert_keyword_extractor import get_keywords
 from .embedding import get_embedding
-from transformers import pipeline
 from .tag_extractor import get_tags
+
+
 class VectorStore:
 
     def __init__(self):
-        self.ner_pipeline = pipeline("ner", grouped_entities=True)
-        # A dictionary to store vec_clients keyed by table name for dynamic usage
         self._vec_clients = {}
 
-    def get_client_for_table(self, table_name: str, embedding_dimensions: Optional[int] = None) -> client.Sync:
+    def get_client_for_table(
+        self, table_name: str, embedding_dimensions: Optional[int] = None
+    ) -> client.Sync:
         if table_name not in self._vec_clients:
             if embedding_dimensions is None:
-                embedding_dimensions = current_app.config['EMBEDDING_DIMENSIONS']
+                embedding_dimensions = current_app.config["EMBEDDING_DIMENSIONS"]
 
             # Create a new client for this table
             vec_client = client.Sync(
-                current_app.config['VECTOR_DB_URL'],
+                current_app.config["VECTOR_DB_URL"],
                 table_name,
                 embedding_dimensions,
-                time_partition_interval= current_app.config['TIME_PARTITION_INTERVAL']
+                time_partition_interval=current_app.config["TIME_PARTITION_INTERVAL"],
             )
             self._vec_clients[table_name] = vec_client
         return self._vec_clients[table_name]
-    
 
-
-    def extract_metadata_from_question(self, question):
-        # Extract entities from the question
-        entities = self.ner_pipeline(question)
-        metadata_filter = {}
-
-        # Process each detected entity dynamically
-        for entity in entities:
-            entity_text = entity["word"].strip()  # Extract the actual word
-            entity_label = entity["entity_group"]  # Extract the group/category (e.g., DATE, ORG, etc.)
-
-            # Dynamically assign metadata fields based on detected labels
-            if "DATE" in entity_label:
-                metadata_filter["year"] = entity_text
-            elif "PERSON" in entity_label:
-                metadata_filter["author"] = entity_text
-            elif "ORG" in entity_label or "PRODUCT" in entity_label:
-                metadata_filter["category"] = entity_text
-            elif "GPE" in entity_label or "LOCATION" in entity_label:
-                metadata_filter["location"] = entity_text
-            else:
-                # Handle generic text (if applicable)
-                metadata_filter.setdefault("general", []).append(entity_text)
-
-        # Simplify the general field to avoid lists unless necessary
-        if "general" in metadata_filter and len(metadata_filter["general"]) == 1:
-            metadata_filter["general"] = metadata_filter["general"][0]
-
-        return metadata_filter
-      
-
-  
     def _create_dataframe_from_results(
         self,
         results: List[Tuple[Any, ...]],
     ) -> pd.DataFrame:
-    
+
         df = pd.DataFrame(
             results, columns=["id", "metadata", "content", "embedding", "distance"]
         )
@@ -78,15 +46,14 @@ class VectorStore:
 
     def semantic_search(
         self,
-        table_name : str,
+        table_name: str,
         query: str,
         limit: int = 5,
-        metadata_filter: Union[dict, List[dict]] = None,
         predicates: Optional[client.Predicates] = None,
         time_range: Optional[Tuple[datetime, datetime]] = None,
         return_dataframe: bool = True,
-        ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
-      
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
+
         query_embedding = get_embedding([query])
 
         start_time = time.time()
@@ -94,13 +61,11 @@ class VectorStore:
         search_args = {
             "limit": limit,
         }
-        metadata_filter = self.extract_metadata_from_question(query)
-        tags = get_tags(query)  
+
+        tags = get_tags(query)
         if tags:
             tags_filter = [{"tags": [tag]} for tag in tags]
             search_args["filter"] = tags_filter
-        #if metadata_filter:
-            # search_args["filter"] = metadata_filter
 
         if predicates:
             search_args["predicates"] = predicates
@@ -118,10 +83,9 @@ class VectorStore:
             return self._create_dataframe_from_results(results)
         else:
             return results
-        
 
     def keyword_search(
-        self,  table_name : str, query: str, limit: int = 5, return_dataframe: bool = True
+        self, table_name: str, query: str, limit: int = 5, return_dataframe: bool = True
     ) -> Union[List[Tuple[str, str, float]], pd.DataFrame]:
         weighted_keywords = get_keywords(query)
         tags = get_tags(query)
@@ -136,17 +100,16 @@ class VectorStore:
         ORDER BY rank DESC
         LIMIT %s
         """
-     
 
         start_time = time.time()
 
         # Create a new connection using psycopg3
-        with psycopg2.connect(current_app.config['VECTOR_DB_URL']) as conn:
+        with psycopg2.connect(current_app.config["VECTOR_DB_URL"]) as conn:
             with conn.cursor() as cur:
                 if tags:
                     cur.execute(search_sql, (tsquery_str, tags, limit))
                 else:
-                     cur.execute(search_sql, (tsquery_str, limit))
+                    cur.execute(search_sql, (tsquery_str, limit))
                 results = cur.fetchall()
 
         elapsed_time = time.time() - start_time
@@ -158,9 +121,6 @@ class VectorStore:
             return df
         else:
             return results
-        
+
     def _log_search_time(self, search_type: str, elapsed_time: float) -> None:
         logging.info(f"{search_type} search completed in {elapsed_time:.3f} seconds")
-
-    
-

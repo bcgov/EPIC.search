@@ -30,14 +30,18 @@ def cors_preflight(methods):
 
     def wrapper(f):
         def options(self, *args, **kwargs):  # pylint: disable=unused-argument
-            return {'Allow': 'GET, DELETE, PUT, POST'}, 200, \
-                   {
-                       'Access-Control-Allow-Origin': '*',
-                       'Access-Control-Allow-Methods': methods,
-                       'Access-Control-Allow-Headers': 'Authorization, Content-Type, registries-trace-id, '
-                                                       'invitation_token'}
+            return (
+                {"Allow": "GET, DELETE, PUT, POST"},
+                200,
+                {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": methods,
+                    "Access-Control-Allow-Headers": "Authorization, Content-Type, registries-trace-id, "
+                    "invitation_token",
+                },
+            )
 
-        setattr(f, 'options', options)
+        setattr(f, "options", options)
         return f
 
     return wrapper
@@ -55,11 +59,15 @@ def snake2camelback(snake_dict: dict):
 
 def allowedorigins():
     """Return allowed origin."""
-    _allowedcors = os.getenv('CORS_ORIGIN')
+    _allowedcors = os.getenv("CORS_ORIGIN")
     allowedcors = []
-    if _allowedcors and ',' in _allowedcors:
-        for entry in re.split(',', _allowedcors):
-            allowedcors.append(entry)
+    if _allowedcors:
+        if "," in _allowedcors:
+            for entry in re.split(",", _allowedcors):
+                allowedcors.append(entry.strip())
+        else:
+            # Handle the single value case
+            allowedcors.append(_allowedcors.strip())
     return allowedcors
 
 
@@ -77,11 +85,11 @@ class Singleton(type):
 
 def digitify(payload: str) -> int:
     """Return the digits from the string."""
-    return int(re.sub(r'\D', '', payload))
+    return int(re.sub(r"\D", "", payload))
 
 
 def escape_wam_friendly_url(param):
     """Return encoded/escaped url."""
-    base64_org_name = base64.b64encode(bytes(param, encoding='utf-8')).decode('utf-8')
-    encode_org_name = urllib.parse.quote(base64_org_name, safe='')
+    base64_org_name = base64.b64encode(bytes(param, encoding="utf-8")).decode("utf-8")
+    encode_org_name = urllib.parse.quote(base64_org_name, safe="")
     return encode_org_name

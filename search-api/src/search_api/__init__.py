@@ -41,7 +41,8 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     # pylint: disable=import-outside-toplevel
     from search_api.resources import (
         API_BLUEPRINT,
-    )
+        HEALTH_BLUEPRINT        
+    ) 
 
     # Flask app initialize
     app = Flask(__name__)
@@ -52,7 +53,9 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     CORS(app, resources={r"/*": {"origins": allowedorigins()}}, supports_credentials=True)
 
     # Register blueprints
-    app.register_blueprint(API_BLUEPRINT)  # Create the database (run once)
+    app.register_blueprint(API_BLUEPRINT)
+
+    app.register_blueprint(HEALTH_BLUEPRINT)
 
     # Setup jwt for keycloak
     #if os.getenv("FLASK_ENV", "production") != "testing":

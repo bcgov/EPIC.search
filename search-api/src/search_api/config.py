@@ -28,77 +28,79 @@ from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv())
 
 
-def get_named_config(config_name: str = 'development'):
+def get_named_config(config_name: str = "development"):
     """Return the configuration object based on the name.
 
     :raise: KeyError: if an unknown configuration is requested
     """
-    if config_name in ['production', 'staging', 'default']:
+    if config_name in ["production", "staging", "default"]:
         config = ProdConfig()
-    elif config_name == 'testing':
+    elif config_name == "testing":
         config = TestConfig()
-    elif config_name == 'development':
+    elif config_name == "development":
         config = DevConfig()
-    elif config_name == 'docker':
+    elif config_name == "docker":
         config = DockerConfig()
     else:
         raise KeyError("Unknown configuration '{config_name}'")
     return config
 
 
-class _Config():  # pylint: disable=too-few-public-methods
+class _Config:  # pylint: disable=too-few-public-methods
     """Base class configuration that should set reasonable defaults for all the other configurations."""
 
     PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 
-    SECRET_KEY = 'a secret'
+    SECRET_KEY = "a secret"
 
     TESTING = False
     DEBUG = False
 
     # POSTGRESQL
-    DB_USER = os.getenv('DATABASE_USERNAME', '')
-    DB_PASSWORD = os.getenv('DATABASE_PASSWORD', '')
-    DB_NAME = os.getenv('DATABASE_NAME', '')
-    DB_HOST = os.getenv('DATABASE_HOST', '')
-    DB_PORT = os.getenv('DATABASE_PORT', '5432')
-    SQLALCHEMY_DATABASE_URI = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}'
+    DB_USER = os.getenv("DATABASE_USERNAME", "")
+    DB_PASSWORD = os.getenv("DATABASE_PASSWORD", "")
+    DB_NAME = os.getenv("DATABASE_NAME", "")
+    DB_HOST = os.getenv("DATABASE_HOST", "")
+    DB_PORT = os.getenv("DATABASE_PORT", "5432")
+    SQLALCHEMY_DATABASE_URI = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}"
+    )
     SQLALCHEMY_ECHO = True
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # JWT_OIDC Settings
-    JWT_OIDC_WELL_KNOWN_CONFIG = os.getenv('JWT_OIDC_WELL_KNOWN_CONFIG')
-    JWT_OIDC_ALGORITHMS = os.getenv('JWT_OIDC_ALGORITHMS', 'RS256')
-    JWT_OIDC_JWKS_URI = os.getenv('JWT_OIDC_JWKS_URI')
-    JWT_OIDC_ISSUER = os.getenv('JWT_OIDC_ISSUER')
-    JWT_OIDC_AUDIENCE = os.getenv('JWT_OIDC_AUDIENCE', 'account')
-    JWT_OIDC_CACHING_ENABLED = os.getenv('JWT_OIDC_CACHING_ENABLED', 'True')
+    JWT_OIDC_WELL_KNOWN_CONFIG = os.getenv("JWT_OIDC_WELL_KNOWN_CONFIG")
+    JWT_OIDC_ALGORITHMS = os.getenv("JWT_OIDC_ALGORITHMS", "RS256")
+    JWT_OIDC_JWKS_URI = os.getenv("JWT_OIDC_JWKS_URI")
+    JWT_OIDC_ISSUER = os.getenv("JWT_OIDC_ISSUER")
+    JWT_OIDC_AUDIENCE = os.getenv("JWT_OIDC_AUDIENCE", "account")
+    JWT_OIDC_CACHING_ENABLED = os.getenv("JWT_OIDC_CACHING_ENABLED", "True")
     JWT_OIDC_JWKS_CACHE_TIMEOUT = 300
 
     # Service account details
-    KEYCLOAK_BASE_URL = os.getenv('KEYCLOAK_BASE_URL')
-    KEYCLOAK_REALMNAME = os.getenv('KEYCLOAK_REALMNAME', 'search')
-    KEYCLOAK_SERVICE_ACCOUNT_ID = os.getenv('MET_ADMIN_CLIENT_ID')
-    KEYCLOAK_SERVICE_ACCOUNT_SECRET = os.getenv('MET_ADMIN_CLIENT_SECRET')
+    KEYCLOAK_BASE_URL = os.getenv("KEYCLOAK_BASE_URL")
+    KEYCLOAK_REALMNAME = os.getenv("KEYCLOAK_REALMNAME", "search")
+    KEYCLOAK_SERVICE_ACCOUNT_ID = os.getenv("MET_ADMIN_CLIENT_ID")
+    KEYCLOAK_SERVICE_ACCOUNT_SECRET = os.getenv("MET_ADMIN_CLIENT_SECRET")
     # TODO separate out clients for APIs and user management.
     # TODO API client wont need user management roles in keycloak.
-    KEYCLOAK_ADMIN_USERNAME = os.getenv('MET_ADMIN_CLIENT_ID')
-    KEYCLOAK_ADMIN_SECRET = os.getenv('MET_ADMIN_CLIENT_SECRET')
+    KEYCLOAK_ADMIN_USERNAME = os.getenv("MET_ADMIN_CLIENT_ID")
+    KEYCLOAK_ADMIN_SECRET = os.getenv("MET_ADMIN_CLIENT_SECRET")
 
-    #Vector Database
-    VECTOR_DB_URL = os.getenv('VECTOR_DB_URL')
-    EMBEDDING_DIMENSIONS: int = os.getenv('EMBEDDING_DIMENSIONS')
+    # Vector Database
+    VECTOR_DB_URL = os.getenv("VECTOR_DB_URL")
+    EMBEDDING_DIMENSIONS: int = os.getenv("EMBEDDING_DIMENSIONS")
     TIME_PARTITION_INTERVAL: timedelta = timedelta(days=7)
 
-    #Search Config
-    VECTOR_TABLE = os.getenv('VECTOR_TABLE')
-    KEYWORD_FETCH_COUNT = os.getenv('KEYWORD_FETCH_COUNT')
-    SEMANTIC_FETCH_COUNT = os.getenv('SEMANTIC_FETCH_COUNT')
-    TOP_RECORD_COUNT = os.getenv('TOP_RECORD_COUNT')
+    # Search Config
+    VECTOR_TABLE = os.getenv("VECTOR_TABLE")
+    KEYWORD_FETCH_COUNT = os.getenv("KEYWORD_FETCH_COUNT")
+    SEMANTIC_FETCH_COUNT = os.getenv("SEMANTIC_FETCH_COUNT")
+    TOP_RECORD_COUNT = os.getenv("TOP_RECORD_COUNT")
 
-    #LLM Config
-    LLM_MODEL = os.getenv('LLM_MODEL')
-    LLM_TEMPERATURE = os.getenv('LLM_TEMPERATURE')
+    # LLM Config
+    LLM_MODEL = os.getenv("LLM_MODEL")
+    LLM_TEMPERATURE = os.getenv("LLM_TEMPERATURE")
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods
@@ -106,7 +108,7 @@ class DevConfig(_Config):  # pylint: disable=too-few-public-methods
 
     TESTING = False
     DEBUG = True
-    print(f'SQLAlchemy URL (DevConfig): {_Config.SQLALCHEMY_DATABASE_URI}')
+    print(f"SQLAlchemy URL (DevConfig): {_Config.SQLALCHEMY_DATABASE_URI}")
 
 
 class TestConfig(_Config):  # pylint: disable=too-few-public-methods
@@ -118,45 +120,53 @@ class TestConfig(_Config):  # pylint: disable=too-few-public-methods
     TESTING = True
 
     # POSTGRESQL
-    DB_USER = os.getenv('DATABASE_TEST_USERNAME', 'postgres')
-    DB_PASSWORD = os.getenv('DATABASE_TEST_PASSWORD', 'postgres')
-    DB_NAME = os.getenv('DATABASE_TEST_NAME', 'testdb')
-    DB_HOST = os.getenv('DATABASE_TEST_HOST', 'localhost')
-    DB_PORT = os.getenv('DATABASE_TEST_PORT', '5432')
-    SQLALCHEMY_DATABASE_URI = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}'
+    DB_USER = os.getenv("DATABASE_TEST_USERNAME", "postgres")
+    DB_PASSWORD = os.getenv("DATABASE_TEST_PASSWORD", "postgres")
+    DB_NAME = os.getenv("DATABASE_TEST_NAME", "testdb")
+    DB_HOST = os.getenv("DATABASE_TEST_HOST", "localhost")
+    DB_PORT = os.getenv("DATABASE_TEST_PORT", "5432")
+    SQLALCHEMY_DATABASE_URI = (
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}"
+    )
 
     JWT_OIDC_TEST_MODE = True
     # JWT_OIDC_ISSUER = _get_config('JWT_OIDC_TEST_ISSUER')
-    JWT_OIDC_TEST_AUDIENCE = os.getenv('JWT_OIDC_TEST_AUDIENCE')
-    JWT_OIDC_TEST_CLIENT_SECRET = os.getenv('JWT_OIDC_TEST_CLIENT_SECRET')
-    JWT_OIDC_TEST_ISSUER = os.getenv('JWT_OIDC_TEST_ISSUER')
-    JWT_OIDC_WELL_KNOWN_CONFIG = os.getenv('JWT_OIDC_WELL_KNOWN_CONFIG')
-    JWT_OIDC_TEST_ALGORITHMS = os.getenv('JWT_OIDC_TEST_ALGORITHMS')
-    JWT_OIDC_TEST_JWKS_URI = os.getenv('JWT_OIDC_TEST_JWKS_URI', default=None)
+    JWT_OIDC_TEST_AUDIENCE = os.getenv("JWT_OIDC_TEST_AUDIENCE")
+    JWT_OIDC_TEST_CLIENT_SECRET = os.getenv("JWT_OIDC_TEST_CLIENT_SECRET")
+    JWT_OIDC_TEST_ISSUER = os.getenv("JWT_OIDC_TEST_ISSUER")
+    JWT_OIDC_WELL_KNOWN_CONFIG = os.getenv("JWT_OIDC_WELL_KNOWN_CONFIG")
+    JWT_OIDC_TEST_ALGORITHMS = os.getenv("JWT_OIDC_TEST_ALGORITHMS")
+    JWT_OIDC_TEST_JWKS_URI = os.getenv("JWT_OIDC_TEST_JWKS_URI", default=None)
 
 
 class DockerConfig(_Config):  # pylint: disable=too-few-public-methods
     """In support of testing only.used by the py.test suite."""
 
-    # POSTGRESQL
-    DB_USER = os.getenv('DATABASE_DOCKER_USERNAME')
-    DB_PASSWORD = os.getenv('DATABASE_DOCKER_PASSWORD')
-    DB_NAME = os.getenv('DATABASE_DOCKER_NAME')
-    DB_HOST = os.getenv('DATABASE_DOCKER_HOST')
-    DB_PORT = os.getenv('DATABASE_DOCKER_PORT', '5432')
-    SQLALCHEMY_DATABASE_URI = f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}'
-
-    print(f'SQLAlchemy URL (Docker): {SQLALCHEMY_DATABASE_URI}')
+    sql_alchemy_uri = os.getenv("SQLALCHEMY_DATABASE_URI")
+    if sql_alchemy_uri:
+        SQLALCHEMY_DATABASE_URI = sql_alchemy_uri
+        print(f"SQLAlchemy URL (Docker): {SQLALCHEMY_DATABASE_URI}")
+    else:
+        # POSTGRESQL
+        DB_USER = os.getenv("DATABASE_DOCKER_USERNAME")
+        DB_PASSWORD = os.getenv("DATABASE_DOCKER_PASSWORD")
+        DB_NAME = os.getenv("DATABASE_DOCKER_NAME")
+        DB_HOST = os.getenv("DATABASE_DOCKER_HOST")
+        DB_PORT = os.getenv("DATABASE_DOCKER_PORT", "5432")
+        SQLALCHEMY_DATABASE_URI = (
+            f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}"
+        )
+        print(f"SQLAlchemy URL (Docker): {SQLALCHEMY_DATABASE_URI}")
 
 
 class ProdConfig(_Config):  # pylint: disable=too-few-public-methods
     """Production Config."""
 
-    SECRET_KEY = os.getenv('SECRET_KEY', None)
+    SECRET_KEY = os.getenv("SECRET_KEY", None)
 
     if not SECRET_KEY:
         SECRET_KEY = os.urandom(24)
-        print('WARNING: SECRET_KEY being set as a one-shot', file=sys.stderr)
+        print("WARNING: SECRET_KEY being set as a one-shot", file=sys.stderr)
 
     TESTING = False
     DEBUG = False

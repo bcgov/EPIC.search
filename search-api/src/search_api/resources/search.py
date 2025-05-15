@@ -44,7 +44,7 @@ class Search(Resource):
 
     @staticmethod
     #@auth.require
-    @ApiHelper.swagger_decorators(API, endpoint_description="Search Question")
+    @ApiHelper.swagger_decorators(API, endpoint_description="Search Query")
     @API.expect(search_request_model)
     # @API.response(code=201, model=document_list_model, description="SearchResult")
     @API.response(400, "Bad Request")
@@ -52,7 +52,7 @@ class Search(Resource):
         """Search"""
         request_data = SearchRequestSchema().load(API.payload)
        # print("request_data",request_data)
-        documents = SearchService.get_documents_by_question(request_data["question"])
+        documents = SearchService.get_documents_by_query(request_data["question"])
         print("documents", documents)
        # document_list_schema = SearchResponseSchema(many=True)
        # return document_list_schema.dump(documents), HTTPStatus.OK

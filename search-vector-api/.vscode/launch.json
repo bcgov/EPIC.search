@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "type": "debugpy",
+            "request": "launch",
+            "name": "Launch WSGI",
+            "program": "${workspaceFolder}/wsgi.py",
+            "console": "integratedTerminal",
+            "env": {
+                "FLASK_ENV": "development"
+            },
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true
+            }
+        }
+    ]
+}
