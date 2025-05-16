@@ -4,7 +4,6 @@ Manages the engagement
 """
 
 from marshmallow import EXCLUDE, Schema, fields
-from search_api.models import User
 
 class DocumentSchema(Schema):
     """Documents schema."""
@@ -37,6 +36,7 @@ class DocumentSchema(Schema):
     project_name = fields.Str(data_key="project_name")
     content = fields.Str(data_key="content")
 
+
 class SearchResponseSchema(Schema):
     """Search Request Schema"""
 
@@ -44,8 +44,9 @@ class SearchResponseSchema(Schema):
         """Exclude unknown fields in the deserialized output."""
 
         unknown = EXCLUDE
-    
+
     documents = fields.List(fields.Nested(DocumentSchema), data_key="documents")
+
 
 class SearchRequestSchema(Schema):
     """Search Request Schema"""
@@ -54,6 +55,5 @@ class SearchRequestSchema(Schema):
         """Exclude unknown fields in the deserialized output."""
 
         unknown = EXCLUDE
-    
-    question = fields.Str(data_key='question')
-   
+
+    question = fields.Str(data_key="question")
