@@ -21,16 +21,20 @@ services:
         limits:
           cpus: '2.0'
           memory: 4G
-
   epic-search-model:
     image: epic-search/model:latest
     build:
       context: /search-model/.
       dockerfile: Dockerfile
+      args:
+        - MODEL_NAME=qwen2.5
+        - MODEL_VERSION=0.5b
     volumes:
       - llm-data:/root/.ollama
     environment:
       - OLLAMA_KEEP_ALIVE=-1
+      - MODEL_NAME=qwen2.5
+      - MODEL_VERSION=0.5b
     ports:
       - 11434:11434/tcp
     restart: unless-stopped

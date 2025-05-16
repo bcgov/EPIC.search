@@ -88,7 +88,7 @@ Hosted in its own (non-shared) app service plan:
 | **Monthly Estimate**        | CAD $65.70 (based on 720 hours) |
 
 **LLM Model:**
-Self hosted Azure Application Service running OLLAMA the QWEN2.5 - 0.5B model
+Self hosted Azure Application Service running OLLAMA with configurable model support (default: QWEN2.5 - 0.5B)
 
 | Specification               | Details                           |
 |-----------------------------|-----------------------------------|

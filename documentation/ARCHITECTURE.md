@@ -13,7 +13,7 @@ graph TB
     WebAPI["Web API\nPython Flask Orchestrator"]
     VectorAPI["Vector API\nPython Flask Query Engine"]
     VectorDB["Vector Database\nPostgreSQL"]
-    LLM["LLM Model\n(qwen2.5:0.5b)"]
+    LLM["LLM Model\n(OLLAMA Service)"]
     Embedder["Document Embedder\nPython Processor"]
     Client["Client Browser"]
     
@@ -73,6 +73,6 @@ sequenceDiagram
 
 ### LLM Configuration
 
-| Service | Model | Description |
-|---------|-------|-------------|
-| OLLAMA | `qwen2.5:0.5b` | Lightweight LLM for text generation and RAG responses |
+| Service | Default Model | Configuration Options |
+|---------|--------------|---------------------|
+| OLLAMA | `qwen2.5:0.5b` | Configurable via `MODEL_NAME` and `MODEL_VERSION` environment variables. Supports any Ollama-compatible model. |

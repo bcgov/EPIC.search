@@ -11,7 +11,7 @@ graph TB
     WebAPI["Web API\nPrivate Endpoint\nAzure App Service"]
     VectorAPI["Vector API\nPrivate Endpoint\nAzure App Service"]
     VectorDB["Vector Database\nAzure PostgreSQL\nFlexible Server"]
-    LLM["LLM Model\nOLLAMA\nVM"]
+    LLM["LLM Model\nOLLAMA Service\nConfigurable Model\nVM"]
     Embedder["Document Embedder\nVM"]
     
     %% NSG nodes

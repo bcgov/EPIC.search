@@ -96,7 +96,11 @@ sequenceDiagram
 
 ### LLM Configuration
 
-- OLLAMA with `qwen2.5:0.5b` model
+- OLLAMA-based model service
+- Default configuration: `qwen2.5:0.5b`
+- Configurable via environment variables:
+  - `MODEL_NAME`: Base model (e.g., qwen2.5, llama2)
+  - `MODEL_VERSION`: Model size/version (e.g., 0.5b, 3b)
 
 ## Detailed Documentation
 
