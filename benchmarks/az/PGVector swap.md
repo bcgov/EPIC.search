@@ -1,13 +1,13 @@
 # PGVector Swap and Benchmarks
 
-For this round of performance tests, the VectorScale extension has been swapped with PGVector and the database is now running on a Managed PostgreSQL flexible server setup (single instance) with the following specifications:
+For this round of performance tests, the VectorScale extension has been swapped with PGVector and the database is now running on a Managed PostgreSQL flexible server setup (single instance) with standard tier specifications:
 
 | Specification               | Details                      |
 |-----------------------------|------------------------------|
-| **Instance Type**           | General Purpose, D4s_v3      |
-| **vCPUs**                   | 4                            |
-| **RAM (GiB)**               | 16                           |
-| **Storage (GiB)**           | 1024                         |
+| **Instance Type**           | General Purpose              |
+| **Compute Tier**            | Standard                     |
+| **Memory Tier**             | Standard                     |
+| **Storage Type**            | Premium                      |
 | **Database Type**           | Managed PostgreSQL flexible server |
 
 ## Embedding Performance
@@ -124,10 +124,10 @@ For the next set of tests, we scaled up both the model host and the vector API t
 
 | Component | Initial Setup | Scaled-up Setup |
 |-----------|--------------|-----------------|
-| Vector API | Basic B3 | Premium v3 P2V3 |
-| Model Host VM | Standard_F4s_v2 | F16s_V2 |
-| Monthly Cost (Vector API) | CAD $65.70 | CAD $342.30 |
-| Monthly Cost (Model Host) | CAD $173.38 | CAD $693.50 |
+| Vector API | Basic Tier | Premium Tier |
+| Model Host | Standard Compute | High-Performance Compute |
+| Relative Cost | 1.0x | ~5.2x |
+| Performance Impact | Baseline | Significant Improvement |
 
 ### Test Question
 
@@ -208,9 +208,9 @@ Answer: The main proponent of the BC hydrogen project is Fortescue Canada. The C
 
 | Configuration | Database | Vector API | Model Host | 
 |---------------|----------|------------|------------|
-| Initial Setup | VectorScale (VM) | Basic B3 | Standard_D2s_v3 |
-| PGVector Base | PGVector (Managed PostgreSQL D4s_v3) | Basic B3 | Standard_F4s_v2 |
-| Scaled-up Setup | PGVector (Managed PostgreSQL D4s_v3) | Premium v3 P2V3 | F16s_V2 |
+| Initial Setup | Self-managed VM | Basic Tier | Standard Compute |
+| PGVector Base | Managed Service | Basic Tier | Standard Compute |
+| Scaled-up Setup | Managed Service | Premium Tier | High-Performance Compute |
 
 ### Search Performance
 
@@ -261,4 +261,3 @@ These advantages come at a cost comparable to the self-managed VM solution but w
 4. Explore options for optimizing PGVector indexing for even faster semantic search
 5. Evaluate the impact of using higher-tier Azure OpenAI models for potentially improved answer quality
 6. Consider implementing a more dynamic scaling approach based on workload demands
-
