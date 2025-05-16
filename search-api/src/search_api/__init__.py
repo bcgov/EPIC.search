@@ -12,7 +12,6 @@ from flask_cors import CORS
 
 from search_api.auth import jwt
 from search_api.config import get_named_config
-from search_api.models import db, ma, migrate
 from search_api.utils.cache import cache
 from search_api.utils.util import allowedorigins
 
@@ -60,15 +59,6 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     # Setup jwt for keycloak
     #if os.getenv("FLASK_ENV", "production") != "testing":
     #    setup_jwt_manager(app, jwt)
-
-    # Database connection initialize
-    db.init_app(app)
-
-    # # Database migrate initialize
-    migrate.init_app(app, db)
-
-    # Marshmallow initialize
-    ma.init_app(app)
 
     @app.before_request
     def set_origin():

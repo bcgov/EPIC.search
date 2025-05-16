@@ -1,15 +1,15 @@
 # Everything the developer needs in addition to the production requirements
 -r prod.txt
 
-coverage
-pylint==v2.13.8
-pylint-flask
+# Testing
 pytest
 pytest-cov
 pytest-env
 pytest-dotenv
 pytest-mock
 requests
+
+# Code quality
 flake8==4.0.1
 flake8-blind-except
 flake8-debugger
@@ -20,6 +20,9 @@ pep8-naming
 autopep8
 pydocstyle
 black==25.1.0
+pylint==v2.13.8
+pylint-flask
+
+# Test utilities
 FreezeGun
-lovely-pytest-docker
 Faker

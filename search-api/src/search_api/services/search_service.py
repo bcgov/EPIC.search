@@ -1,4 +1,11 @@
-"""Service for search management."""
+"""Service for managing search operations and coordinating between vector search and LLM components.
+
+This service handles the core search functionality, including:
+- Calling the external vector search API
+- Coordinating with the LLM synthesizer
+- Collecting performance metrics
+- Managing error handling and responses
+"""
 
 import os
 import time
@@ -10,11 +17,27 @@ from .synthesizer_resolver import get_synthesizer
 
 
 class SearchService:
-    """Search management service."""
+    """Service class for handling search operations.
+    
+    This class coordinates the interaction between vector search and LLM components,
+    manages performance metrics collection, and handles the overall search flow.
+    """
 
     @classmethod
     def call_vector_search_api(cls, query):
-        """Call the external vector search API."""
+        """Call the external vector search API to retrieve relevant documents.
+        
+        Args:
+            query (str): The search query to send to the vector search service
+            
+        Returns:
+            tuple: A tuple containing:
+                - list: Retrieved documents matching the query
+                - dict: Search performance metrics
+                
+        Note:
+            Returns empty results ([], {}) if the API call fails
+        """
         try:
             vector_search_url = os.getenv(
                 "VECTOR_SEARCH_API_URL", "http://localhost:3300/api/vector-search"
@@ -36,11 +59,26 @@ class SearchService:
             # Log the error
             current_app.logger.error(f"Error calling vector search API: {str(e)}")
             # Return empty results
-            return [], {}
-
-    @classmethod
+            return [], {}    @classmethod
+        
     def get_documents_by_query(cls, query):
-        """Get documents by user query."""
+        """Process a user query to retrieve and synthesize relevant information.
+        
+        This method orchestrates the complete search flow:
+        1. Initializes performance metrics
+        2. Retrieves relevant documents via vector search
+        3. Processes documents through LLM for synthesis
+        4. Formats and returns the final response
+        
+        Args:
+            query (str): The user's search query
+            
+        Returns:
+            dict: A dictionary containing:
+                - response (str): LLM-generated answer
+                - documents (list): Relevant documents used for the answer
+                - metrics (dict): Performance metrics for the operation
+        """
         metrics = {}
         start_time = time.time()
         metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
