@@ -11,6 +11,64 @@ The EPIC.search Embedder is a document processing system that converts PDF docum
 3. **Loader Service (`loader.py`)** - Handles document loading, text extraction, and vector embedding
 4. **Logger Service (`logger.py`)** - Tracks document processing status in a database
 
+### System Flow Diagram
+
+```mermaid
+graph TB
+    subgraph Input
+        API[API Service]
+        S3[S3 Storage]
+    end
+
+    subgraph Processing ["Processing Layer (ProcessPoolExecutor)"]
+        MP[Main Processor]
+        PS[Processor Service]
+        LS[Loader Service]
+        
+        subgraph Document Processing
+            PDF[PDF Document]
+            MD[Markdown Conversion]
+            chunks[Text Chunks]
+            KW[Keywords/Tags]
+        end
+        
+        subgraph AI Models
+            EM[Embedding Model]
+            KM[Keyword Model]
+        end
+    end
+
+    subgraph Storage
+        VDB[(Vector DB<br/>pgvector)]
+        LDB[(Processing Logs<br/>PostgreSQL)]
+    end
+
+    %% Flow connections
+    API -->|Get Document IDs| MP
+    MP -->|Batch Process| PS
+    PS -->|Process Files| LS
+    S3 -->|Download PDFs| LS
+    LS -->|Convert| PDF
+    PDF -->|Transform| MD
+    MD -->|Split| chunks
+    chunks -->|Extract| KW
+    chunks -->|Generate Embeddings| EM
+    KW -->|Generate Embeddings| EM
+    EM -->|Store Vectors| VDB
+    PS -->|Log Status| LDB
+
+    %% Styling
+    classDef primary fill:#2374ab,stroke:#2374ab,color:#fff
+    classDef secondary fill:#ff7e67,stroke:#ff7e67,color:#fff
+    classDef storage fill:#78bc61,stroke:#78bc61,color:#fff
+    classDef input fill:#d4a5a5,stroke:#d4a5a5,color:#fff
+    
+    class MP,PS,LS primary
+    class PDF,MD,chunks,KW secondary
+    class VDB,LDB storage
+    class API,S3 input
+```
+
 ### Data Flow
 
 1. Document IDs are fetched from the API for a specific project

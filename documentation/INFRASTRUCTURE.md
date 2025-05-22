@@ -152,7 +152,3 @@ graph TB
     style DSNET fill:none,stroke:#666,stroke-width:1px,stroke-dasharray:5 5
     style VSNET fill:none,stroke:#666,stroke-width:1px,stroke-dasharray:5 5
 ```
-
-### Component Deployment Details
-
-[Continue with existing infrastructure documentation...]

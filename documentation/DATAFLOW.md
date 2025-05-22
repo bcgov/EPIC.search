@@ -2,10 +2,12 @@
 
 ## Data Source and Public Access
 
-> **Note**: All data processed by EPIC.search originates from publicly available sources, though access methods are secured:
+> **Note**: All data processed by EPIC.search originates from publicly available sources, though storage and access methods are secured:
 > - BC EPIC (Environmental Assessment Office) public API
-> - S3 storage containing publicly available EPIC documents (accessed via secure credentials)
-> - While all document content is public, access to storage systems is properly secured
+> - BC Government S3 storage containing copies of publicly available EPIC documents
+>   - S3 storage is secured and requires authenticated access
+>   - While documents are publicly available through BC websites, storage access is restricted
+> - All storage systems and APIs require proper authentication
 > - No private or restricted data is used in this system
 
 
@@ -13,9 +15,12 @@
 
 ```mermaid
 flowchart TB
-    subgraph Public ["Public Data Sources"]
+    subgraph Public ["Data Sources"]
         EPIC["EPIC Public API"]
-        S3["Public S3 Storage"]
+        direction TB
+        subgraph Secure ["BC Gov Infrastructure"]
+            S3[("Secure S3 Storage")]
+        end
     end
 
     subgraph Processing ["Data Processing"]
@@ -31,26 +36,28 @@ flowchart TB
     end
 
     %% Data Ingestion Flow
-    EPIC -->|"1. Project List"| Embedder
-    S3 -->|"2. Document Download"| Embedder
-    Embedder -->|"3. Process & Embed"| VectorDB
+    EPIC -->|&nbsp;&nbsp;Project List&nbsp;&nbsp;| Embedder
+    S3 -->|&nbsp;&nbsp;Authenticated Access&nbsp;&nbsp;| Embedder
+    Embedder -->|&nbsp;&nbsp;Process & Embed&nbsp;&nbsp;| VectorDB
 
     %% Query Flow
-    UI -->|"1. User Query"| SearchAPI
-    SearchAPI -->|"2. Search Request"| VectorAPI
-    VectorAPI -->|"3. Vector Query"| VectorDB
-    VectorDB -->|"4. Results"| VectorAPI
-    VectorAPI -->|"5. Ranked Results"| SearchAPI
-    SearchAPI -->|"6. Context"| LLM
-    LLM -->|"7. Response"| SearchAPI
-    SearchAPI -->|"8. Final Result"| UI
+    UI -->|&nbsp;&nbsp;User Query&nbsp;&nbsp;| SearchAPI
+    SearchAPI -->|&nbsp;&nbsp;Search Request&nbsp;&nbsp;| VectorAPI
+    VectorAPI -->|&nbsp;&nbsp;Vector Query&nbsp;&nbsp;| VectorDB
+    VectorDB -->|&nbsp;&nbsp;Results&nbsp;&nbsp;| VectorAPI
+    VectorAPI -->|&nbsp;&nbsp;Ranked Results&nbsp;&nbsp;| SearchAPI
+    SearchAPI -->|&nbsp;&nbsp;Context&nbsp;&nbsp;| LLM
+    LLM -->|&nbsp;&nbsp;Response&nbsp;&nbsp;| SearchAPI
+    SearchAPI -->|&nbsp;&nbsp;Final Result&nbsp;&nbsp;| UI
 
     %% Styling
     classDef public fill:#2874A6,stroke:#2E86C1
+    classDef secure fill:#1E8449,stroke:#229954,stroke-width:3px
     classDef process fill:#1E8449,stroke:#229954
     classDef query fill:#B03A2E,stroke:#C0392B
     
-    class EPIC,S3 public
+    class EPIC public
+    class S3 secure
     class Embedder,VectorDB process
     class UI,SearchAPI,VectorAPI,LLM query
 ```
@@ -135,7 +142,7 @@ sequenceDiagram
 | Source Component | Target Component | Data Type | Flow Description |
 |-----------------|------------------|------------|------------------|
 | EPIC Public API | Document Embedder | Project & Document Metadata | List of projects and associated documents |
-| S3 Storage | Document Embedder | Raw Documents | Secure access to public documents via authenticated connection |
+| S3 Storage | Document Embedder | Raw Documents | Access to document copies via authenticated BC Government S3 connection |
 | Document Embedder | Vector Database | Embeddings, Text & Metadata | Processed document vectors, corresponding text chunks, and metadata |
 | Web UI | Search API | User Queries | Search requests and parameters |
 | Search API | Vector API | Search Parameters | Query processing instructions |
@@ -147,7 +154,8 @@ sequenceDiagram
 ## Data Retention and Privacy
 
 - All processed data originates from public sources
-- No private information is stored or processed
+- Documents are stored securely in BC Government infrastructure
+- Access to storage systems requires proper authentication
 - Document source links reference back to public EPIC system
 - Vector database contains only:
   - Document embeddings (vector representations)

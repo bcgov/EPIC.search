@@ -17,9 +17,9 @@ The service follows a modular architecture with the following key components:
 
 ```mermaid
 flowchart LR
-    Client["Client Application"] <--> SearchAPI["Search API\n(Flask)"]
-    SearchAPI <--> VectorSearch["Vector Search\nService"]
-    SearchAPI <--> LLM["LLM Integration\n(Ollama)"]
+    Client["Client Application"] <--> SearchAPI["Search API (Flask)"]
+    SearchAPI <--> VectorSearch["Vector Search Service"]
+    SearchAPI <--> LLM["LLM Integration (Ollama)"]
 ```
 
 ## Workflow
