@@ -47,13 +47,13 @@ graph TB
     Embedder -->|&nbsp;&nbsp;Index&nbsp;&nbsp;| VectorDB
 
     %% Style Definitions
-    classDef browser fill:#4682B4,stroke:#36648B,stroke-width:2px
-    classDef ui fill:#6495ED,stroke:#4F75CD,stroke-width:2px
-    classDef database fill:#008B8B,stroke:#006666,stroke-width:2px
-    classDef ai fill:#CD5C5C,stroke:#B22222,stroke-width:2px
-    classDef api fill:#2F4F4F,stroke:#1C2F2F,stroke-width:2px
-    classDef auth fill:#708090,stroke:#4A5460,stroke-width:2px
-    classDef embedder fill:#20B2AA,stroke:#178F89,stroke-width:2px
+    classDef browser fill:#E3F2FD,stroke:#90CAF9,stroke-width:2px     %% Light Blue
+    classDef ui fill:#E8EAF6,stroke:#9FA8DA,stroke-width:2px          %% Light Indigo
+    classDef database fill:#E0F2F1,stroke:#80CBC4,stroke-width:2px    %% Light Teal
+    classDef ai fill:#FCE4EC,stroke:#F48FB1,stroke-width:2px          %% Light Pink
+    classDef api fill:#ECEFF1,stroke:#90A4AE,stroke-width:2px         %% Light Blue Grey
+    classDef auth fill:#F3E5F5,stroke:#CE93D8,stroke-width:2px        %% Light Purple
+    classDef embedder fill:#E0F7FA,stroke:#80DEEA,stroke-width:2px    %% Light Cyan
     
     %% Class Assignments
     class Client browser
