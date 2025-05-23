@@ -9,12 +9,12 @@ EPIC.search is a document search and retrieval system using modern AI techniques
 ```mermaid
 graph TB
     %% Core Application Components
-    WebUI["Web UI\n(React App)"]
-    WebAPI["Web API\nPython Flask Orchestrator"]
-    VectorAPI["Vector API\nPython Flask Query Engine"]
-    VectorDB["Vector Database\nPostgreSQL"]
-    LLM["LLM Model\n(OLLAMA Service)"]
-    Embedder["Document Embedder\nPython Processor"]
+    WebUI["Web UI (React App)"]
+    WebAPI["Web API Python Flask Orchestrator"]
+    VectorAPI["Vector API Python Flask Query Engine"]
+    VectorDB["Vector Database PostgreSQL"]
+    LLM["LLM Model (OLLAMA Service)"]
+    Embedder["Document Embedder Python Processor"]
     Client["Client Browser"]
     
     %% Core Application Flow

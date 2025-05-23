@@ -38,10 +38,10 @@ graph TB
     WebUI -->|Auth Request| Auth
     Auth -->|Token| WebUI
     WebUI -->|Request + Token| WebAPI
-    WebAPI -->|1. Search| VectorAPI
-    VectorAPI -->|2. Documents| WebAPI
-    WebAPI -->|3. Summarize| LLM
-    LLM -->|4. Response| WebAPI
+    WebAPI -->|1.Search| VectorAPI
+    VectorAPI -->|2.Documents| WebAPI
+    WebAPI -->|3.Summarize| LLM
+    LLM -->|4.Response| WebAPI
     VectorAPI -->|Query| VectorDB
     S3 -->|Source Docs| Embedder
     Embedder -->|Index| VectorDB

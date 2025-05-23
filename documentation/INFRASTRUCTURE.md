@@ -134,21 +134,27 @@ graph TB
     end
 
     %% Styling
-    style WebUI fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    style WebAPI fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    style VectorAPI fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    style VectorDB fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    style LLM fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    style Embedder fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    style Client fill:#86B342,color:white,stroke:#86B342,stroke-width:2px
-    style FNSG fill:#D83B01,color:white,stroke:#D83B01,stroke-width:2px
-    style ANSG fill:#D83B01,color:white,stroke:#D83B01,stroke-width:2px
-    style DNSG fill:#D83B01,color:white,stroke:#D83B01,stroke-width:2px
-    style VNSG fill:#D83B01,color:white,stroke:#D83B01,stroke-width:2px
+    %% Azure Services - Cool Blues
+    style WebUI fill:#E3F2FD,color:#1565C0,stroke:#90CAF9,stroke-width:2px
+    style WebAPI fill:#E3F2FD,color:#1565C0,stroke:#90CAF9,stroke-width:2px
+    style VectorAPI fill:#E3F2FD,color:#1565C0,stroke:#90CAF9,stroke-width:2px
+    style VectorDB fill:#E3F2FD,color:#1565C0,stroke:#90CAF9,stroke-width:2px
+    style LLM fill:#E3F2FD,color:#1565C0,stroke:#90CAF9,stroke-width:2px
+    style Embedder fill:#E3F2FD,color:#1565C0,stroke:#90CAF9,stroke-width:2px
+
+    %% Client - Sage Green
+    style Client fill:#E8F5E9,color:#2E7D32,stroke:#81C784,stroke-width:2px
+
+    %% NSGs - Warm Orange for Security
+    style FNSG fill:#FFF3E0,color:#E65100,stroke:#FFB74D,stroke-width:2px
+    style ANSG fill:#FFF3E0,color:#E65100,stroke:#FFB74D,stroke-width:2px
+    style DNSG fill:#FFF3E0,color:#E65100,stroke:#FFB74D,stroke-width:2px
+    style VNSG fill:#FFF3E0,color:#E65100,stroke:#FFB74D,stroke-width:2px
     
-    style VNET fill:none,stroke:#666,stroke-width:2px
-    style FSNET fill:none,stroke:#666,stroke-width:1px,stroke-dasharray:5 5
-    style ASNET fill:none,stroke:#666,stroke-width:1px,stroke-dasharray:5 5
-    style DSNET fill:none,stroke:#666,stroke-width:1px,stroke-dasharray:5 5
-    style VSNET fill:none,stroke:#666,stroke-width:1px,stroke-dasharray:5 5
+    %% Network containers - Subtle Grey
+    style VNET fill:none,stroke:#9E9E9E,stroke-width:2px
+    style FSNET fill:none,stroke:#BDBDBD,stroke-width:1px,stroke-dasharray:5 5
+    style ASNET fill:none,stroke:#BDBDBD,stroke-width:1px,stroke-dasharray:5 5
+    style DSNET fill:none,stroke:#BDBDBD,stroke-width:1px,stroke-dasharray:5 5
+    style VSNET fill:none,stroke:#BDBDBD,stroke-width:1px,stroke-dasharray:5 5
 ```
