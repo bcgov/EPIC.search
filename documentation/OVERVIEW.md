@@ -34,17 +34,17 @@ graph TB
     Embedder["Document Embedder"]
     S3[("BC Gov S3")]
     
-    Client -->|&nbsp;&nbsp;Query&nbsp;&nbsp;| WebUI
-    WebUI -->|&nbsp;&nbsp;Auth Request&nbsp;&nbsp;| Auth
-    Auth -->|&nbsp;&nbsp;Token&nbsp;&nbsp;| WebUI
-    WebUI -->|&nbsp;&nbsp;Request + Token&nbsp;&nbsp;| WebAPI
-    WebAPI -->|&nbsp;&nbsp;1. Search&nbsp;&nbsp;| VectorAPI
-    VectorAPI -->|&nbsp;&nbsp;2. Documents&nbsp;&nbsp;| WebAPI
-    WebAPI -->|&nbsp;&nbsp;3. Summarize&nbsp;&nbsp;| LLM
-    LLM -->|&nbsp;&nbsp;4. Response&nbsp;&nbsp;| WebAPI
-    VectorAPI -->|&nbsp;&nbsp;Query&nbsp;&nbsp;| VectorDB
-    S3 -->|&nbsp;&nbsp;Source Docs&nbsp;&nbsp;| Embedder
-    Embedder -->|&nbsp;&nbsp;Index&nbsp;&nbsp;| VectorDB
+    Client -->|Query| WebUI
+    WebUI -->|Auth Request| Auth
+    Auth -->|Token| WebUI
+    WebUI -->|Request + Token| WebAPI
+    WebAPI -->|1. Search| VectorAPI
+    VectorAPI -->|2. Documents| WebAPI
+    WebAPI -->|3. Summarize| LLM
+    LLM -->|4. Response| WebAPI
+    VectorAPI -->|Query| VectorDB
+    S3 -->|Source Docs| Embedder
+    Embedder -->|Index| VectorDB
 
     %% Style Definitions
     classDef browser fill:#E3F2FD,stroke:#90CAF9,stroke-width:2px     %% Light Blue

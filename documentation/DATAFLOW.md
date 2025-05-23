@@ -10,7 +10,6 @@
 > - All storage systems and APIs require proper authentication
 > - No private or restricted data is used in this system
 
-
 ## System Data Flow Overview
 
 ```mermaid
@@ -36,25 +35,25 @@ flowchart TB
     end
 
     %% Data Ingestion Flow
-    EPIC -->|&nbsp;&nbsp;Project List&nbsp;&nbsp;| Embedder
-    S3 -->|&nbsp;&nbsp;Authenticated Access&nbsp;&nbsp;| Embedder
-    Embedder -->|&nbsp;&nbsp;Process & Embed&nbsp;&nbsp;| VectorDB
+    EPIC -->|Project List| Embedder
+    S3 -->|Authenticated Access| Embedder
+    Embedder -->|Process & Embed| VectorDB
 
     %% Query Flow
-    UI -->|&nbsp;&nbsp;User Query&nbsp;&nbsp;| SearchAPI
-    SearchAPI -->|&nbsp;&nbsp;Search Request&nbsp;&nbsp;| VectorAPI
-    VectorAPI -->|&nbsp;&nbsp;Vector Query&nbsp;&nbsp;| VectorDB
-    VectorDB -->|&nbsp;&nbsp;Results&nbsp;&nbsp;| VectorAPI
-    VectorAPI -->|&nbsp;&nbsp;Ranked Results&nbsp;&nbsp;| SearchAPI
-    SearchAPI -->|&nbsp;&nbsp;Context&nbsp;&nbsp;| LLM
-    LLM -->|&nbsp;&nbsp;Response&nbsp;&nbsp;| SearchAPI
-    SearchAPI -->|&nbsp;&nbsp;Final Result&nbsp;&nbsp;| UI
+    UI -->|User Query| SearchAPI
+    SearchAPI -->|Search Request| VectorAPI
+    VectorAPI -->|Vector Query| VectorDB
+    VectorDB -->|Results| VectorAPI
+    VectorAPI -->|Ranked Results| SearchAPI
+    SearchAPI -->|Context| LLM
+    LLM -->|Response| SearchAPI
+    SearchAPI -->|Final Result| UI
 
     %% Styling
-    classDef public fill:#2874A6,stroke:#2E86C1
-    classDef secure fill:#1E8449,stroke:#229954,stroke-width:3px
-    classDef process fill:#1E8449,stroke:#229954
-    classDef query fill:#B03A2E,stroke:#C0392B
+    classDef public fill:#E3F2FD,stroke:#90CAF9,stroke-width:2px      %% Light Blue
+    classDef secure fill:#E8F5E9,stroke:#81C784,stroke-width:2px      %% Light Green
+    classDef process fill:#F3E5F5,stroke:#CE93D8,stroke-width:2px     %% Light Purple
+    classDef query fill:#FFF3E0,stroke:#FFB74D,stroke-width:2px       %% Light Orange
     
     class EPIC public
     class S3 secure
