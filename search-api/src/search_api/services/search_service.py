@@ -59,8 +59,9 @@ class SearchService:
             # Log the error
             current_app.logger.error(f"Error calling vector search API: {str(e)}")
             # Return empty results
-            return [], {}    @classmethod
-        
+            return [], {}
+
+    @classmethod
     def get_documents_by_query(cls, query):
         """Process a user query to retrieve and synthesize relevant information.
         

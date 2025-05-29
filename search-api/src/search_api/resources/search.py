@@ -53,14 +53,13 @@ class Search(Resource):
         """Search"""
         try:
             request_data = SearchRequestSchema().load(API.payload)
-           # print("request_data",request_data)
+            # print("request_data",request_data)
             documents = SearchService.get_documents_by_query(request_data["question"])
-           # document_list_schema = SearchResponseSchema(many=True)
-           # return document_list_schema.dump(documents), HTTPStatus.OK
+            # document_list_schema = SearchResponseSchema(many=True)
+            # return document_list_schema.dump(documents), HTTPStatus.OK
             return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:
             # Log the error internally            
-            current_app = API.app
             current_app.logger.error(f"Search error occurred: {str(e)}")
             # Return a generic error message
             error_response = {"error": "Internal server error occurred"}
