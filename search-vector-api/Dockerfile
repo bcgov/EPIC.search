@@ -1,19 +1,35 @@
-# Use the python:3.12.9-bullseye image as the base image
-FROM python:3.12.9-bullseye
+# Use the python:3.12-slim-bullseye image as the base image
+FROM python:3.12-slim-bullseye
 
-# Create working directory
-RUN mkdir /opt/app-root && chmod 755 /opt/app-root
+# Create non-root user and set up directory permissions early
+RUN groupadd -r appuser && useradd -r -g appuser -s /sbin/nologin appuser && \
+    mkdir -p /opt/app-root && \
+    mkdir -p /opt/app-root/cache && \
+    chown -R appuser:appuser /opt/app-root && \
+    chmod 755 /opt/app-root
+
 WORKDIR /opt/app-root
 
-# Install the Python dependencies first (for better layer caching)
-COPY ./requirements.txt .
+# Install security updates and required packages, then clean up
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip
+# Copy and set permissions for requirements.txt first
+COPY --chown=appuser:appuser requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    rm -rf ~/.cache/pip/*
 
-# Copy the rest of the application code
-COPY . .
+# Copy application code with correct ownership
+COPY --chown=appuser:appuser . .
+
+# Set execute permission only on specific files that need it
+RUN chmod +x preload_models.py docker-entrypoint.sh
 
 # Make the model preloader script executable
 RUN chmod +x /opt/app-root/preload_models.py
@@ -51,8 +67,14 @@ RUN if [ -n "${PRELOAD_EMBEDDING_MODEL}" ] || [ -n "${PRELOAD_KEYWORD_MODEL}" ] 
         echo "No models pre-loaded. Models will be downloaded at runtime when needed."; \
     fi
 
+# Switch to non-root user
+USER appuser
+
 # Set environment variables
 ENV PYTHONPATH=/opt/app-root/src
+ENV TRANSFORMERS_CACHE=/opt/app-root/cache
+ENV HF_HOME=/opt/app-root/cache
+ENV SENTENCE_TRANSFORMERS_HOME=/opt/app-root/cache
 
 # Set default timeout for Gunicorn
 ENV GUNICORN_TIMEOUT=300
