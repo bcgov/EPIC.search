@@ -15,11 +15,25 @@ The service follows a modular architecture with the following key components:
 
 ## Component Diagram
 
+The service architecture supports two LLM provider options:
+
+### Option 1: Local Development with Ollama
+
 ```mermaid
 flowchart LR
     Client["Client Application"] <--> SearchAPI["Search API (Flask)"]
     SearchAPI <--> VectorSearch["Vector Search Service"]
-    SearchAPI <--> LLM["LLM Integration (Ollama)"]
+    SearchAPI <--> Ollama["Local Ollama LLM"]
+```
+
+### Option 2: Azure OpenAI Integration
+
+```mermaid
+flowchart LR
+    Client["Client Application"] <--> SearchAPI["Search API (Flask)"]
+    SearchAPI <--> VectorSearch["Vector Search Service"]
+    SearchAPI <--> AzureOpenAI["Azure OpenAI Service"]
+    AzureOpenAI <-.-> PrivateEndpoint["Private Endpoint"]
 ```
 
 ## Workflow
@@ -28,7 +42,9 @@ flowchart LR
 2. Search Service forwards the query to the external Vector Search service
 3. Vector Search service returns relevant document information
 4. Search Service formats the documents and creates a prompt for the LLM
-5. LLM (Ollama) processes the prompt to generate a summary/response
+5. Based on configuration:
+   - **Ollama**: Local Ollama instance processes the prompt
+   - **Azure OpenAI**: Request is sent through private endpoint to Azure OpenAI
 6. Search Service formats the response and returns it to the client with document information and performance metrics
 
 ## API Endpoints
@@ -76,6 +92,26 @@ Processes a search query and returns relevant documents with an LLM-generated su
 
 ## Configuration
 
+### Azure OpenAI Configuration
+
+The service now supports Azure OpenAI with private endpoint access. Configuration includes:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| LLM_PROVIDER | LLM provider selection | openai |
+| AZURE_OPENAI_API_KEY | Azure OpenAI API key | - |
+| AZURE_OPENAI_ENDPOINT | Azure OpenAI endpoint URL | - |
+| AZURE_OPENAI_DEPLOYMENT | Model deployment name (e.g., gpt-4, gpt-35-turbo) | - |
+| AZURE_OPENAI_API_VERSION | API version for Azure OpenAI endpoints | 2024-02-15-preview |
+
+### Private Endpoint Access
+
+The service is configured to access Azure OpenAI through a private endpoint, ensuring secure communication within the Azure virtual network. This requires:
+
+1. The application must be deployed within the same VNet as the Azure OpenAI private endpoint
+2. DNS resolution must be configured to resolve the privatelink.openai.azure.com domain
+3. Network security groups must allow traffic between the application and the private endpoint
+
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -91,27 +127,58 @@ Processes a search query and returns relevant documents with an LLM-generated su
 
 The Search API is designed to be extensible in the following ways:
 
-1. **Alternative LLM Providers**: The synthesizer architecture allows for easily adding new LLM providers (like OpenAI) by implementing the `LLMSynthesizer` abstract base class.
+1. **LLM Provider Architecture**: The service uses a modular synthesizer architecture:
+   - Abstract `LLMSynthesizer` base class defines the interface
+   - `OllamaSynthesizer` implements local LLM integration
+   - `AzureOpenAISynthesizer` implements Azure OpenAI integration
+   - Additional providers can be added by implementing the base class
 
 2. **Customized Prompts**: The prompt template can be modified in the `LLMSynthesizer` class to adjust how the LLM interprets and responds to queries.
 
-3. **Response Formatting**: The formatting of responses can be customized in the synthesizer implementation.
+3. **Response Formatting**: Each synthesizer implementation can customize response formatting while maintaining a consistent interface.
 
-## Performance Considerations
+## Performance and Security Considerations
 
-- The service collects detailed performance metrics at each step for monitoring and optimization.
-- Timeouts are configured for external service calls to prevent hanging requests.
-- Error handling ensures graceful degradation when services are unavailable.
+### Security Best Practices
+
+1. API Key Management
+   - Store API keys and secrets securely using environment variables or a secrets management service
+   - Never commit API keys or sensitive credentials to version control
+   - Rotate API keys periodically according to your security policy
+
+2. Network Security
+   - Use private endpoints for Azure OpenAI access to ensure traffic stays within your virtual network
+   - Configure Network Security Groups (NSGs) to restrict traffic between application and services
+   - Enable TLS/SSL for all external communications
+   - Implement proper CORS policies to restrict cross-origin requests
+
+3. Access Control
+   - Implement authentication for all API endpoints
+   - Use role-based access control (RBAC) to limit access to sensitive operations
+   - Validate and sanitize all user inputs
+   - Implement rate limiting to prevent abuse
+
+### Performance Optimization
+
+- The service collects detailed performance metrics at each step for monitoring and optimization
+- Timeouts are configured for external service calls to prevent hanging requests
+- Error handling ensures graceful degradation when services are unavailable
+- Consider implementing caching for frequently requested queries
 
 ## Dependencies
 
+Core Dependencies:
 - **Flask**: Web framework for the REST API
-- **Ollama**: Integration with local LLMs
 - **Requests**: HTTP client for external service communication
+
+LLM Provider Dependencies:
+- **Ollama**: Integration with local LLMs for development
+- **OpenAI**: Azure OpenAI client library for production
 
 ## Future Enhancements
 
-- OpenAI integration
-- Caching frequently requested queries
-- Enhanced error handling and retries
-- Performance optimizations
+- Response caching for frequently requested queries
+- Enhanced retry mechanisms with exponential backoff
+- Performance optimizations and monitoring dashboards
+- Support for additional LLM providers
+- Streaming responses for long-running queries
