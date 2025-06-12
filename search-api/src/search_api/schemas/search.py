@@ -35,6 +35,7 @@ class DocumentSchema(Schema):
     project_id = fields.Str(data_key="project_id")
     project_name = fields.Str(data_key="project_name")
     content = fields.Str(data_key="content")
+    s3_key = fields.Str(data_key="s3_key")
 
 
 class SearchResponseSchema(Schema):

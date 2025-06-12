@@ -63,7 +63,13 @@ const SearchDocumentCard = ({
         overflow: "auto",
       }}
     >
-      <Link href="#" underline="none" sx={{ fontWeight: "bold" }}>
+      <Link 
+        href={`/api/document/download?key=${encodeURIComponent(document.s3_key)}`}
+        underline="none" 
+        sx={{ fontWeight: "bold" }}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         {document.document_saved_name}
       </Link>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>

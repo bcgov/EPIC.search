@@ -8,6 +8,7 @@ export interface Document {
   project_id: string;
   project_name: string;
   content: string;
+  s3_key: string;
 }
 
 export interface SearchResponse {

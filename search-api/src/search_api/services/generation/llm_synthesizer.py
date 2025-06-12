@@ -10,7 +10,7 @@ class LLMSynthesizer(ABC):
                 "proponent_name": item.get("proponent_name"),
                 "text": item.get("content"),
                 "page_number": item.get("page_number"),
-                "document_name": item.get("document_name"),
+                "document_name": item.get("document_name")
             }
             for item in documents
         ]

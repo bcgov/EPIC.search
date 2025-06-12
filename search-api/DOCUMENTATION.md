@@ -168,10 +168,12 @@ The Search API is designed to be extensible in the following ways:
 ## Dependencies
 
 Core Dependencies:
+
 - **Flask**: Web framework for the REST API
 - **Requests**: HTTP client for external service communication
 
 LLM Provider Dependencies:
+
 - **Ollama**: Integration with local LLMs for development
 - **OpenAI**: Azure OpenAI client library for production
 
