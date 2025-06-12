@@ -10,7 +10,7 @@ The Embedder performs the following operations:
 - Converts PDF content to searchable text
 - Splits documents into manageable chunks
 - Creates vector embeddings for each chunk
-- Stores embeddings in a vector database
+- Stores embeddings in a vector database with rich metadata (including S3 keys)
 - Extracts and indexes document tags
 - Tracks processing status for each document
 

@@ -86,7 +86,8 @@ def load_data(s3_key, base_metadata):
                 chunk_metadata = {
                     **base_metadata,
                     "page_number": str(page_index + 1),
-                    "headings": headings
+                    "headings": headings,
+                    "s3_key": s3_key  # Adding S3 key to metadata
                 }
                 chunk_texts.append(chunk_text)
                 chunk_metadatas.append(chunk_metadata)
