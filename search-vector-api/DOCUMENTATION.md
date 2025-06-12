@@ -46,7 +46,18 @@ The system uses PostgreSQL with the pgvector extension. Each document collection
 CREATE TABLE documents (
     id UUID PRIMARY KEY,
     content TEXT NOT NULL,
-    metadata JSONB,
+    metadata JSONB,  -- Contains structured document metadata including:
+                    -- {
+                    --   "document_id": "uuid-string",
+                    --   "document_type": "string",
+                    --   "document_name": "string",
+                    --   "document_saved_name": "string",
+                    --   "page_number": number,
+                    --   "project_id": "string",
+                    --   "project_name": "string",
+                    --   "proponent_name": "string",
+                    --   "s3_key": "string"
+                    -- }
     embedding VECTOR(1536),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -133,8 +144,7 @@ Response:
 ```json
 {
   "vector_search": {
-    "documents": [
-      {
+    "documents": [      {
         "document_id": "uuid-string",
         "document_type": "PDF",
         "document_name": "Climate Report",
@@ -143,6 +153,7 @@ Response:
         "project_id": "project-123",
         "project_name": "Climate Research Initiative",
         "proponent_name": "Environmental Research Group",
+        "s3_key": "documents/project-123/climate_report_2023.pdf",
         "content": "Document content extract with relevant information..."
       }
     ],
