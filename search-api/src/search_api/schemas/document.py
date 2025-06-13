@@ -8,4 +8,5 @@ class DocumentDownloadSchema(Schema):
         """Exclude unknown fields in the deserialized output."""
         unknown = EXCLUDE
 
-    s3_key = fields.Str(data_key="s3_key", required=True)
+    s3_key = fields.Str(data_key="key", required=True)
+    file_name = fields.Str(data_key="file_name", required=True)

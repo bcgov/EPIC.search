@@ -4,7 +4,7 @@ from http import HTTPStatus
 from flask import Response, current_app, send_file, request
 from flask_restx import Namespace, Resource
 import io
-import os
+from urllib.parse import unquote
 
 from search_api.utils.util import cors_preflight
 from search_api.services.s3_reader import read_file_from_s3
@@ -20,63 +20,68 @@ document_download_model = ApiHelper.convert_ma_schema_to_restx_model(
 )
 
 @cors_preflight("GET, OPTIONS")
-@API.route("/download")
-class DocumentDownload(Resource):
-    """Resource for document downloads."""    
+@API.route("/view")
+class DocumentDownload(Resource):    
+    """Resource for document viewing.
+      Provides an endpoint to view PDF documents stored in S3.
+    The document is returned with headers set for inline viewing in a browser.
+    
+    Example:
+        GET /api/document/view?key=path%2Fto%2Fdocument.pdf&file_name=document.pdf
+    """    
     
     @staticmethod
     # @auth.require
-    @ApiHelper.swagger_decorators(API, endpoint_description="Download a document from S3")
-    @API.param('key', 'The S3 key of the document to download', _in='query')
+    @ApiHelper.swagger_decorators(API, endpoint_description="View a document from S3")    
+    @API.param('key', 'The S3 key of the document to view (URL encoded)')
+    @API.param('file_name', 'The filename to display in the browser (URL encoded)')
     @API.response(400, "Bad Request")
     @API.response(404, "Document Not Found")
     @API.response(500, "Internal Server Error")
     def get():
-        """Download a document from S3 storage."""
-        try:            # Get the S3 key from query parameters and decode it
+        """View a document from S3 storage."""
+        try:
+            # Get and decode query parameters
             s3_key = request.args.get('key')
-            if not s3_key:
-                raise ResourceNotFoundError("No document key provided")
+            file_name = request.args.get('file_name')
             
-            # URL decode the key since it was encoded by the caller
-            try:
-                from urllib.parse import unquote
-                s3_key = unquote(s3_key)
-            except Exception as e:
-                current_app.logger.error(f"Error decoding S3 key: {str(e)}")
-                
+            if not s3_key or not file_name:
+                raise ResourceNotFoundError("Missing required parameters")
+
+            # URL decode the parameters since they're encoded
+            s3_key = unquote(s3_key)
+            file_name = unquote(file_name)
+            
             # Validate the parameters
             DocumentDownloadSchema().load({
-                "s3_key": s3_key
+                "key": s3_key,
+                "file_name": file_name
             })
             
             try:
                 # Get the file from S3
                 file_data = read_file_from_s3(s3_key)
                 
-                # Create an in-memory file-like object
-                file_obj = io.BytesIO(file_data)
-                
-                # Get the filename from the last part of the S3 key
-                filename = os.path.basename(s3_key)
-                
-                # Send the file
-                return send_file(
-                    file_obj,
-                    download_name=filename,
+                # Create response with the file data
+                response = Response(
+                    file_data,
                     mimetype='application/pdf',
-                    as_attachment=True
+                    headers={
+                        'Content-Disposition': f'inline; filename="{file_name}"'
+                    }
                 )
+                
+                return response
                 
             except Exception as e:
                 current_app.logger.error(f"Error retrieving document from S3: {str(e)}")
                 raise ResourceNotFoundError("Document not found or inaccessible")
                 
         except Exception as e:
-            current_app.logger.error(f"Document download error: {str(e)}")
+            current_app.logger.error(f"Document view error: {str(e)}")
             error_response = {"error": str(e)}
             return Response(
-                response=error_response,
+                error_response,
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 mimetype='application/json'
             )

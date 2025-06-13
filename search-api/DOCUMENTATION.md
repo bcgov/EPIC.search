@@ -49,6 +49,39 @@ flowchart LR
 
 ## API Endpoints
 
+### GET /api/document/view
+
+Retrieves and displays a PDF document stored in S3.
+
+**Query Parameters:**
+
+- `key` - (Required) The S3 key of the document, URL encoded
+- `file_name` - (Required) The filename to display in the browser, URL encoded
+
+**Example Request:**
+
+```code
+GET /api/document/view?key=path%2Fto%2Fdocument.pdf&file_name=document.pdf
+```
+
+**Authentication:**
+
+- Currently disabled for development, but will require standard authentication headers when re-enabled
+- The @auth.require decorator will be used to enforce authentication
+
+**Response:**
+
+- Content-Type: application/pdf
+- Content-Disposition: inline; filename="document.pdf"
+- Body: Binary PDF data
+- Cache-Control headers for optimal browser caching
+
+**Error Responses:**
+
+- 400 Bad Request - Missing required parameters
+- 404 Not Found - Document not found or inaccessible
+- 500 Internal Server Error - Server error
+
 ### POST /api/search
 
 Processes a search query and returns relevant documents with an LLM-generated summary.
@@ -122,6 +155,12 @@ The service is configured to access Azure OpenAI through a private endpoint, ens
 | LLM_TEMPERATURE | Temperature parameter for LLM generation | 0.3 |
 | LLM_MAX_TOKENS | Maximum tokens for LLM response | 150 |
 | LLM_MAX_CONTEXT_LENGTH | Maximum context length for LLM | 4096 |
+| S3_BUCKET | Name of the S3 bucket containing documents |  |
+| S3_ACCESS_KEY_ID | AWS access key ID for S3 access |  |
+| S3_SECRET_ACCESS_KEY | AWS secret access key for S3 access |  |
+| S3_HOST | S3 endpoint host |  |
+| S3_REGION | AWS region for S3 bucket |  |
+| S3_SERVICE | Service name (default: s3) | s3 |
 
 ## Extendability
 
@@ -163,7 +202,10 @@ The Search API is designed to be extensible in the following ways:
 - The service collects detailed performance metrics at each step for monitoring and optimization
 - Timeouts are configured for external service calls to prevent hanging requests
 - Error handling ensures graceful degradation when services are unavailable
-- Consider implementing caching for frequently requested queries
+- Consider implementing caching for:
+  - Frequently requested search queries
+  - Document downloads from S3, especially for frequently accessed PDFs
+  - Use appropriate cache headers for PDF downloads to enable browser caching
 
 ## Dependencies
 
