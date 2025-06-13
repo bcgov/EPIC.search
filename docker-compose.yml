@@ -13,14 +13,6 @@ services:
     restart: unless-stopped
     networks: 
       - common-network
-    deploy:
-      resources:
-        reservations:
-          cpus: '1.0'
-          memory: 2G
-        limits:
-          cpus: '2.0'
-          memory: 4G
   epic-search-model:
     image: epic-search/model:latest
     build:
@@ -39,16 +31,7 @@ services:
       - 11434:11434/tcp
     restart: unless-stopped
     networks: 
-      - common-network
-    deploy:
-      resources:
-        reservations:
-          cpus: '3.0'
-          memory: 3G
-        limits:
-          cpus: '6.0'
-          memory: 4G
-   
+      - common-network  
   epic-search-vector-api:
     image: epic-search/vector-api:latest
     build:
@@ -57,19 +40,22 @@ services:
     volumes:
       - torch-cache:/root/.cache/torch/sentence_transformers
       - transformer-cache:/root/.cache/huggingface/transformers    
-    environment:      
+    environment:
+      - FLASK_ENV=development
       - VECTOR_TABLE=document_tags
       - EMBEDDING_DIMENSIONS=768
       - KEYWORD_FETCH_COUNT=100
-      - SEMANTIC_FETCH_COUNT=100      
+      - SEMANTIC_FETCH_COUNT=100
       - TOP_RECORD_COUNT=10
       - RERANKER_BATCH_SIZE=8
       - VECTOR_DB_URL=postgresql://postgres:password@epic-search-db:5432/postgres
       - CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-2-v2
       - EMBEDDING_MODEL_NAME=all-mpnet-base-v2
       - KEYWORD_MODEL_NAME=all-mpnet-base-v2
+      # Set to true to preload models at container startup
+      - PRELOAD_MODELS=true
     ports:
-      - 3300:3300/tcp
+      - 3300:8080/tcp
     depends_on:
       epic-search-db:
         condition: service_started
@@ -78,28 +64,29 @@ services:
     restart: unless-stopped
     networks: 
       - common-network
-    deploy:
-      resources:
-        reservations:
-          cpus: '3.0'
-          memory: 3G
-        limits:
-          cpus: '3.0'
-          memory: 3G
-
   epic-search-api:
     image: epic-search/api:latest
     build:
       context: /search-api/.
       dockerfile: Dockerfile
-    environment:
-      - LLM_MODEL=qwen2.5:0.5b
+    environment:      
+      - CORS_ORIGIN=*
+      - S3_BUCKET_NAME=<BUCKET_NAME>
+      - S3_ACCESS_KEY_ID=<S3_ACCESS_KEY_ID>
+      - S3_SECRET_ACCESS_KEY=<S3_SECRET_ACCESS_KEY>
+      - S3_REGION=us-east-1
+      - S3_ENDPOINT_URI=https://nrs.objectstore.gov.bc.ca
+      - VECTOR_SEARCH_API_URL=http://epic-search-vector-api:8080/api/vector-search
+      # LLM Provider Configuration
+      - LLM_PROVIDER=ollama
       - LLM_TEMPERATURE=0.3
-      - LLM_HOST=http://epic-search-model:11434  
-      - VECTOR_SEARCH_API_URL=http://epic-search-vector-api:3300/api/vector-search
-      - CORS_ORIGIN=*      
+      - LLM_MAX_TOKENS=1000
+      - LLM_MAX_CONTEXT_LENGTH=8192
+      # Ollama Configuration (required if LLM_PROVIDER=ollama)
+      - LLM_MODEL=qwen2.5:0.5b
+      - LLM_HOST=http://epic-search-model:11434     
     ports:
-      - 3200:3200/tcp
+      - 3200:8080/tcp
     depends_on:
       epic-search-db:
         condition: service_started
@@ -108,15 +95,6 @@ services:
     restart: unless-stopped
     networks: 
       - common-network
-    deploy:
-      resources:
-        reservations:
-          cpus: '1.0'
-          memory: 2G
-        limits:
-          cpus: '1.0'
-          memory: 2G
-
 volumes:
   db-data:    
   llm-data:
