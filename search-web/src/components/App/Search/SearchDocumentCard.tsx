@@ -3,6 +3,7 @@ import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { useState, useRef, useEffect } from "react";
 import { DescriptionTwoTone } from "@mui/icons-material";
+import { AppConfig } from '@/utils/config';
 
 interface SearchDocumentCardProps {
   document: Document;
@@ -64,11 +65,45 @@ const SearchDocumentCard = ({
       }}
     >
       <Link 
-        href={`/api/document/download?key=${encodeURIComponent(document.s3_key)}`}
+        href="#"        
         underline="none" 
         sx={{ fontWeight: "bold" }}
-        target="_blank"
-        rel="noopener noreferrer"
+        onClick={async (e) => {
+          e.preventDefault();
+          
+          try {
+            const encodedKey = encodeURIComponent(document.s3_key);
+            const encodedFileName = encodeURIComponent(document.document_saved_name);
+            const response = await fetch(
+              `${AppConfig.apiUrl}/document/view?key=${encodedKey}&file_name=${encodedFileName}`, 
+              {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/pdf',
+                }
+              }
+            );
+
+            if (!response.ok) {
+              throw new Error(`Server error: ${response.status} ${response.statusText}`);
+            }
+
+            const blob = await response.blob();
+            const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+            const url = window.URL.createObjectURL(pdfBlob) + `#page=${document.page_number}`;
+            
+            // Open PDF directly in new tab
+            window.open(url, '_blank');
+            
+            // Clean up the blob URL after a delay
+            setTimeout(() => {
+              window.URL.revokeObjectURL(url.split('#')[0]);
+            }, 1000);
+
+          } catch (error) {
+            console.error('Error:', error);
+          }
+        }}
       >
         {document.document_saved_name}
       </Link>
