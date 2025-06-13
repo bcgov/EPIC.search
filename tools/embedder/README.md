@@ -2,53 +2,33 @@
 
 The EPIC.search Embedder is a document processing system that converts PDF documents into vector embeddings stored in a PostgreSQL database with pgvector. This enables semantic search capabilities across your document corpus.
 
-## Overview
-
-The Embedder performs the following operations:
-
-- Retrieves documents from S3 storage
-- Converts PDF content to searchable text
-- Splits documents into manageable chunks
-- Creates vector embeddings for each chunk
-- Stores embeddings in a vector database with rich metadata (including S3 keys)
-- Extracts and indexes document tags
-- Tracks processing status for each document
-
-## Environment Variables
-
-To run this project, you will need to add the following environment variables to your `.env` file:
-
-### Required Environment Variables
-
-- `DOCUMENT_SEARCH_URL` - Base URL for the EPIC.search API
-- `S3_ENDPOINT_URI` - Endpoint URL for S3 storage
-- `S3_BUCKET_NAME` - Name of the S3 bucket containing documents
-- `S3_ACCESS_KEY_ID` - Access key for S3
-- `S3_SECRET_ACCESS_KEY` - Secret key for S3
-- `S3_REGION` - AWS region for S3
-- `VECTOR_DB_URL` - Connection URL for the vector database
-- `LOGS_DATABASE_URL` - Connection URL for the processing logs database
-
-### Optional Environment Variables
-
-- `DOC_TAGS_TABLE_NAME` - Table name for the document chunks with tags index (default: "document_tags")
-- `DOC_CHUNKS_TABLE_NAME` - Table name for the untagged document chunks (default: "document_chunks")
-- `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
-- `FILES_CONCURRENCY_SIZE` - Number of files to process in parallel (default: 4)
-- `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
-- `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
-- `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
-
-### Model Configuration
-
-The embedder uses two separate models that can be configured independently:
-
-- `EMBEDDING_MODEL_NAME` - The model to use for document embedding (default: "all-mpnet-base-v2")
-- `KEYWORD_MODEL_NAME` - The model to use for keyword extraction (default: "all-mpnet-base-v2")
-
-A sample environment file is provided in `sample.env`. Copy this file to `.env` and update the values.
-
 ## Installation
+
+### Virtual Environment Setup (Recommended)
+
+It's recommended to run this project in a Python virtual environment:
+
+1. Create a virtual environment in the `.venv` directory:
+
+   ```powershell
+   python -m venv .venv
+   ```
+
+2. Activate the virtual environment:
+
+   ```powershell
+   cd .venv\Scripts
+   .\activate
+   cd ..\..
+   ```
+
+3. Install dependencies:
+
+   ```powershell
+   pip install -r requirements.txt
+   ```
+
+Note: Always ensure you're in the virtual environment when running scripts. You'll see `(.venv)` in your terminal prompt when it's active.
 
 ### Prerequisites
 
@@ -121,6 +101,52 @@ docker build -t epic-search-embedder \
 ```
 
 The preloaded model approach is recommended for production deployments as it eliminates the download delay when containers start.
+
+## Overview
+
+The Embedder performs the following operations:
+
+- Retrieves documents from S3 storage
+- Converts PDF content to searchable text
+- Splits documents into manageable chunks
+- Creates vector embeddings for each chunk
+- Stores embeddings in a vector database with rich metadata (including S3 keys)
+- Extracts and indexes document tags
+- Tracks processing status for each document
+
+## Environment Variables
+
+To run this project, you will need to add the following environment variables to your `.env` file:
+
+### Required Environment Variables
+
+- `DOCUMENT_SEARCH_URL` - Base URL for the EPIC.search API
+- `S3_ENDPOINT_URI` - Endpoint URL for S3 storage
+- `S3_BUCKET_NAME` - Name of the S3 bucket containing documents
+- `S3_ACCESS_KEY_ID` - Access key for S3
+- `S3_SECRET_ACCESS_KEY` - Secret key for S3
+- `S3_REGION` - AWS region for S3
+- `VECTOR_DB_URL` - Connection URL for the vector database
+- `LOGS_DATABASE_URL` - Connection URL for the processing logs database
+
+### Optional Environment Variables
+
+- `DOC_TAGS_TABLE_NAME` - Table name for the document chunks with tags index (default: "document_tags")
+- `DOC_CHUNKS_TABLE_NAME` - Table name for the untagged document chunks (default: "document_chunks")
+- `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
+- `FILES_CONCURRENCY_SIZE` - Number of files to process in parallel (default: 4)
+- `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
+- `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
+- `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
+
+### Model Configuration
+
+The embedder uses two separate models that can be configured independently:
+
+- `EMBEDDING_MODEL_NAME` - The model to use for document embedding (default: "all-mpnet-base-v2")
+- `KEYWORD_MODEL_NAME` - The model to use for keyword extraction (default: "all-mpnet-base-v2")
+
+A sample environment file is provided in `sample.env`. Copy this file to `.env` and update the values.
 
 ## Architecture
 
