@@ -69,18 +69,21 @@ sequenceDiagram
 ## Key Features
 
 ### Search Functionality
+
 - Real-time search results
 - Document preview cards
 - Pagination support
 - Filter capabilities
 
 ### Document Viewing
+
 - In-browser PDF viewing
 - Page navigation
 - Direct page access
 - Secure document access
 
 ### Authentication
+
 - KeyCloak integration
 - Role-based access control
 - Session management
@@ -96,6 +99,7 @@ The application communicates with the backend API using Axios. Key endpoints:
 ## State Management
 
 The application uses React hooks for state management:
+
 - `useSearch` - Manages search state and results
 - `usePlans` - Handles environmental assessment plans
 - `useUsers` - Manages user data and interactions

@@ -30,6 +30,7 @@ npm install
 ```
 
 3. Create environment configuration:
+
    - Copy `sample.env` to `.env`
    - Update the environment variables as needed:
 
