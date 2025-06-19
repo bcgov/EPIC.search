@@ -88,8 +88,8 @@ class DocumentDownload(Resource):
                 raise ResourceNotFoundError("Document not found or inaccessible")
                 
         except Exception as e:
-            current_app.logger.error(f"Document view error: {str(e)}")
-            error_response = {"error": str(e)}
+            current_app.logger.error(f"Document view error: {str(e)}")            
+            error_response = {"error": "An internal error has occurred. Please try again later."}
             return Response(
                 error_response,
                 status=HTTPStatus.INTERNAL_SERVER_ERROR,
