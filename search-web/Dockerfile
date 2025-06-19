@@ -23,7 +23,7 @@ COPY . ./
 RUN npm run build
 
 # Stage 1, based on Nginx, to have only the compiled app, ready for production with Nginx
-FROM nginx:1.24-alpine AS production-stage
+FROM nginx:1.25.3-alpine AS production-stage
 RUN mkdir /app
 
 # Install envsubst using alpine package manager

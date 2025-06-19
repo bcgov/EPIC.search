@@ -5,11 +5,14 @@ This document provides guidance on hosting language models for production use in
 ## Model Configuration
 
 ### Model Selection
+
 When deploying the search model, you can configure which model to use through Docker build arguments:
+
 - `MODEL_NAME`: The base model name (e.g., `qwen2.5`, `llama2`)
 - `MODEL_VERSION`: The model version/size (e.g., `0.5b`, `3b`, `7b`)
 
 Example build command:
+
 ```bash
 docker build -t search-model \
     --build-arg MODEL_NAME=qwen2.5 \

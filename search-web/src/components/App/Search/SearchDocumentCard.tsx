@@ -1,8 +1,9 @@
-import { Box, Button, Chip, Link, Typography } from "@mui/material";
+import { Box, Button, Chip, Typography } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { useState, useRef, useEffect } from "react";
 import { DescriptionTwoTone } from "@mui/icons-material";
+import PdfLink from "@/components/Shared/PdfLink";
 
 interface SearchDocumentCardProps {
   document: Document;
@@ -63,9 +64,13 @@ const SearchDocumentCard = ({
         overflow: "auto",
       }}
     >
-      <Link href="#" underline="none" sx={{ fontWeight: "bold" }}>
+      <PdfLink
+        s3Key={document.s3_key}
+        fileName={document.document_saved_name}
+        pageNumber={parseInt(document.page_number, 10)}
+      >
         {document.document_saved_name}
-      </Link>
+      </PdfLink>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
         <DescriptionTwoTone color="primary" sx={{ fontSize: 20 }} />
         <Chip

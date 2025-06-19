@@ -205,7 +205,7 @@ def load_data(s3_key, base_metadata):
     """
 ```
 
-The `load_data` function does the heavy lifting of document processing. It downloads a document from S3, extracts its text content, splits it into chunks, creates vector embeddings, and stores them in the vector database.
+The `load_data` function does the heavy lifting of document processing. It downloads a document from S3, extracts its text content, splits it into chunks, creates vector embeddings, and stores them in the vector database. Each chunk's metadata includes the S3 key, allowing direct access to the original document.
 
 ### Processing Logger (`log_processing_result`)
 
@@ -308,10 +308,52 @@ The system uses two types of databases:
 1. **PostgreSQL with pgvector** - Stores document chunks and their vector embeddings
    - `index_table` - Stores document tags with their embeddings
    - `chunk_table` - Stores document chunks with their embeddings
+   - Each record in both tables includes:
+     - `id` - Unique identifier
+     - `embedding` - Vector representation of the content
+     - `content` - The actual text content
+     - `metadata` - JSON object containing:
+       - `project_id` - ID of the project
+       - `document_id` - ID of the document
+       - `document_name` - Name of the document
+       - `page_number` - Page number in the document
+       - `s3_key` - S3 storage key for retrieving the original document
+       - `headings` - Array of heading context
+       - Additional metadata like project name, proponent name, etc.
    - **pgvector Extension Management**:
      - The system can automatically create the pgvector extension when needed
      - This behavior is configurable with the `AUTO_CREATE_PGVECTOR_EXTENSION` environment variable
      - When set to `False`, the system will check if the extension exists and throw an error if it doesn't
+
+   Example metadata structure:
+
+   ```json
+   {
+     "project_id": "650b5adc5d77c20022fb59fc",
+     "document_id": "65f3299917680c002237d67d",
+     "document_name": "20231228-CoyoteH-SummaryOfEngagement FINAL.pdf",
+     "page_number": "3",
+     "project_name": "Coyote Hydrogen Project",
+     "proponent_name": "Canada Fortescue Future Industries",
+     "s3_key": "path/to/document/in/s3",
+     "headings": ["", "", "WHAT IS THE COYOTE HYDROGEN PROJECT?", "", "", ""]
+   }
+   ```
+
+   You can query records by metadata fields using SQL, for example:
+
+   ```sql
+   -- Find all chunks from a specific document
+   SELECT content, metadata->>'page_number' as page 
+   FROM document_chunks 
+   WHERE metadata->>'document_id' = '65f3299917680c002237d67d'
+   ORDER BY (metadata->>'page_number')::int;
+
+   -- Find all chunks containing a specific s3_key
+   SELECT content, metadata 
+   FROM document_chunks 
+   WHERE metadata->>'s3_key' = 'path/to/document/in/s3';
+   ```
 
 2. **PostgreSQL** - Stores processing logs
    - `processing_logs` - Records which documents have been processed and their status

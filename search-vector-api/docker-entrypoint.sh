@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # Get the timeout from environment variable or default to 300 seconds
 TIMEOUT=${GUNICORN_TIMEOUT:-300}
 WORKERS=4

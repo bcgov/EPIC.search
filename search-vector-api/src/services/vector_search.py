@@ -261,9 +261,6 @@ def hybrid_search(
 def format_data(data):
     """Format the search results into a list of dictionaries.
     
-    Transforms the DataFrame results into a list of dictionaries with a consistent
-    structure for API responses.
-    
     Args:
         data (DataFrame): Search results data
         
@@ -284,6 +281,7 @@ def format_data(data):
         document_saved_name = metadata.get("document_name")
         page_number = metadata.get("page_number")
         proponent_name = metadata.get("proponent_name")
+        s3_key = metadata.get("s3_key")        
 
         # Append to a list or process as needed
         result.append(
@@ -296,6 +294,7 @@ def format_data(data):
                 "project_id": project_id,
                 "project_name": project_name,
                 "proponent_name": proponent_name,
+                "s3_key": s3_key,
                 "content": row[1],
             }
         )

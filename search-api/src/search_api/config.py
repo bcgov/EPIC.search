@@ -77,6 +77,13 @@ class _Config:  # pylint: disable=too-few-public-methods
     JWT_OIDC_CACHING_ENABLED = os.getenv("JWT_OIDC_CACHING_ENABLED", "True")
     JWT_OIDC_JWKS_CACHE_TIMEOUT = 300
 
+    # S3 Settings  
+    S3_BUCKET_NAME=os.getenv("S3_BUCKET_NAME", "")
+    S3_ACCESS_KEY_ID=os.getenv("S3_ACCESS_KEY_ID", "")
+    S3_SECRET_ACCESS_KEY=os.getenv("S3_SECRET_ACCESS_KEY", "")
+    S3_REGION=os.getenv("S3_REGION", "")
+    S3_ENDPOINT_URI=os.getenv("S3_ENDPOINT_URI", "s3")
+
     # Service account details
     KEYCLOAK_BASE_URL = os.getenv("KEYCLOAK_BASE_URL")
     KEYCLOAK_REALMNAME = os.getenv("KEYCLOAK_REALMNAME", "search")
