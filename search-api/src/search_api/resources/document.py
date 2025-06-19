@@ -1,16 +1,16 @@
 """API endpoints for managing document resources."""
 
-from http import HTTPStatus
-from flask import Response, current_app, send_file, request
-from flask_restx import Namespace, Resource
-import io
-from urllib.parse import unquote
+import hashlib
 
+from http import HTTPStatus
+from flask import Response, current_app, request
+from flask_restx import Namespace, Resource
+from urllib.parse import unquote
 from search_api.utils.util import cors_preflight
 from search_api.services.s3_reader import read_file_from_s3
 from search_api.exceptions import ResourceNotFoundError
 from search_api.schemas.document import DocumentDownloadSchema
-from search_api.auth import auth
+# from search_api.auth import auth
 from .apihelper import Api as ApiHelper
 
 API = Namespace("document", description="Endpoints for Document Operations")
@@ -62,12 +62,22 @@ class DocumentDownload(Resource):
                 # Get the file from S3
                 file_data = read_file_from_s3(s3_key)
                 
+                # Generate ETag from file content
+                file_hash = hashlib.md5(file_data).hexdigest()
+                
+                # Check if the client has a cached version
+                if_none_match = request.headers.get('If-None-Match')
+                if if_none_match and if_none_match == file_hash:
+                    return Response(status=304)  # Not Modified
+                
                 # Create response with the file data
                 response = Response(
                     file_data,
                     mimetype='application/pdf',
                     headers={
-                        'Content-Disposition': f'inline; filename="{file_name}"'
+                        'Content-Disposition': f'inline; filename="{file_name}"',
+                        'Cache-Control': 'public, max-age=3600, immutable',  # Cache for 1 hour
+                        'ETag': file_hash
                     }
                 )
                 

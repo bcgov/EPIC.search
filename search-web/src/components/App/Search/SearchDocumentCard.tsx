@@ -1,9 +1,9 @@
-import { Box, Button, Chip, Link, Typography } from "@mui/material";
+import { Box, Button, Chip, Typography } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { useState, useRef, useEffect } from "react";
 import { DescriptionTwoTone } from "@mui/icons-material";
-import { AppConfig } from '@/utils/config';
+import PdfLink from "@/components/Shared/PdfLink";
 
 interface SearchDocumentCardProps {
   document: Document;
@@ -64,49 +64,13 @@ const SearchDocumentCard = ({
         overflow: "auto",
       }}
     >
-      <Link 
-        href="#"        
-        underline="none" 
-        sx={{ fontWeight: "bold" }}
-        onClick={async (e) => {
-          e.preventDefault();
-          
-          try {
-            const encodedKey = encodeURIComponent(document.s3_key);
-            const encodedFileName = encodeURIComponent(document.document_saved_name);
-            const response = await fetch(
-              `${AppConfig.apiUrl}/document/view?key=${encodedKey}&file_name=${encodedFileName}`, 
-              {
-                method: 'GET',
-                headers: {
-                  'Accept': 'application/pdf',
-                }
-              }
-            );
-
-            if (!response.ok) {
-              throw new Error(`Server error: ${response.status} ${response.statusText}`);
-            }
-
-            const blob = await response.blob();
-            const pdfBlob = new Blob([blob], { type: 'application/pdf' });
-            const url = window.URL.createObjectURL(pdfBlob) + `#page=${document.page_number}`;
-            
-            // Open PDF directly in new tab
-            window.open(url, '_blank');
-            
-            // Clean up the blob URL after a delay
-            setTimeout(() => {
-              window.URL.revokeObjectURL(url.split('#')[0]);
-            }, 1000);
-
-          } catch (error) {
-            console.error('Error:', error);
-          }
-        }}
+      <PdfLink
+        s3Key={document.s3_key}
+        fileName={document.document_saved_name}
+        pageNumber={parseInt(document.page_number, 10)}
       >
         {document.document_saved_name}
-      </Link>
+      </PdfLink>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
         <DescriptionTwoTone color="primary" sx={{ fontSize: 20 }} />
         <Chip
