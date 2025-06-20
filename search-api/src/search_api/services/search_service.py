@@ -108,11 +108,27 @@ class SearchService:
 
         # Prep and query the LLM
         llm_start = time.time()
-        formatted_documents = synthesizer.format_documents_for_context(documents)
-        llm_prompt = synthesizer.create_prompt(query, formatted_documents)
-        llm_response = synthesizer.query_llm(llm_prompt)
-        response = synthesizer.format_llm_response(documents, llm_response)
-        metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
+        current_app.logger.info(f"Calling LLM synthesizer for query: {query}")
+        try:
+            formatted_documents = synthesizer.format_documents_for_context(documents)
+            llm_prompt = synthesizer.create_prompt(query, formatted_documents)
+            llm_response = synthesizer.query_llm(llm_prompt)
+            response = synthesizer.format_llm_response(documents, llm_response)
+            metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
+        except Exception as e:
+            # Log the error
+            current_app.logger.error(f"LLM error: {str(e)}")
+            metrics["llm_error"] = str(e)
+            metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
+            metrics["error_code"] = 429 if "rate limit" in str(e).lower() or "quota" in str(e).lower() else 500
+            # Return a graceful error response with documents and metrics
+            return {
+                "result": {
+                    "response": "An error occurred while processing your request with the LLM. Please try again later.",
+                    "documents": documents,
+                    "metrics": metrics,
+                }
+            }
 
         # Total execution time
         metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
