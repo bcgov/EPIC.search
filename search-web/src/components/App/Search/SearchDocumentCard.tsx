@@ -68,6 +68,8 @@ const SearchDocumentCard = ({
         s3Key={document.s3_key}
         fileName={document.document_saved_name}
         pageNumber={parseInt(document.page_number, 10)}
+        projectId={document.project_id}
+        documentName={document.document_name}
       >
         {document.document_saved_name}
       </PdfLink>
