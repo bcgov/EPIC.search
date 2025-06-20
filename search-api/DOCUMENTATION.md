@@ -110,10 +110,11 @@ Processes a search query and returns relevant documents with an LLM-generated su
         "project_id": "P-123",
         "project_name": "Example Project"
       }
-    ],
-    "metrics": {
+    ],    "metrics": {
       "start_time": "2025-05-15 14:30:45 UTC",
       "get_synthesizer_time": 12.34,
+      "llm_provider": "openai",
+      "llm_model": "gpt-41-nano",
       "search_time_ms": 234.56,
       "search_breakdown": { /* detailed search metrics */ },
       "llm_time_ms": 345.67,

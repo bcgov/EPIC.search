@@ -88,6 +88,13 @@ class SearchService:
         get_synthesizer_time = time.time()
         synthesizer = get_synthesizer()
         metrics["get_synthesizer_time"] = round((time.time() - get_synthesizer_time) * 1000, 2)
+        
+        # Add LLM provider and model information
+        metrics["llm_provider"] = os.getenv("LLM_PROVIDER", "ollama")
+        if metrics["llm_provider"] == "openai":
+            metrics["llm_model"] = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
+        else:
+            metrics["llm_model"] = os.getenv("LLM_MODEL", "")
  
         # Perform the vector DB search by calling the vector search api
         search_start = time.time()

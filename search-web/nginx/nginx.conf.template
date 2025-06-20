@@ -19,12 +19,31 @@ http {
   server_tokens off;
   underscores_in_headers on;
 
+  # Extract hostname from PROXY_API_URL
+  map $PROXY_API_URL $api_host {
+      "~^https?://([^/]+)" $1;
+      default "";
+  }
+
   # Use a w3c standard log format
   log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
                       '$status $body_bytes_sent "$http_referer" '
                       '"$http_user_agent" "$http_x_forwarded_for"';
-
   access_log  /var/log/nginx/access.log  main;
+
+  # Add more detailed logging format
+  log_format debug_log '$remote_addr - $remote_user [$time_local] '
+                        '"$request" $status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for" '
+                        'upstream_addr="$upstream_addr" '
+                        'upstream_status="$upstream_status" '
+                        'upstream_response_time="$upstream_response_time" '
+                        'proxy_host="$proxy_host" '
+                        'request_time="$request_time" '
+                        'proxy_pass_url="${PROXY_API_URL}"';
+
+  resolver 127.0.0.11 8.8.8.8 valid=30s;
+  resolver_timeout 5s;
 
   server {
 
@@ -54,25 +73,42 @@ http {
     location / {
       root   /usr/share/nginx/html;
       index  index.html index.htm;
-      try_files $uri $uri/ /index.html;
-    }
-
-    # Proxy configuration for API requests
+      try_files $uri $uri/ /index.html;    }    # Proxy configuration for API requests
     location /api/ {
+      # Remove the trailing slash from proxy_pass to avoid double slashes
       proxy_pass ${PROXY_API_URL};
+      
+      # Use the extracted hostname
+      proxy_set_header Host $api_host;
+      
+      # Remove the duplicate Host header
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection 'upgrade';
-      proxy_set_header Host $proxy_host;
-      proxy_cache_bypass $http_upgrade;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_ssl_verify off;
-      proxy_ssl_session_reuse on;
-      proxy_connect_timeout 300s;
-      proxy_send_timeout 300s;
-      proxy_read_timeout 300s;
+      
+      # Add Content-Type header if not present
+      proxy_set_header Content-Type application/json;
+      
+      # Add error handling
+      proxy_intercept_errors on;
+      error_page 502 503 504 = @fallback;
+
+      # Add debug headers to response
+      add_header X-Debug-Proxy-Pass ${PROXY_API_URL} always;
+      add_header X-Debug-Original-URI $request_uri always;
+      add_header X-Debug-Host $host always;
+      add_header X-Debug-Proxy-Host $proxy_host always;
+      add_header X-Debug-Request-Body $request_body always;
+      add_header X-Debug-Content-Type $http_content_type always;
+
+      # Change access log to use debug format for this location
+      access_log /dev/stdout debug_log;
+    }
+
+    # Fallback location for when the API is not available
+    location @fallback {
+      return 502 '{"error": "API server is not available"}';
+      add_header Content-Type application/json;
     }
 
     # Error page configuration

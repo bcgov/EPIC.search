@@ -27,21 +27,32 @@ FROM nginx:1.25.3-alpine AS production-stage
 RUN mkdir /app
 
 # Install envsubst using alpine package manager
-RUN apk add --no-cache gettext
+RUN apk add --no-cache gettext bash
 
 # Add non-root user for better security
-RUN adduser -D -u 1001 nginx-user && \
-    chown -R nginx-user:nginx-user /app && \
-    chown -R nginx-user:nginx-user /var/cache/nginx && \
-    chown -R nginx-user:nginx-user /var/log/nginx && \
-    chown -R nginx-user:nginx-user /etc/nginx/conf.d
+RUN adduser -D -u 1001 nginx-user
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 COPY /nginx/nginx.conf.template /etc/nginx/nginx.conf.template
+COPY /nginx/env.sh /docker-entrypoint.d/env.sh
+
+# Set up permissions
+RUN chmod +x /docker-entrypoint.d/env.sh && \
+    chown -R nginx-user:nginx-user /app && \
+    chown -R nginx-user:nginx-user /var/cache/nginx && \
+    chown -R nginx-user:nginx-user /var/log/nginx && \
+    chown -R nginx-user:nginx-user /etc/nginx/conf.d && \
+    chown -R nginx-user:nginx-user /usr/share/nginx/html && \
+    chmod -R 755 /usr/share/nginx/html
+
+# Create config.js file with proper permissions
+RUN touch /usr/share/nginx/html/config.js && \
+    chown nginx-user:nginx-user /usr/share/nginx/html/config.js && \
+    chmod 644 /usr/share/nginx/html/config.js
 
 # Switch to non-root user
 USER nginx-user
 
 EXPOSE 8080
 
-CMD ["/bin/sh", "-c", "envsubst '$$PROXY_API_URL' < /etc/nginx/nginx.conf.template > /tmp/nginx.conf && nginx -c /tmp/nginx.conf -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", "/docker-entrypoint.d/env.sh && envsubst '$$PROXY_API_URL' < /etc/nginx/nginx.conf.template > /tmp/nginx.conf && nginx -c /tmp/nginx.conf -g 'daemon off;'"]
