@@ -149,6 +149,15 @@ class SearchSettings:
             int: The batch size for the re-ranker (default: 8)
         """
         return self._config.get("RERANKER_BATCH_SIZE", 8)
+    
+    @property
+    def min_relevance_score(self) -> float:
+        """Get the minimum relevance score threshold for re-ranked results.
+        
+        Returns:
+            float: The minimum relevance score (default: 0.0)
+        """
+        return float(self._config.get("MIN_RELEVANCE_SCORE", 0.0))
 
 
 class ModelSettings:
@@ -242,6 +251,9 @@ class _Config:  # pylint: disable=too-few-public-methods
     CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-mpnet-base-v2")
     KEYWORD_MODEL_NAME = os.getenv("KEYWORD_MODEL_NAME", "all-mpnet-base-v2")
+
+    # Minimum relevance score for re-ranked results
+    MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "0.0"))
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods

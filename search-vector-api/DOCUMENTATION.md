@@ -30,6 +30,7 @@ The application uses strongly-typed configuration classes for different aspects 
    - `semantic_fetch_count`: Number of results to fetch in semantic search
    - `top_record_count`: Number of top records to return after re-ranking
    - `reranker_batch_size`: Batch size for processing document re-ranking
+   - `min_relevance_score`: Minimum relevance score for re-ranked results (default: 0.0)
 
 3. **ModelSettings**: Configuration related to machine learning models
    - `cross_encoder_model`: Model name for the cross-encoder re-ranker
@@ -154,7 +155,8 @@ Response:
         "project_name": "Climate Research Initiative",
         "proponent_name": "Environmental Research Group",
         "s3_key": "documents/project-123/climate_report_2023.pdf",
-        "content": "Document content extract with relevant information..."
+        "content": "Document content extract with relevant information...",
+        "relevance_score": 0.85
       }
     ],
     "search_metrics": {
@@ -200,6 +202,7 @@ The configuration variables are organized into logical groups:
 | SEMANTIC_FETCH_COUNT | Number of results to fetch in semantic search | 100 |
 | TOP_RECORD_COUNT | Number of top records to return after re-ranking | 10 |
 | RERANKER_BATCH_SIZE | Batch size for the cross-encoder re-ranker | 8 |
+| MIN_RELEVANCE_SCORE | Minimum relevance score for re-ranked results | 0.0 |
 
 #### ML Model Configuration
 

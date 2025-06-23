@@ -57,6 +57,7 @@ The application uses typed configuration classes for different aspects of the sy
 * `SEMANTIC_FETCH_COUNT`: Number of results to fetch in semantic search (default: 100)
 * `TOP_RECORD_COUNT`: Number of top records to return after re-ranking (default: 10)
 * `RERANKER_BATCH_SIZE`: Batch size for the cross-encoder re-ranker (default: 8)
+* `MIN_RELEVANCE_SCORE`: Minimum relevance score for re-ranked results (default: 0.0)
 
 #### ML Model Configuration
 
@@ -162,3 +163,9 @@ The [`launch.json`](.vscode/launch.json) is already configured with a launch tas
 ## License
 
 This project is licensed under the Apache License 2.0 - see the LICENSE file for details.
+
+## API Response Changes
+
+Each document in the API response now includes a `relevance_score` field, which represents the cross-encoder's confidence in the document's relevance to the query. This allows clients to further filter or sort results as needed.
+
+**relevance_score**: Each document in the API response includes a `relevance_score` field. This is a float value produced by the cross-encoder model, representing the model's confidence in the document's relevance to the query. Higher values indicate greater relevance. The score is used for both filtering (via the `MIN_RELEVANCE_SCORE` setting) and sorting results. The exact range and interpretation may depend on the model used, but typically higher is better.

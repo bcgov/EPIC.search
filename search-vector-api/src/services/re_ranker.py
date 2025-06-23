@@ -20,7 +20,6 @@ import pandas as pd
 from flask import current_app
 from sentence_transformers import CrossEncoder
 from functools import lru_cache
-from typing import List, Dict, Any
 
 @lru_cache(maxsize=1)
 def get_cross_encoder():
@@ -35,7 +34,7 @@ def get_cross_encoder():
     model = current_app.model_settings.cross_encoder_model
     return CrossEncoder(model)
 
-def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int = 32) -> pd.DataFrame:
+def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int = 32, min_relevance_score: float = None) -> pd.DataFrame:
     """Re-rank search results using a cross-encoder model for improved relevance.
     
     This function takes search results from the initial keyword and vector search
@@ -47,6 +46,7 @@ def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int 
         items (pd.DataFrame): DataFrame containing the search results to re-rank
         top_n (int): Number of top results to return after re-ranking
         batch_size (int): Batch size for processing document pairs (default: 32)
+        min_relevance_score (float, optional): Minimum relevance score threshold for results. If None, uses config/env value.
         
     Returns:
         pd.DataFrame: A DataFrame with the top N re-ranked results sorted by relevance score
@@ -60,6 +60,10 @@ def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int 
     
     documents = items["content"].tolist()
     pairs = [[query, doc] for doc in documents]
+    # The relevance score is a float value output by the cross-encoder model's predict method.
+    # It represents the model's confidence in the relevance of each document to the query.
+    # Higher scores indicate greater relevance. The score's range and interpretation depend on the model,
+    # but typically higher is better. This value is used for filtering and sorting results.
     scores = model.predict(pairs, batch_size=batch_size)
     reranked_df = pd.DataFrame(
         [
@@ -74,6 +78,13 @@ def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int 
         ]
     )
     sorted_df = reranked_df.sort_values("relevance_score", ascending=False)
-    top_n_records = sorted_df.head(int(top_n))
+
+    # Determine min_relevance_score from config/env if not provided
+    if min_relevance_score is None:
+        min_relevance_score = float(getattr(current_app.config, "MIN_RELEVANCE_SCORE", 0.0))
+
+    # Filter by min_relevance_score
+    filtered_df = sorted_df[sorted_df["relevance_score"] >= min_relevance_score]
+    top_n_records = filtered_df.head(int(top_n))
 
     return top_n_records

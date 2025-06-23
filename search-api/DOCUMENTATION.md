@@ -110,10 +110,11 @@ Processes a search query and returns relevant documents with an LLM-generated su
         "project_id": "P-123",
         "project_name": "Example Project"
       }
-    ],
-    "metrics": {
+    ],    "metrics": {
       "start_time": "2025-05-15 14:30:45 UTC",
       "get_synthesizer_time": 12.34,
+      "llm_provider": "openai",
+      "llm_model": "gpt-41-nano",
       "search_time_ms": 234.56,
       "search_breakdown": { /* detailed search metrics */ },
       "llm_time_ms": 345.67,
@@ -155,6 +156,7 @@ The service is configured to access Azure OpenAI through a private endpoint, ens
 | LLM_TEMPERATURE | Temperature parameter for LLM generation | 0.3 |
 | LLM_MAX_TOKENS | Maximum tokens for LLM response | 150 |
 | LLM_MAX_CONTEXT_LENGTH | Maximum context length for LLM | 4096 |
+| LLM_SYSTEM_MESSAGE | System prompt for the LLM (system message for Azure OpenAI, controls LLM behavior and tone) | 'You are an AI assistant for employees in FAQ system. Your task is to synthesize coherent and helpful answers based on the given question and relevant context from a knowledge database.' |
 | S3_BUCKET | Name of the S3 bucket containing documents |  |
 | S3_ACCESS_KEY_ID | AWS access key ID for S3 access |  |
 | S3_SECRET_ACCESS_KEY | AWS secret access key for S3 access |  |
