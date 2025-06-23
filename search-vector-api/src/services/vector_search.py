@@ -296,6 +296,7 @@ def format_data(data):
                 "proponent_name": proponent_name,
                 "s3_key": s3_key,
                 "content": row[1],
+                "relevance_score": float(row[3]) if len(row) > 3 else None,
             }
         )
     return result
