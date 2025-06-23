@@ -35,6 +35,7 @@ class AzureOpenAISynthesizer(LLMSynthesizer):
             - AZURE_OPENAI_API_VERSION: API version (default: 2024-02-15-preview)
             - LLM_TEMPERATURE: Temperature setting (default: 0.3)
             - LLM_MAX_TOKENS: Maximum tokens in response (default: 150)
+            - LLM_SYSTEM_MESSAGE: System prompt for the LLM (default: 'You are an AI assistant for employees in FAQ system. Your task is to synthesize coherent and helpful answers based on the given question and relevant context from a knowledge database.')
         """
         api_key = os.environ.get("AZURE_OPENAI_API_KEY")
         if not api_key:
@@ -52,6 +53,12 @@ class AzureOpenAISynthesizer(LLMSynthesizer):
         max_tokens = int(os.environ.get("LLM_MAX_TOKENS", 150))
         
         api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+
+        # Get system message from environment or use default
+        default_system_message = "You are an AI assistant for employees in FAQ system. Your task is to synthesize coherent and helpful answers based on the given question and relevant context from a knowledge database."
+        system_message = os.environ.get("LLM_SYSTEM_MESSAGE", default_system_message)
+        if not system_message.strip():
+            system_message = default_system_message
         
         try:
             client = AzureOpenAI(
@@ -61,7 +68,7 @@ class AzureOpenAISynthesizer(LLMSynthesizer):
             )
 
             messages = [
-                {"role": "system", "content": "You are an AI assistant for employees in FAQ system. Your task is to synthesize coherent and helpful answers based on the given question and relevant context from a knowledge database."},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
             ]            
 
