@@ -6,6 +6,10 @@ from src.models import init_db
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
+import tempfile
+import uuid
+import shutil
+import os
 
 """
 EPIC.search Embedder - Main Entry Point
@@ -65,7 +69,14 @@ def is_document_already_processed(doc_id, completed_docs, incomplete_docs):
             
     return False, None
 
-def process_projects(project_id=None):
+def get_embedder_temp_dir():
+    temp_root = tempfile.gettempdir()
+    temp_guid = str(uuid.uuid4())
+    temp_dir = os.path.join(temp_root, f"epic_embedder_{temp_guid}")
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
+
+def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
     """
     Process documents for one or all projects.
     
@@ -78,6 +89,8 @@ def process_projects(project_id=None):
     
     Args:
         project_id (str, optional): Process a specific project. If None, all projects are processed.
+        shallow_mode (bool, optional): If True, only process up to shallow_limit successful documents per project.
+        shallow_limit (int, optional): The maximum number of successful documents to process per project in shallow mode.
         
     Returns:
         dict: A dictionary containing the processing results, including:
@@ -109,6 +122,7 @@ def process_projects(project_id=None):
         return {"message": "No projects returned by API."}
 
     results = []
+    embedder_temp_dir = get_embedder_temp_dir()
     for project in projects:
         project_id = project["_id"]
         project_name = project["name"]
@@ -116,6 +130,9 @@ def process_projects(project_id=None):
         print(
             f"\n=== Retrieving documents for project: {project_name} ({project_id}) ==="
         )
+
+        if shallow_mode:
+            print(f"[SHALLOW MODE] Will process up to {shallow_limit} successful documents for this project.")
 
         project_start = datetime.now()
 
@@ -128,7 +145,13 @@ def process_projects(project_id=None):
         already_completed = load_completed_files(project_id)
         already_incomplete = load_incomplete_files(project_id)
 
+        # For shallow mode, count how many have been processed successfully
+        shallow_success_count = len(already_completed) if shallow_mode else 0
+
         for file_page_number in range(file_total_pages):
+            if shallow_mode and shallow_success_count >= shallow_limit:
+                print(f"[SHALLOW MODE] {shallow_success_count} documents already processed for {project_name}, skipping rest.")
+                break
             files_data = get_files_for_project(project_id, file_page_number, page_size)
 
             if not files_data:
@@ -137,6 +160,7 @@ def process_projects(project_id=None):
 
             s3_file_keys = []
             metadata_list = []
+            docs_to_process = []
 
             for doc in files_data:
                 doc_id = doc["_id"]
@@ -144,24 +168,24 @@ def process_projects(project_id=None):
                 is_processed, status = is_document_already_processed(
                     doc_id, already_completed, already_incomplete
                 )
-                
                 if is_processed:
                     print(f"Skipping already processed ({status}) document: {doc_name}")
                     continue
-
                 s3_key = doc.get("internalURL")
                 if not s3_key:
                     continue
-
                 doc_meta = format_metadata(project, doc)
                 s3_file_keys.append(s3_key)
                 metadata_list.append(doc_meta)
+                docs_to_process.append(doc)
+                if shallow_mode and (shallow_success_count + len(s3_file_keys)) >= shallow_limit:
+                    # Only add up to the shallow limit
+                    break
 
             if s3_file_keys:
                 print(
                     f"Found {len(s3_file_keys)} file(s) for {project_name}. Processing..."
                 )
-                # Get files concurrency size from settings and cast to int
                 files_concurrency_size = int(
                     settings.multi_processing_settings.files_concurrency_size
                 )
@@ -170,7 +194,13 @@ def process_projects(project_id=None):
                     s3_file_keys,
                     metadata_list,
                     batch_size=files_concurrency_size,
+                    temp_dir=embedder_temp_dir,  # Pass temp dir to process_files
                 )
+                if shallow_mode:
+                    shallow_success_count += len(s3_file_keys)
+                    if shallow_success_count >= shallow_limit:
+                        print(f"[SHALLOW MODE] Reached {shallow_success_count} processed documents for {project_name} (limit: {shallow_limit}).")
+                        break
 
         project_end = datetime.now()
         duration = project_end - project_start
@@ -181,6 +211,14 @@ def process_projects(project_id=None):
         results.append(
             {"project_name": project_name, "duration_seconds": duration_in_s}
         )
+
+    # After all processing, clean up the temp folder
+    print(f"Cleaning up embedder temp directory: {embedder_temp_dir}")
+    try:
+        shutil.rmtree(embedder_temp_dir)
+        print("Temp directory cleaned up.")
+    except Exception as cleanup_err:
+        print(f"[WARN] Could not delete temp directory {embedder_temp_dir}: {cleanup_err}")
 
     return {"message": "Processing completed", "results": results}
 
@@ -195,16 +233,27 @@ if __name__ == "__main__":
         parser.add_argument(
             "--project_id", type=str, help="The ID of the project to process"
         )
+        parser.add_argument(
+            "--shallow", "-s", type=int, metavar="LIMIT", help="Enable shallow mode: process up to LIMIT successful documents per project and then move to the next project. Example: --shallow 5"
+        )
         args = parser.parse_args()
+
+        # Custom check for missing shallow limit value
+        import sys
+        if any(arg in sys.argv for arg in ["--shallow", "-s"]) and args.shallow is None:
+            parser.error("Argument --shallow/-s requires an integer value. Example: --shallow 5")
+
+        shallow_mode = args.shallow is not None
+        shallow_limit = args.shallow if shallow_mode else None
 
         if args.project_id:
             # Run immediately if a project_id is provided
-            result = process_projects(args.project_id)
+            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit)
             print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects()
+            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit)
             print(result)
     finally:
         pass

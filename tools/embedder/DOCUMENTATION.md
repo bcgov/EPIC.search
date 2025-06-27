@@ -181,31 +181,71 @@ def process_files(project_id, file_keys, metadata_list, batch_size=4):
 
 The `process_files` function processes a batch of files in parallel using Python's `ProcessPoolExecutor`. It submits each file for processing and handles the results, logging whether the processing was successful or not.
 
-### Document Loader (`load_data`)
+### Document Loader (`loader.py`)
+
+The loader service is responsible for all document-level processing, including validation, extraction, chunking, embedding, and tagging. The logic is now modularized for clarity and maintainability.
+
+#### PDF Validation
 
 ```python
-def load_data(s3_key, base_metadata):
+def validate_pdf_file(temp_path, s3_key):
     """
-    Load and process a document from S3, embedding its content into the vector store.
-    
-    This function:
-    1. Downloads the document from S3
-    2. Converts PDF to markdown
-    3. Splits markdown into chunks
-    4. Creates embeddings for each chunk
-    5. Stores chunks and embeddings in the vector store
-    6. Extracts and stores tags from the document
-    
-    Args:
-        s3_key (str): The S3 key of the file to process
-        base_metadata (dict): Base metadata to attach to all chunks
-    
-    Returns:
-        str: The S3 key of the processed file if successful
+    Validate the PDF file for format and extractable text.
+    Returns (is_valid, reason) where is_valid is True if the file should be processed.
     """
 ```
 
-The `load_data` function does the heavy lifting of document processing. It downloads a document from S3, extracts its text content, splits it into chunks, creates vector embeddings, and stores them in the vector database. Each chunk's metadata includes the S3 key, allowing direct access to the original document.
+- Checks PDF version and first page text to skip likely scanned/image-based PDFs.
+
+#### Markdown Extraction
+
+```python
+def extract_markdown_pages(temp_path):
+    """
+    Extract markdown pages from a PDF file using pymupdf4llm.
+    """
+```
+
+- Converts PDF to markdown, splitting into pages.
+
+#### Chunking and Embedding
+
+```python
+def chunk_and_embed_pages(pages, base_metadata, s3_key):
+    """
+    Chunk markdown pages and generate embeddings.
+    """
+```
+
+- Splits markdown into chunks, generates embeddings, and prepares records for storage.
+
+#### Tag Extraction
+
+```python
+def extract_and_aggregate_tags(data_to_upsert):
+    """
+    Extract and aggregate tags from embedded chunks.
+    """
+```
+
+- Extracts tags from embedded chunks and aggregates them for storage.
+
+#### Orchestrator
+
+```python
+def load_data(s3_key, base_metadata, temp_dir=None):
+    """
+    Orchestrates the document processing pipeline:
+    1. Downloads the document from S3
+    2. Validates the PDF
+    3. Converts PDF to markdown
+    4. Chunks and embeds text
+    5. Extracts and stores tags
+    6. Cleans up temp files
+    """
+```
+
+- Calls the above helpers in sequence, handles errors, and ensures temp file cleanup.
 
 ### Processing Logger (`log_processing_result`)
 
