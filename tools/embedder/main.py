@@ -2,7 +2,6 @@ import argparse
 import logging
 from datetime import datetime
 from src.services.logger import load_completed_files, load_incomplete_files
-from src.models import init_db
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
@@ -32,6 +31,7 @@ from src.services.api_utils import (
 )
 from src.services.processor import process_files
 from src.services.data_formatter import format_metadata
+from src.services.project_utils import upsert_project
 
 # Initialize settings at module level
 settings = get_settings()
@@ -99,7 +99,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
                 - project_name: Name of the processed project
                 - duration_seconds: Time taken to process the project
     """
-    init_db()
+    
     init_vec_db()
 
     if project_id:
@@ -126,6 +126,9 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
     for project in projects:
         project_id = project["_id"]
         project_name = project["name"]
+
+        # Ensure project record exists before processing documents
+        upsert_project(project_id, project_name)
 
         print(
             f"\n=== Retrieving documents for project: {project_name} ({project_id}) ==="

@@ -6,6 +6,7 @@ from datetime import datetime
 def log_processing_result(project_id, document_id, status):
     """
     Log the result of processing a document to the database.
+    If a record for the same project_id and document_id exists, update it; otherwise, insert a new record.
     
     Args:
         project_id (str): The ID of the project the document belongs to
@@ -16,13 +17,18 @@ def log_processing_result(project_id, document_id, status):
         None: The result is stored in the database
     """
     session = get_session()
-    record = ProcessingLog(
-        project_id=project_id,
-        document_id=document_id,
-        status=status,
-        processed_at=datetime.utcnow()
-    )
-    session.add(record)
+    record = session.query(ProcessingLog).filter_by(project_id=project_id, document_id=document_id).first()
+    if record:
+        record.status = status
+        record.processed_at = datetime.utcnow()
+    else:
+        record = ProcessingLog(
+            project_id=project_id,
+            document_id=document_id,
+            status=status,
+            processed_at=datetime.utcnow()
+        )
+        session.add(record)
     session.commit()
 
 def get_processing_logs(project_id=None):

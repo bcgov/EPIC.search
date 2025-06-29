@@ -2,14 +2,14 @@
 
 ## System Architecture
 
-The EPIC.search Embedder is a document processing system that converts PDF documents into vector embeddings stored in a database for semantic search capabilities. The system follows a modular architecture with the following key components:
+The EPIC.search Embedder is a robust, production-grade document processing pipeline that converts PDF documents into vector embeddings for semantic search and analytics. The system is modular, scalable, and designed for extensibility and maintainability.
 
 ### Core Components
 
-1. **Main Processor (`main.py`)** - Entry point that handles project and document processing workflow
-2. **Processor Service (`processor.py`)** - Manages batch processing of files with parallel execution
-3. **Loader Service (`loader.py`)** - Handles document loading, text extraction, and vector embedding
-4. **Logger Service (`logger.py`)** - Tracks document processing status in a database
+1. **Main Processor (`main.py`)** - Entry point for project and document processing workflow.
+2. **Processor Service (`processor.py`)** - Manages batch processing of files with parallel execution.
+3. **Loader Service (`loader.py`)** - Handles document loading, validation, text extraction, chunking, embedding, and tag extraction.
+4. **Logger Service (`logger.py`)** - Tracks document processing status and metrics in the unified database.
 
 ### System Flow Diagram
 
@@ -71,386 +71,109 @@ graph TB
 
 ### Data Flow
 
-1. Document IDs are fetched from the API for a specific project
-2. Document processing status is checked to avoid re-processing
-3. Documents are processed in batches using parallel execution
+1. Document IDs are fetched from the API for a specific project.
+2. Document processing status is checked to avoid re-processing.
+3. Documents are processed in batches using parallel execution.
 4. Each document is:
    - Downloaded from S3
    - Converted from PDF to markdown
    - Chunked into smaller text segments
-   - Embedded using a vector model
-   - Stored in a vector database
-   - Tagged and indexed for search
+   - Embedded using a configurable vector model
+   - Tagged/keyworded using parallelized KeyBERT extraction
+   - Stored in a unified PostgreSQL+pgvector database
+   - Metrics and logs are collected and stored as JSONB
 
 ## NLP Model Architecture
 
-The system uses two distinct models for different NLP tasks:
+The system uses two distinct models for different NLP tasks, both configurable and independently scalable:
 
 ### 1. Document Embedding Model
 
-```python
-def get_embedding(texts):
-    """
-    Generate vector embeddings for one or more text inputs using the embedding model.
-    """
-    global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
-        model_name = settings.embedding_model_settings.model_name
-        _model = SentenceTransformer(model_name)
-    # ...
-```
+- Configured via `EMBEDDING_MODEL_NAME` and `EMBEDDING_DIMENSIONS` in settings.
+- Used to generate vector embeddings for document chunks.
+- Embedding dimensions are fully configurable (default: 768).
+- Embeddings are stored in the vector database for semantic search.
 
-This model (configured via `EMBEDDING_MODEL_NAME`) is specifically used to generate vector embeddings for document chunks. These embeddings are stored in the vector database and used for semantic search queries. The model dimensions should match the `EMBEDDING_DIMENSIONS` setting.
+### 2. Keyword/Tag Extraction Model
 
-### 2. Keyword Extraction Model
+- Configured via `KEYWORD_MODEL_NAME` in settings.
+- Uses KeyBERT with a transformer backend for robust keyword extraction.
+- Extraction is parallelized per chunk for speed and reliability.
+- Extracted tags/keywords are stored and indexed for search and analytics.
 
-```python
-def get_keywords(text):
-    """
-    Extract the most relevant keywords from the input text using the keyword model.
-    """
-    global _keymodel
-    if _keymodel is None:
-        from keybert import KeyBERT
-        from sentence_transformers import SentenceTransformer
-        
-        model_name = settings.keyword_extraction_settings.model_name
-        sentence_model = SentenceTransformer(model_name)
-        _keymodel = KeyBERT(model=sentence_model)
-    # ...
-```
+### Model Independence & Lazy Loading
 
-This model (configured via `KEYWORD_MODEL_NAME`) is used to extract relevant keywords from document chunks. These keywords are used to enhance search capabilities through tag-based filtering and relevance boosting.
+- Both models are loaded only when first used (lazy loading), improving startup time and resource usage.
+- Models can be configured independently for task-specific optimization and future extensibility.
 
-### Model Independence
+## Unified Database Structure
 
-While both models default to using the same underlying transformer ('all-mpnet-base-v2'), they are implemented as separate instances with their own configuration, allowing for:
+All vector data (chunks, documents, projects, logs, metrics) are stored in a single PostgreSQL database with the pgvector extension. No legacy table name configs or separate logs DB are used.
 
-1. Task-specific optimization (different models can be used for each task)
-2. Independent scaling (models can be loaded/unloaded based on resource constraints)
-3. Future extensibility (specialized models can be integrated for each task)
+- **Tables:**
+  - `document_chunks` (vector embeddings, chunk content, metadata)
+  - `document_tags` (tag/keyword embeddings, metadata)
+  - `projects` (project metadata)
+  - `documents` (document metadata)
+  - `processing_logs` (status, metrics, JSONB)
 
-### Lazy Loading Pattern
+- **Embedding Dimensions:**
+  - Set via `EMBEDDING_DIMENSIONS` in `settings.py` (default: 768)
+  - All vector columns use this dimension
 
-Both models implement a lazy loading pattern, initializing only when first used. This improves application startup time and reduces resource usage when a particular function is not needed.
+- **Indexing:**
+  - HNSW vector indexes are created via raw SQL after table creation for fast semantic search
 
-## Key Components
+- **Metrics:**
+  - Structured metrics (timings, counts, errors, etc.) are collected and stored as JSONB in the logs table
 
-### Project Processor (`process_projects`)
-
-```python
-def process_projects(project_id=None):
-    """
-    Process documents for one or all projects.
-    
-    This function:
-    1. Initializes the database connections
-    2. Fetches project information from the API
-    3. For each project, retrieves its documents
-    4. Filters out already processed documents
-    5. Processes new documents in batches
-    
-    Args:
-        project_id (str, optional): Process a specific project. If None, all projects are processed.
-        
-    Returns:
-        dict: A dictionary containing the processing results
-    """
-```
-
-The `process_projects` function is the main orchestrator of the document processing workflow. It can process either a single project (if `project_id` is provided) or all available projects. It manages pagination for both projects and files, avoiding re-processing of files that have already been processed.
-
-### File Processor (`process_files`)
-
-```python
-def process_files(project_id, file_keys, metadata_list, batch_size=4):
-    """
-    Process a batch of files by loading and embedding their contents.
-    
-    This function processes files in batches using a ProcessPoolExecutor for parallel execution.
-    For each file, it attempts to load and process the data, then logs the result.
-    
-    Args:
-        project_id (str): The ID of the project these files belong to
-        file_keys (list): List of file keys or paths to be processed
-        metadata_list (list): List of metadata dictionaries corresponding to each file
-        batch_size (int, optional): Number of files to process in parallel. Defaults to 4.
-    """
-```
-
-The `process_files` function processes a batch of files in parallel using Python's `ProcessPoolExecutor`. It submits each file for processing and handles the results, logging whether the processing was successful or not.
-
-### Document Loader (`loader.py`)
-
-The loader service is responsible for all document-level processing, including validation, extraction, chunking, embedding, and tagging. The logic is now modularized for clarity and maintainability.
-
-#### PDF Validation
-
-```python
-def validate_pdf_file(temp_path, s3_key):
-    """
-    Validate the PDF file for format and extractable text.
-    Returns (is_valid, reason) where is_valid is True if the file should be processed.
-    """
-```
-
-- Checks PDF version and first page text to skip likely scanned/image-based PDFs.
-
-#### Markdown Extraction
-
-```python
-def extract_markdown_pages(temp_path):
-    """
-    Extract markdown pages from a PDF file using pymupdf4llm.
-    """
-```
-
-- Converts PDF to markdown, splitting into pages.
-
-#### Chunking and Embedding
-
-```python
-def chunk_and_embed_pages(pages, base_metadata, s3_key):
-    """
-    Chunk markdown pages and generate embeddings.
-    """
-```
-
-- Splits markdown into chunks, generates embeddings, and prepares records for storage.
-
-#### Tag Extraction
-
-```python
-def extract_and_aggregate_tags(data_to_upsert):
-    """
-    Extract and aggregate tags from embedded chunks.
-    """
-```
-
-- Extracts tags from embedded chunks and aggregates them for storage.
-
-#### Orchestrator
-
-```python
-def load_data(s3_key, base_metadata, temp_dir=None):
-    """
-    Orchestrates the document processing pipeline:
-    1. Downloads the document from S3
-    2. Validates the PDF
-    3. Converts PDF to markdown
-    4. Chunks and embeds text
-    5. Extracts and stores tags
-    6. Cleans up temp files
-    """
-```
-
-- Calls the above helpers in sequence, handles errors, and ensures temp file cleanup.
-
-### Processing Logger (`log_processing_result`)
-
-```python
-def log_processing_result(project_id, document_id, status):
-    """
-    Log the result of processing a document to the database.
-    
-    Args:
-        project_id (str): The ID of the project the document belongs to
-        document_id (str): The ID of the document that was processed
-        status (str): The status of the processing operation ('success' or 'failure')
-    """
-```
-
-The `log_processing_result` function records the result of document processing in a database, which is later used to avoid re-processing documents that have already been processed.
-
-## Docker Deployment
-
-The Embedder can be deployed as a Docker container with options for optimizing startup time and performance. The system supports two different deployment strategies:
-
-### Docker Build Options
-
-#### 1. Standard Build (Runtime Model Loading)
-
-In this approach, the Docker image is built without preloading any NLP models:
-
-```bash
-docker build -t epic-search-embedder .
-```
-
-With this build, the container will:
-
-- Download required embedding models at runtime
-- Use the environment variables to determine which models to download
-- Experience a delay during the first processing run while models are downloaded
-
-This approach is suitable for development environments or where container image size is a concern.
-
-#### 2. Preloaded Models Build
-
-In this approach, the specified NLP models are downloaded and cached during the Docker image build:
-
-```bash
-# Preload both models with different transformer models
-docker build -t epic-search-embedder \
-  --build-arg PRELOAD_EMBEDDING_MODEL="all-mpnet-base-v2" \
-  --build-arg PRELOAD_KEYWORD_MODEL="distilbert-base-nli-stsb-mean-tokens" .
-```
-
-With this build, the container will:
-
-- Include the pre-downloaded models directly in the image
-- Start processing immediately without model download delay
-- Have a larger image size due to the included model files
-
-This approach is recommended for production environments where quick startup time is important.
-
-### Model Preloading Mechanism
-
-The `preload_models.py` script handles the downloading and initialization of required NLP models:
-
-```python
-def download_models():
-    """
-    Download and initialize NLP models required by the application.
-    
-    This function pre-downloads both the embedding model and keyword extraction model
-    specified in the environment variables and initializes the KeyBERT model.
-    """
-    # Pre-download the embedding model
-    embedding_model_name = os.getenv("EMBEDDING_MODEL_NAME")
-    if embedding_model_name is None:
-        print("ERROR: EMBEDDING_MODEL_NAME environment variable is required.")
-        sys.exit(1)
-        
-    embedding_transformer = SentenceTransformer(embedding_model_name)
-    
-    # Pre-download the keyword extraction model
-    keyword_model_name = os.getenv("KEYWORD_MODEL_NAME")
-    if keyword_model_name is None:
-        keyword_model_name = embedding_model_name
-        keyword_transformer = embedding_transformer
-    else:
-        if keyword_model_name == embedding_model_name:
-            keyword_transformer = embedding_transformer
-        else:
-            keyword_transformer = SentenceTransformer(keyword_model_name)
-            
-    # Initialize KeyBERT with the keyword model
-    _ = KeyBERT(model=keyword_transformer)
-```
-
-This script is executed at build time when build arguments are provided, embedding the downloaded model files into the Docker image. It intelligently handles cases where both models are the same and reuses the instances for efficiency.
-
-## Database Structure
-
-The system uses two types of databases:
-
-1. **PostgreSQL with pgvector** - Stores document chunks and their vector embeddings
-   - `index_table` - Stores document tags with their embeddings
-   - `chunk_table` - Stores document chunks with their embeddings
-   - Each record in both tables includes:
-     - `id` - Unique identifier
-     - `embedding` - Vector representation of the content
-     - `content` - The actual text content
-     - `metadata` - JSON object containing:
-       - `project_id` - ID of the project
-       - `document_id` - ID of the document
-       - `document_name` - Name of the document
-       - `page_number` - Page number in the document
-       - `s3_key` - S3 storage key for retrieving the original document
-       - `headings` - Array of heading context
-       - Additional metadata like project name, proponent name, etc.
-   - **pgvector Extension Management**:
-     - The system can automatically create the pgvector extension when needed
-     - This behavior is configurable with the `AUTO_CREATE_PGVECTOR_EXTENSION` environment variable
-     - When set to `False`, the system will check if the extension exists and throw an error if it doesn't
-
-   Example metadata structure:
-
-   ```json
-   {
-     "project_id": "650b5adc5d77c20022fb59fc",
-     "document_id": "65f3299917680c002237d67d",
-     "document_name": "20231228-CoyoteH-SummaryOfEngagement FINAL.pdf",
-     "page_number": "3",
-     "project_name": "Coyote Hydrogen Project",
-     "proponent_name": "Canada Fortescue Future Industries",
-     "s3_key": "path/to/document/in/s3",
-     "headings": ["", "", "WHAT IS THE COYOTE HYDROGEN PROJECT?", "", "", ""]
-   }
-   ```
-
-   You can query records by metadata fields using SQL, for example:
-
-   ```sql
-   -- Find all chunks from a specific document
-   SELECT content, metadata->>'page_number' as page 
-   FROM document_chunks 
-   WHERE metadata->>'document_id' = '65f3299917680c002237d67d'
-   ORDER BY (metadata->>'page_number')::int;
-
-   -- Find all chunks containing a specific s3_key
-   SELECT content, metadata 
-   FROM document_chunks 
-   WHERE metadata->>'s3_key' = 'path/to/document/in/s3';
-   ```
-
-2. **PostgreSQL** - Stores processing logs
-   - `processing_logs` - Records which documents have been processed and their status
+- **pgvector Extension:**
+  - The system can auto-create the pgvector extension if needed (configurable)
 
 ## Configuration
 
-The system is configured using environment variables, which are loaded by the `get_settings()` function in `src/config/settings.py`. Key configuration options include:
+All configuration is managed via environment variables and loaded by `get_settings()` in `src/config/settings.py`.
 
-- API connection details
-- S3 storage details
-- Vector database connection
-- Processing logs database connection
-- Processing concurrency settings
-- Model selection and configuration
+- **Key settings:**
+  - API, S3, and database connection details
+  - Embedding and keyword model names
+  - Embedding dimensions
+  - Processing concurrency
+  - `reset_db` flag for safe table (re)creation
 
-### Environment Variables for Model Configuration
+- **Example environment variables:**
 
-The model configuration uses two key environment variables:
+  | Variable Name         | Purpose                                 | Default Value           |
+  |----------------------|-----------------------------------------|------------------------|
+  | EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"    |
+  | KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"    |
+  | EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                    |
+  | AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                   |
 
-| Variable Name | Purpose | Default Value |
-|---------------|---------|---------------|
-| EMBEDDING_MODEL_NAME | Model for generating document embeddings | "all-mpnet-base-v2" |
-| KEYWORD_MODEL_NAME | Model for extracting keywords | "all-mpnet-base-v2" |
+## Tag/Keyword Extraction
 
-Each model can be configured independently to optimize for its specific task, or they can share the same model for simplicity.
+- Tag extraction is performed per chunk using KeyBERT, parallelized with ThreadPoolExecutor.
+- Robust error handling ensures extraction failures do not halt processing.
+- No batch embedding is used for KeyBERT due to model limitations.
+- Extracted tags are aggregated and stored for each document.
 
-## Error Handling
+## Metrics & Logging
 
-The system implements error handling at multiple levels:
+- All processing steps collect structured metrics (timings, counts, errors, etc.).
+- Metrics are stored as JSONB in the `processing_logs` table for analytics and monitoring.
+- The `reset_db` flag allows safe table (re)creation for development or migration.
 
-1. Individual document processing errors are caught and logged
-2. Processing continues even if individual documents fail
-3. Multiprocessing cleanup ensures resources are properly released
+## Docker Deployment
 
-### Known Issues
+- Supports both runtime and preloaded model builds for fast startup in production.
+- See README.md for up-to-date deployment instructions and environment variable usage.
 
-#### ProcessPoolExecutor Shutdown Error
+## Extensibility & Best Practices
 
-When the application exits, you might occasionally see the following error in the logs:
+- Modular design allows for easy extension (new document types, models, chunking strategies, etc.).
+- All code is documented with clear docstrings and error handling.
+- See README.md for usage, configuration, and deployment details.
 
-```code
-Exception ignored in: <function _ExecutorManagerThread.__init__.<locals>.weakref_cb at 0x000001691B6F1760>
-Traceback (most recent call last):
-  File "C:\Users\AndreGoncalves\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\process.py", line 310, in weakref_cb
-AttributeError: 'NoneType' object has no attribute 'util'
-```
+---
 
-This is a known issue related to Python's `concurrent.futures.ProcessPoolExecutor` module during interpreter shutdown. It occurs because during Python's shutdown sequence, some module globals are cleared before all weakref callbacks complete execution.
-
-This error is harmless and doesn't affect program execution or results. The error has been suppressed in the application using the `suppress_process_pool_errors` utility function.
-
-## Extensibility
-
-The modular design allows for several extension points:
-
-1. Support for different document types (beyond PDF)
-2. Alternative vector embedding models
-3. Different chunking strategies for various content types
-4. Alternative storage backends for vectors
-5. Specialized keyword extraction models for specific domains or languages
+For full usage, configuration, and deployment instructions, see the updated `README.md`.

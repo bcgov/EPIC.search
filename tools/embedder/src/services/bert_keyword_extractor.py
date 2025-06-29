@@ -6,62 +6,51 @@ from src.config.settings import get_settings
 settings = get_settings()
 
 """
-BERT Keyword Extractor module for extracting relevant keywords from text.
+BERT Keyword Extractor module for extracting relevant keywords from text using KeyBERT and SentenceTransformer.
 
-This module uses KeyBERT, which leverages BERT embeddings to extract keywords
-and keyphrases that best describe a text document. It uses a lazy loading pattern
-to initialize the model only when needed, improving startup time.
+- Uses a dedicated keyword extraction model (configurable)
+- Parallelizes per-chunk extraction for speed
+- Handles lazy model loading for fast startup
+- Compatible with all KeyBERT versions (no precomputed embedding batching)
 """
 
+from keybert import KeyBERT
+from sentence_transformers import SentenceTransformer
+from concurrent.futures import ThreadPoolExecutor
+
 _keymodel = None
+_sentence_model = None
 
-
-def get_keywords(text):
+def extract_keywords_from_chunks(chunk_dicts):
     """
-    Extract the most relevant keywords or keyphrases from the input text.
-    
-    This function uses the KeyBERT model to extract keywords and keyphrases
-    that are semantically relevant to the input text. It uses the Maximal Marginal
-    Relevance (MMR) approach to ensure keyword diversity.
-    
-    Args:
-        text (str): The input text to extract keywords from
-        
-    Returns:
-        list: A list of tuples, where each tuple contains a keyword/keyphrase and its relevance score.
-              The list is filtered to remove common generic terms like "project".
-              
-    Note:
-        The model is loaded only on the first call to this function, following a lazy loading pattern.
-        Uses a dedicated keyword extraction model that can be configured separately from the embedding model.
+    Parallelized keyword extraction for a list of chunk dicts.
+    Adds a 'keywords' field to each chunk dict's metadata and returns the updated list and all unique keywords.
+    Uses ThreadPoolExecutor for speed and robust per-chunk extraction.
     """
-    global _keymodel
-
-    # Initialize the model only on first call
-    if _keymodel is None:
-        from keybert import KeyBERT
-        from sentence_transformers import SentenceTransformer
-        
-        # Get model name from keyword extraction settings
+    global _keymodel, _sentence_model
+    if _keymodel is None or _sentence_model is None:
         model_name = settings.keyword_extraction_settings.model_name
-        
-        sentence_model = SentenceTransformer(model_name)
-        _keymodel = KeyBERT(model=sentence_model)
-
-    try:
+        _sentence_model = SentenceTransformer(model_name)
+        _keymodel = KeyBERT(model=_sentence_model)
+    texts = [chunk['content'] for chunk in chunk_dicts]
+    if not texts:
+        return chunk_dicts, set()
+    all_keywords = set()
+    def extract_for_text(text):
         keywords = _keymodel.extract_keywords(
             text,
             keyphrase_ngram_range=(1, 3),
             use_mmr=True,
             diversity=1,
-            top_n=10,  # Limit to top 10 keywords for speed
+            top_n=10
         )
         words_to_remove = ["project", "projects"]
-        filtered_keywords = [
-            (word, score) for (word, score) in keywords if word not in words_to_remove
-        ]
-        return filtered_keywords
-    except Exception as e:
-        print(f"Error extracting keywords: {str(e)}")
-        # Return empty list as fallback
-        return []
+        return [word for word, score in keywords if word not in words_to_remove]
+    # Parallelize extraction across chunks
+    with ThreadPoolExecutor() as executor:
+        keywords_results = list(executor.map(extract_for_text, texts))
+    for i, chunk in enumerate(chunk_dicts):
+        filtered_keywords = keywords_results[i]
+        chunk['metadata']['keywords'] = filtered_keywords
+        all_keywords.update(filtered_keywords)
+    return chunk_dicts, all_keywords

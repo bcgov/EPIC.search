@@ -6,9 +6,10 @@ from .embedding import get_embedding
 """
 Tag Extractor module for identifying relevant tags from document content.
 
-This module provides functionality to extract relevant tags from document chunks
-using both explicit text matching and semantic similarity. It uses a predefined
-list of tags relevant to environmental assessments and projects.
+- Extracts tags from document chunks using explicit text matching and semantic similarity
+- Aggregates tags at the chunk and document level
+- Uses a predefined list of tags relevant to environmental assessments and projects
+- Parallelized for speed and robust for production use
 """
 
 tags = [
@@ -123,7 +124,7 @@ tags = [
     "Waterbodies",
     "Wildlife",
     "WildlifeHabitat",
-    "WorkforceDev",
+    "WorkforceDev"
 ]
 
 
@@ -194,12 +195,7 @@ def process_chunk(chunk_dict, tag_embeddings, threshold=0.6):
 
     return (
         record_id,
-        chunk_metadata,
-        chunk_text,
-        chunk_embedding,
-        explicit_matches,
-        semantic_matches,
-        all_matches,
+        all_matches
     )
 
 
@@ -222,10 +218,8 @@ def process_document_chunked(document_chunks, tag_embeddings):
             - tags_and_chunks: List of dictionaries, each containing a tag and its associated chunk data
     """
     results = {
-        "explicit_matches": {},
-        "semantic_matches": {},
         "all_matches": {},
-        "tags_and_chunks": [],
+        "chunks": []
     }
 
     with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
@@ -237,41 +231,27 @@ def process_document_chunked(document_chunks, tag_embeddings):
             try:
                 (
                     record_id,
-                    chunk_metadata,
-                    chunk_text,
-                    chunk_embedding,
-                    explicit_matches,
-                    semantic_matches,
                     all_matches,
                 ) = future.result()
-                
-                # Skip if we don't have valid embeddings
-                if chunk_embedding is None:
-                    continue
 
-                chunk_key = f"Chunk_{idx + 1}"
-
-                results["explicit_matches"][chunk_key] = explicit_matches
-                results["semantic_matches"][chunk_key] = semantic_matches
-                results["all_matches"][chunk_key] = all_matches
-
-                for tag in all_matches:
-                    results["tags_and_chunks"].append(
-                        {
-                            "tag": tag,
-                            "chunk_id": record_id,
-                            "chunk_metadata": chunk_metadata,
-                            "chunk_text": chunk_text,
-                            "chunk_embedding": chunk_embedding,
-                        }
-                    )
+                # Add per-chunk info to the chunks array
+                results["chunks"].append({
+                    "chunk_id": record_id,
+                    "all_matches": all_matches
+                })
             except Exception as e:
                 print(f"Error processing chunk {idx}: {str(e)}")
 
+    # Build root-level all_matches: unique keywords across all chunks
+    all_matches = set()
+    for chunk in results["chunks"]:
+        all_matches.update(chunk["all_matches"])
+    results["all_matches"] = list(all_matches)
+    
     return results
 
 
-def explicit_and_semantic_search_large_document(document_chunks):
+def extract_tags_from_chunks(document_chunks):
     """
     Find relevant tags in a large document using both explicit and semantic matching.
     
@@ -286,8 +266,7 @@ def explicit_and_semantic_search_large_document(document_chunks):
         dict: A dictionary of results containing tag matches and associated chunk data
     """
     tag_embeddings = get_tag_embeddings()
-    results = process_document_chunked(document_chunks, tag_embeddings)
-    return results
+    return process_document_chunked(document_chunks, tag_embeddings)    
 
 
 def get_tags(query: str, threshold=0.6):
