@@ -21,7 +21,6 @@ import psycopg
 from typing import Any, List, Optional, Tuple, Union
 from datetime import datetime
 from flask import current_app
-from .bert_keyword_extractor import get_keywords
 from .embedding import get_embedding
 from .tag_extractor import get_tags
 
@@ -40,19 +39,23 @@ class VectorStore:
     def _create_dataframe_from_results(
         self,
         results: List[Tuple[Any, ...]],
+        columns: Optional[List[str]] = None
     ) -> pd.DataFrame:
         """
         Convert database query results into a pandas DataFrame.
         
         Args:
             results: A list of tuples returned from a database query.
+            columns: Optional list of column names. If not provided, uses default.
             
         Returns:
             A pandas DataFrame with the search results.
         """
-        df = pd.DataFrame(
-            results, columns=["id", "metadata", "content", "embedding", "distance"]
-        )
+        if columns is None:
+            # Default columns for backward compatibility
+            columns = ["id", "metadata", "content", "embedding", "distance"]
+            
+        df = pd.DataFrame(results, columns=columns)
         df["id"] = df["id"].astype(str)
         return df
 
@@ -94,6 +97,9 @@ class VectorStore:
         if tags:
             where_conditions.append("metadata->'tags' ?| %s")
             params.append(tags)
+            logging.info(f"Semantic search - Added tags filter: {tags}")
+        else:
+            logging.info(f"Semantic search - No tags found for query: '{query}'")
         
         # Handle time range filter
         if time_range:
@@ -105,14 +111,42 @@ class VectorStore:
         # Handle predicates for additional filtering
         if predicates:
             for key, value in predicates.items():
-                where_conditions.append(f"metadata->>{key} = %s")
-                params.append(value)
+                if key == 'project_ids':
+                    # Handle multiple project IDs for chunk search
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        # For document_chunks table, project_id is a direct column
+                        if table_name == current_app.vector_settings.vector_table_name:
+                            where_conditions.append(f"project_id IN ({placeholders})")
+                            params.extend(value)
+                        else:
+                            # For other tables, check metadata
+                            where_conditions.append(f"metadata->>'project_id' IN ({placeholders})")
+                            params.extend(value)
+                elif key == 'project_id':
+                    # Handle single project ID
+                    if table_name == current_app.vector_settings.vector_table_name:
+                        where_conditions.append("project_id = %s")
+                        params.append(value)
+                    else:
+                        where_conditions.append("metadata->>'project_id' = %s")
+                        params.append(value)
+                else:
+                    where_conditions.append(f"metadata->>{key} = %s")
+                    params.append(value)
         
         # Build the final WHERE clause
         where_clause = " AND ".join(where_conditions)
         
+        logging.info(f"Document search WHERE clause: {where_clause}")
+        logging.info(f"Document search parameters: {params}")
+        
         # Convert numpy array to Python list for database
         embedding_list = query_embedding[0].tolist()
+        
+        # Prepare parameters in the correct order for the SQL query
+        # Order: embedding (for similarity), WHERE clause params, embedding (for ordering), limit
+        sql_params = [embedding_list] + params + [embedding_list, limit]
         
         # Construct the SQL query using cosine distance with pgvector
         search_sql = f"""
@@ -123,49 +157,48 @@ class VectorStore:
         LIMIT %s
         """
         
-        # Add query embedding and limit to params
-        params.append(embedding_list)
-        params.append(embedding_list)
-        params.append(limit)
-        
         # Execute the query using psycopg
         conn_params = current_app.vector_settings.database_url
         with psycopg.connect(conn_params) as conn:
             with conn.cursor() as cur:
-                cur.execute(search_sql, params)
+                cur.execute(search_sql, sql_params)
                 results = cur.fetchall()
         
         elapsed_time = time.time() - start_time
         self._log_search_time("Vector", elapsed_time)
         
         if return_dataframe:
-            return self._create_dataframe_from_results(results)
+            # Specify the correct column order for the semantic search results
+            columns = ["id", "metadata", "content", "embedding", "similarity"]
+            return self._create_dataframe_from_results(results, columns)
         else:
             return results
 
     def keyword_search(
-        self, table_name: str, query: str, limit: int = 5, return_dataframe: bool = True
+        self, table_name: str, query: str, limit: int = 5, return_dataframe: bool = True, weighted_keywords=None
     ) -> Union[List[Tuple[str, str, float]], pd.DataFrame]:
         """
         Search for documents using keyword-based full-text search.
         
         This method uses PostgreSQL's full-text search capabilities to find documents
-        that match the keywords extracted from the query.
+        that match the keywords extracted from the query. The keywords should be provided
+        by the caller (extracted and timed at a higher level).
         
         Args:
             table_name: The table to search in.
             query: The search query text.
             limit: Maximum number of results to return (default: 5).
             return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
-            
+            weighted_keywords: List of (keyword, weight) tuples extracted from the query.
+        
         Returns:
             Either a pandas DataFrame or a list of tuples containing search results.
         """
-        weighted_keywords = get_keywords(query)
+        if weighted_keywords is None:
+            raise ValueError("weighted_keywords must be provided by the caller.")
         tags = get_tags(query)
-        keywords = [keyword for keyword, weight in weighted_keywords]
-        tsquery_str = " OR ".join(keywords)
-        modified = f'"{tsquery_str}"'
+        keywords = [keyword for keyword in weighted_keywords]
+        tsquery_str = " OR ".join(keywords)  
         tags_condition = "metadata->'tags' ?| %s" if tags else "TRUE"
         search_sql = f"""
         SELECT id, content, metadata, ts_rank_cd(to_tsvector('simple', content), query) as rank
@@ -176,6 +209,16 @@ class VectorStore:
         """
 
         start_time = time.time()
+        # Attempt to reconstruct the raw SQL for debugging (not for production use)
+        if tags:
+            param_tuple = (tsquery_str, tags, limit)
+        else:
+            param_tuple = (tsquery_str, limit)
+        try:
+            reconstructed_sql = search_sql.replace('%s', '{}').format(*[repr(p) for p in param_tuple])
+            logging.info(f"Keyword search reconstructed SQL: {reconstructed_sql}")
+        except Exception as e:
+            logging.info(f"Could not reconstruct SQL: {e}")
 
         # Create a new connection using psycopg
         conn_params = current_app.vector_settings.database_url
@@ -197,6 +240,206 @@ class VectorStore:
         else:
             return results
 
+    def document_level_search(
+        self,
+        query: str,
+        limit: int = 10,
+        predicates: Optional[dict] = None,
+        return_dataframe: bool = True,
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
+        """
+        Search for relevant documents using document-level keywords, tags, and headings.
+        
+        This method searches the documents table using the pre-computed keywords, tags,
+        and headings stored at the document level, which should be much faster than
+        searching through all chunks.
+        
+        Args:
+            query: The search query text.
+            limit: Maximum number of documents to return (default: 10).
+            predicates: Optional dictionary of field-value pairs to filter results.
+            return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
+            
+        Returns:
+            Either a pandas DataFrame or a list of tuples containing document search results.
+        """
+        from .bert_keyword_extractor import extract_keywords_for_document_search
+        from .tag_extractor import get_tags
+        
+        start_time = time.time()
+        
+        # Extract keywords and tags from query
+        query_keywords = extract_keywords_for_document_search(query)
+        query_tags = get_tags(query)
+        
+        # Debug logging
+        import logging
+        logging.info(f"Document-level search for query: '{query}'")
+        logging.info(f"Extracted keywords: {query_keywords}")
+        logging.info(f"Extracted tags: {query_tags}")
+        
+        # Build the WHERE clause based on filters using OR logic for search terms
+        where_conditions = ["TRUE"]
+        params = []
+        
+        # Build search conditions using OR logic between different search criteria
+        search_conditions = []
+        
+        # Search for keyword matches in document_keywords JSONB field
+        if query_keywords:
+            keyword_list = [keyword for keyword, score in query_keywords]
+            # Use JSONB operators to check if any query keywords exist in document keywords
+            search_conditions.append("document_keywords ?| %s")
+            params.append(keyword_list)
+        
+        # Search for tag matches in document_tags JSONB field
+        if query_tags:
+            search_conditions.append("document_tags ?| %s")
+            params.append(query_tags)
+        
+        # Search for keyword matches in document_headings JSONB field (using same keyword list)
+        if query_keywords:
+            keyword_list = [keyword for keyword, score in query_keywords]
+            search_conditions.append("document_headings ?| %s")
+            params.append(keyword_list)  # Add the same keyword list again for headings
+        
+        # Combine search conditions with OR logic
+        if search_conditions:
+            where_conditions.append("(" + " OR ".join(search_conditions) + ")")
+        else:
+            # If no search terms found, don't filter by search criteria
+            # This allows the fallback search to handle it
+            pass
+        
+        # Handle predicates for additional filtering
+        if predicates:
+            for key, value in predicates.items():
+                if key == 'project_id':
+                    where_conditions.append("project_id = %s")
+                    params.append(value)
+                elif key == 'project_ids':
+                    # Handle multiple project IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        where_conditions.append(f"project_id IN ({placeholders})")
+                        params.extend(value)
+                # Add other predicate handling as needed
+        
+        # Build the final WHERE clause
+        where_clause = " AND ".join(where_conditions)
+        
+        logging.info(f"Document search WHERE clause: {where_clause}")
+        logging.info(f"Document search parameters: {params}")
+        
+        # Construct the SQL query for document-level search
+        documents_table = current_app.vector_settings.documents_table_name
+        search_sql = f"""
+        SELECT document_id, document_keywords, document_tags, document_headings, 
+               project_id, embedding, created_at
+        FROM {documents_table}
+        WHERE {where_clause}
+        ORDER BY created_at DESC
+        LIMIT %s
+        """
+        
+        params.append(limit)
+        
+        # Execute the query using psycopg
+        conn_params = current_app.vector_settings.database_url
+        with psycopg.connect(conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute(search_sql, params)
+                results = cur.fetchall()
+        
+        elapsed_time = time.time() - start_time
+        self._log_search_time("Document-level", elapsed_time)
+        
+        if return_dataframe:
+            df = pd.DataFrame(
+                results, 
+                columns=["document_id", "document_keywords", "document_tags", 
+                        "document_headings", "project_id", "embedding", "created_at"]
+            )
+            df["document_id"] = df["document_id"].astype(str)
+            return df
+        else:
+            return results
+
+    def search_chunks_by_documents(
+        self,
+        document_ids: List[str],
+        query: str,
+        limit: int = 20,
+        return_dataframe: bool = True,
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
+        """
+        Search for chunks within specific documents using semantic search.
+        
+        This method performs semantic search on the document_chunks table,
+        but only within the chunks belonging to the specified documents.
+        
+        Args:
+            document_ids: List of document IDs to search within.
+            query: The search query text.
+            limit: Maximum number of chunks to return (default: 20).
+            return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
+            
+        Returns:
+            Either a pandas DataFrame or a list of tuples containing chunk search results.
+        """
+        if not document_ids:
+            # Return empty result if no documents provided
+            if return_dataframe:
+                return pd.DataFrame(columns=["id", "metadata", "content", "document_id", "project_id", "similarity"])
+            else:
+                return []
+        
+        from .embedding import get_embedding
+        
+        start_time = time.time()
+        
+        # Get query embedding
+        query_embedding = get_embedding([query])
+        embedding_list = query_embedding[0].tolist()
+        
+        # Create placeholders for document IDs
+        placeholders = ','.join(['%s'] * len(document_ids))
+        
+        # Construct the SQL query for chunk search within specific documents
+        chunks_table = current_app.vector_settings.vector_table_name
+        search_sql = f"""
+        SELECT id, metadata, content, document_id, project_id, 
+               1 - (embedding <=> %s::vector) as similarity
+        FROM {chunks_table}
+        WHERE document_id IN ({placeholders})
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+        """
+        
+        # Prepare parameters: embedding, document_ids, embedding again, limit
+        params = [embedding_list] + document_ids + [embedding_list, limit]
+        
+        # Execute the query using psycopg
+        conn_params = current_app.vector_settings.database_url
+        with psycopg.connect(conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute(search_sql, params)
+                results = cur.fetchall()
+        
+        elapsed_time = time.time() - start_time
+        self._log_search_time("Chunk-within-documents", elapsed_time)
+        
+        if return_dataframe:
+            df = pd.DataFrame(
+                results, 
+                columns=["id", "metadata", "content", "document_id", "project_id", "similarity"]
+            )
+            df["id"] = df["id"].astype(str)
+            df["document_id"] = df["document_id"].astype(str)
+            return df
+        else:
+            return results
+
     def _log_search_time(self, search_type: str, elapsed_time: float) -> None:
         """
         Log the time taken for a search operation.
@@ -206,3 +449,129 @@ class VectorStore:
             elapsed_time: The time taken for the search operation in seconds.
         """
         logging.info(f"{search_type} search completed in {elapsed_time:.3f} seconds")
+
+    def get_document_embedding(self, document_id: str) -> Optional[List[float]]:
+        """
+        Retrieve the embedding vector for a specific document.
+        
+        Args:
+            document_id: The ID of the document to get embedding for.
+            
+        Returns:
+            The document embedding vector as a list, or None if document not found.
+        """
+        start_time = time.time()
+        
+        documents_table = current_app.vector_settings.documents_table_name
+        search_sql = f"""
+        SELECT embedding
+        FROM {documents_table}
+        WHERE document_id = %s
+        """
+        
+        # Execute the query using psycopg
+        conn_params = current_app.vector_settings.database_url
+        with psycopg.connect(conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute(search_sql, (document_id,))
+                result = cur.fetchone()
+        
+        elapsed_time = time.time() - start_time
+        self._log_search_time("Document embedding retrieval", elapsed_time)
+        
+        if result and result[0]:
+            # Convert the embedding to a list (it may be returned as a numpy array or similar)
+            return result[0]
+        else:
+            return None
+
+    def document_similarity_search(
+        self,
+        source_embedding: List[float],
+        exclude_document_id: str,
+        predicates: Optional[dict] = None,
+        limit: int = 10,
+        return_dataframe: bool = True,
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
+        """
+        Search for documents similar to the source embedding using cosine similarity.
+        
+        This method performs similarity search on document-level embeddings to find
+        documents that are semantically similar to the source document.
+        
+        Args:
+            source_embedding: The embedding vector to search for similar documents.
+            exclude_document_id: Document ID to exclude from results (the source document).
+            predicates: Optional dictionary of field-value pairs to filter results.
+            limit: Maximum number of similar documents to return (default: 10).
+            return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
+            
+        Returns:
+            Either a pandas DataFrame or a list of tuples containing similar documents.
+        """
+        start_time = time.time()
+        
+        # Build the WHERE clause based on filters
+        where_conditions = ["document_id != %s"]  # Exclude the source document
+        params = [exclude_document_id]
+        
+        # Handle project filtering
+        if predicates:
+            for key, value in predicates.items():
+                if key == 'project_ids':
+                    # Handle multiple project IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        where_conditions.append(f"project_id IN ({placeholders})")
+                        params.extend(value)
+                elif key == 'project_id':
+                    where_conditions.append("project_id = %s")
+                    params.append(value)
+                # Add other predicate handling as needed
+        
+        # Build the final WHERE clause
+        where_clause = " AND ".join(where_conditions)
+        
+        # Convert embedding to the format expected by the database
+        if isinstance(source_embedding, list):
+            embedding_list = source_embedding
+        else:
+            embedding_list = source_embedding.tolist()
+        
+        # Construct the SQL query for document similarity search
+        documents_table = current_app.vector_settings.documents_table_name
+        search_sql = f"""
+        SELECT document_id, document_keywords, document_tags, document_headings, 
+               project_id, embedding, created_at,
+               1 - (embedding <=> %s::vector) as similarity
+        FROM {documents_table}
+        WHERE {where_clause}
+        ORDER BY embedding <=> %s::vector
+        LIMIT %s
+        """
+        
+        # Add embedding and limit to params
+        params.append(embedding_list)
+        params.append(embedding_list)
+        params.append(limit)
+        
+        # Execute the query using psycopg
+        conn_params = current_app.vector_settings.database_url
+        with psycopg.connect(conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute(search_sql, params)
+                results = cur.fetchall()
+        
+        elapsed_time = time.time() - start_time
+        self._log_search_time("Document similarity", elapsed_time)
+        
+        if return_dataframe:
+            df = pd.DataFrame(
+                results, 
+                columns=["document_id", "document_keywords", "document_tags", 
+                        "document_headings", "project_id", "embedding", "created_at", "similarity"]
+            )
+            df["document_id"] = df["document_id"].astype(str)
+            return df
+        else:
+            return results

@@ -63,9 +63,18 @@ class VectorSettings:
         """Get the name of the database table storing vector embeddings.
         
         Returns:
-            str: The configured vector table name
+            str: The configured vector table name (defaults to 'document_chunks')
         """
-        return self._config.get("VECTOR_TABLE")
+        return self._config.get("VECTOR_TABLE", "document_chunks")
+    
+    @property
+    def documents_table_name(self) -> str:
+        """Get the name of the database table storing document-level metadata.
+        
+        Returns:
+            str: The configured documents table name (defaults to 'documents')
+        """
+        return self._config.get("DOCUMENTS_TABLE", "documents")
     
     @property
     def embedding_dimensions(self) -> int:
@@ -241,7 +250,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     TIME_PARTITION_INTERVAL = timedelta(days=7)
 
     # Search Configuration
-    VECTOR_TABLE = os.getenv("VECTOR_TABLE", "document_tags")
+    VECTOR_TABLE = os.getenv("VECTOR_TABLE", "document_chunks")
     KEYWORD_FETCH_COUNT = int(os.getenv("KEYWORD_FETCH_COUNT", "100"))
     SEMANTIC_FETCH_COUNT = int(os.getenv("SEMANTIC_FETCH_COUNT", "100"))
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))

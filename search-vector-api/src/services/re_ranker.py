@@ -55,6 +55,13 @@ def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int 
         The returned DataFrame includes a new 'relevance_score' column that
         indicates the cross-encoder's confidence in the relevance of each document.
     """
+    import logging
+    
+    # Check for empty input
+    if items.empty:
+        logging.warning("rerank_results received empty DataFrame!")
+        return items
+    
     # Use the cached model instead of creating a new one each time
     model = get_cross_encoder()
     
@@ -65,6 +72,7 @@ def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int 
     # Higher scores indicate greater relevance. The score's range and interpretation depend on the model,
     # but typically higher is better. This value is used for filtering and sorting results.
     scores = model.predict(pairs, batch_size=batch_size)
+    
     reranked_df = pd.DataFrame(
         [
             {
@@ -81,10 +89,11 @@ def rerank_results(query: str, items: pd.DataFrame, top_n: int, batch_size: int 
 
     # Determine min_relevance_score from config/env if not provided
     if min_relevance_score is None:
-        min_relevance_score = float(getattr(current_app.config, "MIN_RELEVANCE_SCORE", 0.0))
-
+        min_relevance_score = float(getattr(current_app.config, "MIN_RELEVANCE_SCORE", -10.0))
+    
     # Filter by min_relevance_score
     filtered_df = sorted_df[sorted_df["relevance_score"] >= min_relevance_score]
+    
     top_n_records = filtered_df.head(int(top_n))
 
     return top_n_records

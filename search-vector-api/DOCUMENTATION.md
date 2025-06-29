@@ -2,18 +2,39 @@
 
 ## Overview
 
-The Search Vector API provides semantic vector search and keyword-based search capabilities for documents using PostgreSQL with the pgvector extension. This document outlines the architecture, components, and usage of the API.
+The Search Vector API provides advanced semantic search capabilities using a modern two-stage architecture that combines document-level metadata filtering with chunk-level semantic search. Built on PostgreSQL with pgvector extension, the system offers high-performance search with comprehensive fallback mechanisms and cross-encoder re-ranking.
 
 ## Architecture
 
+### Two-Stage Search Pipeline
+
+The system implements an efficient two-stage search approach:
+
+**Stage 1: Document-Level Filtering**
+* Uses pre-computed document metadata (keywords, tags, headings) for fast document discovery  
+* Applies project-based filtering constraints
+* Identifies the most relevant documents before chunk-level search
+
+**Stage 2: Chunk-Level Semantic Search**
+* Performs semantic vector search within chunks of identified documents
+* Uses pgvector for efficient similarity matching
+* Maintains project filtering consistency
+
+**Fallback Logic**
+* Broader semantic search across all chunks if no documents found
+* Keyword-based search as final fallback
+* Ensures relevant results when possible
+
 ### Components
 
-1. **Vector Store**: Core service for vector and keyword-based search operations with pgvector
-2. **Embedding Service**: Converts text to vector embeddings using sentence transformer models
-3. **Keyword Extractor**: Extracts relevant keywords from query text using KeyBERT
-4. **Tag Extractor**: Identifies tags in query text for filtering
-5. **Re-Ranker**: Improves search results by re-ranking based on relevance using cross-encoder models
-6. **Search Service**: Orchestrates the complete search process from query to results
+1. **Document-Level Search**: Fast filtering using pre-computed document metadata
+2. **Chunk-Level Search**: Semantic search within document chunks using vector embeddings
+3. **Vector Store**: Core service for vector and keyword operations with pgvector
+4. **Embedding Service**: Text-to-vector conversion using sentence transformer models
+5. **Keyword Extractor**: BERT-based keyword extraction from queries
+6. **Tag Extractor**: Identifies tags in query text for filtering
+7. **Re-Ranker**: Cross-encoder model for improved relevance scoring
+8. **Search Orchestrator**: Manages the complete two-stage pipeline with fallback logic
 
 ### Configuration Structure
 
@@ -30,7 +51,9 @@ The application uses strongly-typed configuration classes for different aspects 
    - `semantic_fetch_count`: Number of results to fetch in semantic search
    - `top_record_count`: Number of top records to return after re-ranking
    - `reranker_batch_size`: Batch size for processing document re-ranking
-   - `min_relevance_score`: Minimum relevance score for re-ranked results (default: 0.0)
+   * `min_relevance_score`: Minimum relevance score for re-ranked results (default: -10.0)
+
+> **Note**: The default minimum relevance score is set to -10.0 because cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative scores for relevant documents.
 
 3. **ModelSettings**: Configuration related to machine learning models
    - `cross_encoder_model`: Model name for the cross-encoder re-ranker
@@ -41,46 +64,93 @@ These settings are initialized in `app.py` and accessible throughout the applica
 
 ### Database Schema
 
-The system uses PostgreSQL with the pgvector extension. Each document collection is stored in a table with the following structure:
+The system uses PostgreSQL with pgvector extension and implements a two-table structure optimized for the two-stage search:
+
+#### Documents Table
+Pre-computed document-level metadata for fast filtering:
 
 ```sql
 CREATE TABLE documents (
+    document_id UUID PRIMARY KEY,
+    document_keywords TEXT[], -- Pre-computed keywords for fast matching
+    document_tags TEXT[],     -- Pre-computed tags for filtering  
+    document_headings TEXT[], -- Document headings/sections
+    project_id UUID,          -- Project association for filtering
+    project_name TEXT,
+    embedding VECTOR(768),    -- Document-level embedding
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for fast document-level search
+CREATE INDEX documents_keywords_idx ON documents USING GIN (document_keywords);
+CREATE INDEX documents_tags_idx ON documents USING GIN (document_tags);  
+CREATE INDEX documents_project_idx ON documents (project_id);
+CREATE INDEX documents_embedding_idx ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+```
+
+#### Document Chunks Table
+Individual chunks with semantic embeddings:
+
+```sql
+CREATE TABLE document_chunks (
     id UUID PRIMARY KEY,
     content TEXT NOT NULL,
-    metadata JSONB,  -- Contains structured document metadata including:
+    metadata JSONB,  -- Contains structured chunk metadata including:
                     -- {
-                    --   "document_id": "uuid-string",
+                    --   "document_id": "uuid-string", 
                     --   "document_type": "string",
                     --   "document_name": "string",
-                    --   "document_saved_name": "string",
-                    --   "page_number": number,
+                    --   "document_saved_name": "string", 
+                    --   "page_number": "string",
                     --   "project_id": "string",
                     --   "project_name": "string",
                     --   "proponent_name": "string",
                     --   "s3_key": "string"
                     -- }
-    embedding VECTOR(1536),
+    embedding VECTOR(768),
+    document_id UUID REFERENCES documents(document_id),
+    project_id UUID,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create index for vector similarity search
-CREATE INDEX embedding_idx ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-
--- Create index for full-text search
-CREATE INDEX content_idx ON documents USING GIN (to_tsvector('simple', content));
+-- Indexes for chunk-level search
+CREATE INDEX chunks_embedding_idx ON document_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX chunks_content_idx ON document_chunks USING GIN (to_tsvector('simple', content));
+CREATE INDEX chunks_document_idx ON document_chunks (document_id);
+CREATE INDEX chunks_project_idx ON document_chunks (project_id);
 ```
 
-## Search Pipeline
+## Two-Stage Search Pipeline
 
-The search process follows these steps:
+The search process implements an efficient two-stage approach:
 
-1. **Query Processing**: The user's query is processed to extract embeddings and keywords
-2. **Parallel Search**: Both semantic (vector) and keyword searches are performed simultaneously
-3. **Result Combination**: Results from both search methods are combined
-4. **Deduplication**: Duplicate results are removed based on document ID
-5. **Re-ranking**: Results are re-ranked using a cross-encoder model for improved relevance
-6. **Formatting**: Results are formatted into a consistent structure for the API response
-7. **Performance Metrics**: Search time for each step is recorded and returned
+### Stage 1: Document-Level Search
+
+1. **Query Processing**: Extract keywords and tags from the user query using BERT models
+2. **Document Filtering**: Search the `documents` table using:
+   * OR logic between keywords, tags, and headings for broad matching
+   * Project-based filtering if specified
+   * Fast array-based searches using GIN indexes
+3. **Result**: List of relevant document IDs for Stage 2
+
+### Stage 2: Chunk-Level Search
+
+1. **Chunk Search**: Perform semantic vector search within chunks of identified documents
+2. **Vector Similarity**: Use pgvector cosine similarity on chunk embeddings  
+3. **Project Consistency**: Apply same project filtering as Stage 1
+4. **Result**: Ranked list of relevant document chunks
+
+### Fallback Logic
+
+1. **Semantic Fallback**: If no documents found in Stage 1, search all chunks semantically
+2. **Keyword Fallback**: If semantic search returns no results, fall back to keyword search
+3. **Ensures Coverage**: Guarantees relevant results when possible
+
+### Re-ranking and Formatting
+
+1. **Cross-Encoder Re-ranking**: Use `cross-encoder/ms-marco-MiniLM-L-2-v2` for relevance scoring
+2. **Relevance Filtering**: Filter results based on minimum relevance score (-10.0 default)
+3. **Result Formatting**: Convert to final API response structure with metadata
 
 ## Key Features
 
@@ -126,51 +196,125 @@ After retrieving results from both search methods, a cross-encoder model is used
 
 ## API Endpoints
 
-### Search Endpoint
+### Vector Search
 
-``` code
+```http
 POST /api/vector-search
 ```
 
-Request Body:
+Performs the two-stage search pipeline with document-level filtering followed by chunk-level semantic search.
+
+**Request Body:**
 
 ```json
 {
-  "query": "climate change impacts"
+  "query": "climate change impacts on wildlife",
+  "project_ids": ["project-123", "project-456"]  // Optional project filtering
 }
 ```
 
-Response:
+**Response:**
 
 ```json
 {
   "vector_search": {
-    "documents": [      {
+    "documents": [
+      {
         "document_id": "uuid-string",
         "document_type": "PDF",
-        "document_name": "Climate Report",
-        "document_saved_name": "climate_report_2023.pdf",
-        "page_number": 42,
+        "document_name": "wildlife_study.pdf", 
+        "document_saved_name": "Climate Impact on Wildlife 2023.pdf",
+        "page_number": "15",
         "project_id": "project-123",
         "project_name": "Climate Research Initiative",
-        "proponent_name": "Environmental Research Group",
-        "s3_key": "documents/project-123/climate_report_2023.pdf",
-        "content": "Document content extract with relevant information...",
-        "relevance_score": 0.85
+        "proponent_name": "Environmental Research Group", 
+        "s3_key": "project-123/documents/wildlife_study.pdf",
+        "content": "Document chunk content with relevant information...",
+        "relevance_score": -4.15
       }
     ],
     "search_metrics": {
-      "keyword_search_ms": 52.15,
-      "semantic_search_ms": 157.89,
-      "combine_results_ms": 1.23,
-      "deduplication_ms": 0.98,
-      "reranking_ms": 235.67,
-      "formatting_ms": 3.45,
-      "total_search_ms": 451.37
+      "document_search_ms": 1715.4,     // Stage 1: Document-level search time
+      "chunk_search_ms": 126.49,       // Stage 2: Chunk-level search time  
+      "reranking_ms": 2659.92,         // Cross-encoder re-ranking time
+      "formatting_ms": 0.0,            // Result formatting time
+      "total_search_ms": 4502.32       // Total search pipeline time
     }
   }
 }
 ```
+
+### Document Similarity Search
+
+```http  
+POST /api/document-similarity
+```
+
+Finds documents similar to a specified document using document-level embeddings.
+
+**Request Body:**
+
+```json
+{
+  "document_id": "uuid-string",
+  "project_ids": ["project-123"],  // Optional project filtering
+  "limit": 10                      // Optional, default: 10
+}
+```
+
+**Response:**
+
+```json
+{
+  "similar_documents": [
+    {
+      "document_id": "similar-doc-uuid",
+      "document_keywords": ["climate", "environmental", "impact"],
+      "document_tags": ["Environmental", "Research"],
+      "document_headings": ["Introduction", "Methodology", "Results"],
+      "project_id": "project-123", 
+      "similarity_score": 0.8542,
+      "created_at": "2023-10-15T14:30:00Z"
+    }
+  ],
+  "search_metrics": {
+    "embedding_retrieval_ms": 25.3,
+    "similarity_search_ms": 158.7,
+    "formatting_ms": 2.1,
+    "total_search_ms": 186.1
+  }
+}
+```
+
+## Key Features
+
+### Two-Stage Search Architecture
+
+The system's efficiency comes from its two-stage approach:
+
+**Benefits:**
+
+* Faster search by filtering documents before chunk search
+* Better relevance by using document-level metadata
+* Reduced computational overhead compared to searching all chunks
+* Maintains high recall through comprehensive fallback logic
+
+### Project-Based Filtering  
+
+All search operations support project-based filtering:
+
+* Applied consistently across both search stages  
+* Uses database indexes for efficient filtering
+* Maintains search quality within project constraints
+
+### Advanced Relevance Scoring
+
+Cross-encoder re-ranking provides superior relevance:
+
+* **Model**: `cross-encoder/ms-marco-MiniLM-L-2-v2`
+* **Score Range**: Can include negative values for relevant documents
+* **Threshold**: -10.0 default to accommodate model characteristics
+* **Processing**: Batch processing for efficiency
 
 ## Configuration
 
@@ -192,7 +336,7 @@ The configuration variables are organized into logical groups:
 |-----------|-------------|---------|
 | VECTOR_DB_URL | PostgreSQL connection string | postgresql://postgres:postgres@localhost:5432/postgres |
 | EMBEDDING_DIMENSIONS | Dimensions of embedding vectors | 768 |
-| VECTOR_TABLE | Default table name for vector storage | document_tags |
+| VECTOR_TABLE | Default table name for vector storage | document_chunks |
 
 #### Search Configuration
 
