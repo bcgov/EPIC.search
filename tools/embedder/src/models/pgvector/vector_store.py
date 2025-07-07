@@ -68,22 +68,24 @@ class VectorStore:
         )
         
         try:
-            # Check if we should auto-create the extension
+            # Always check if extension exists first
+            exists = self.check_extension_exists(conn)
+            if exists:
+                return True
+                
+            # If extension doesn't exist, try to create it if auto_create is enabled
             if self.settings.auto_create_extension:
                 with conn.cursor() as cur:
                     cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 conn.commit()
                 return True
             else:
-                # If not auto-creating, check if the extension exists
-                exists = self.check_extension_exists(conn)
-                if not exists:
-                    raise RuntimeError(
-                        "The pgvector extension is not installed in the database and "
-                        "auto_create_extension is set to False. Please install the extension "
-                        "manually or set AUTO_CREATE_PGVECTOR_EXTENSION=True."
-                    )
-                return exists
+                # Extension doesn't exist and auto-create is disabled
+                raise RuntimeError(
+                    "The pgvector extension is not installed in the database and "
+                    "auto_create_extension is set to False. Please install the extension "
+                    "manually or set AUTO_CREATE_PGVECTOR_EXTENSION=True."
+                )
         finally:
             conn.close()
         
