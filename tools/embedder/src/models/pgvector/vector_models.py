@@ -68,11 +68,16 @@ class Document(Base):
 class Project(Base):
     """
     ORM model for the projects table.
-    Stores project metadata.
+    Stores project metadata including full project data from the API.
     """
     __tablename__ = 'projects'
     project_id = Column(String, primary_key=True)
     project_name = Column(String)
+    project_metadata = Column(JSONB)  # Stores full project data from API
+    created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
+    __table_args__ = (
+        Index('ix_projects_metadata', 'project_metadata', postgresql_using='gin'),
+    )
 
 class ProcessingLog(Base):
     """

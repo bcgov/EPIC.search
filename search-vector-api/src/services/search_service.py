@@ -13,9 +13,11 @@ The service delegates the actual search operations to specialized components
 while maintaining a consistent API for clients.
 """
 
+import logging
 from typing import Dict, List, Any
 
 from .vector_search import search, document_similarity_search
+from .project_inference import project_inference_service
 
 class SearchService:
     """Search management service for document retrieval and ranking.
@@ -31,13 +33,20 @@ class SearchService:
 
     @classmethod
     def get_documents_by_query(cls, query: str, project_ids: List[str] = None) -> Dict[str, Any]:
-        """Retrieve relevant documents using an advanced two-stage search strategy.
+        """Retrieve relevant documents using an advanced two-stage search strategy with intelligent project inference.
         
         This method implements a modern search approach that leverages document-level
         metadata for improved efficiency and accuracy:
         
+        Stage 0: Intelligent Project Inference (when no project_ids provided)
+        - Analyzes the query for project names, organizations, and project-related entities
+        - Matches extracted entities against known projects using fuzzy matching
+        - Automatically applies project filtering when confidence exceeds 80%
+        - Only activates when no explicit project IDs are provided in the request
+        
         Stage 1: Document Discovery
         - Searches the documents table using pre-computed keywords, tags, and headings
+        - Applies project filtering (explicit or inferred) to narrow search scope
         - Identifies the most relevant documents based on metadata matching
         - Much faster than searching all chunks directly
         
@@ -52,13 +61,15 @@ class SearchService:
         
         The pipeline also includes:
         - Cross-encoder re-ranking for optimal relevance ordering
+        - Intelligent query-document mismatch detection
         - Detailed performance metrics for each stage
         - Consistent result formatting for API consumption
         
         Args:
             query (str): The natural language search query text
             project_ids (List[str], optional): List of project IDs to filter results.
-                                             If None or empty, searches across all projects.
+                                             If None or empty, the system will attempt to
+                                             infer relevant projects from the query text.
             
         Returns:
             dict: A structured response containing search results and detailed metrics:
@@ -74,7 +85,9 @@ class SearchService:
                                 "project_id": "project-uuid",
                                 "project_name": "Project Name",
                                 "proponent_name": "Proponent Name",
-                                "content": "Document content extract..."
+                                "content": "Document content extract...",
+                                "relevance_score": 0.85,
+                                "search_quality": "normal"  # or "low_confidence"
                             },
                             ...
                         ],
@@ -84,19 +97,84 @@ class SearchService:
                             "reranking_ms": 156.78,           # Cross-encoder re-ranking
                             "formatting_ms": 2.34,            # Result formatting
                             "total_search_ms": 273.69         # Total pipeline time
+                        },
+                        "search_quality": "normal",           # Overall search quality assessment
+                        "project_inference": {               # Present when inference attempted
+                            "attempted": true,
+                            "confidence": 0.95,
+                            "inferred_project_ids": ["proj-001"],
+                            "applied": true,
+                            "metadata": {
+                                "extracted_entities": ["BC Hydro"],
+                                "matched_projects": [...],
+                                "reasoning": [...]
+                            }
                         }
                     }
                 }
+                
+        Examples:
+            Basic search across all projects:
+            >>> SearchService.get_documents_by_query("environmental impact assessment")
+            
+            Search with explicit project filtering:
+            >>> SearchService.get_documents_by_query("water quality", ["proj-001", "proj-002"])
+            
+            Search with automatic project inference:
+            >>> SearchService.get_documents_by_query("who is the main proponent for the BC Hydro project?")
+            # System automatically infers and applies BC Hydro project filtering
         """
+        
+        # Smart project inference: only when no explicit project IDs are provided
+        inferred_project_ids = None
+        inference_metadata = None
+        confidence = 0.0
+        original_project_ids = project_ids
+        
+        if not project_ids:  # Only infer if no explicit project IDs provided
+            inferred_project_ids, confidence, inference_metadata = project_inference_service.infer_projects_from_query(query)
+            
+            if inferred_project_ids and confidence > 0.8:  # High confidence threshold
+                project_ids = inferred_project_ids
+                logging.info(f"Project inference successful: Using inferred projects {inferred_project_ids} with confidence {confidence:.3f}")
+            else:
+                logging.info(f"Project inference skipped: confidence {confidence:.3f} below threshold or no projects found")
         
         documents, search_metrics = search(query, project_ids)  # Pass project_ids to search function
 
-        return {
+        # Check if results have low confidence (indicating possible query-document mismatch)
+        search_quality = "normal"
+        search_note = None
+        
+        if documents:
+            # Check if any document has low confidence flag
+            has_low_confidence = any(doc.get("search_quality") == "low_confidence" for doc in documents)
+            if has_low_confidence:
+                search_quality = "low_confidence"
+                search_note = "The query may not be well-matched to the available documents. Consider refining your search terms or using more specific keywords related to the document content."
+
+        response = {
             "vector_search": {
                 "documents": documents,                
                 "search_metrics": search_metrics,
+                "search_quality": search_quality,
             }
         }
+        
+        if search_note:
+            response["vector_search"]["search_note"] = search_note
+        
+        # Add project inference metadata if inference was attempted
+        if not original_project_ids and inference_metadata:
+            response["vector_search"]["project_inference"] = {
+                "attempted": True,
+                "confidence": confidence,
+                "inferred_project_ids": inferred_project_ids or [],
+                "applied": bool(inferred_project_ids and confidence > 0.8),
+                "metadata": inference_metadata
+            }
+            
+        return response
 
     @classmethod
     def get_similar_documents(cls, document_id: str, project_ids: List[str] = None, limit: int = 10) -> Dict[str, Any]:

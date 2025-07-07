@@ -13,6 +13,7 @@ The VectorStore class is designed to be agnostic of the specific embedding model
 or document structures, focusing purely on efficient database interaction.
 """
 
+import ast
 import logging
 import time
 import pandas as pd
@@ -480,8 +481,25 @@ class VectorStore:
         self._log_search_time("Document embedding retrieval", elapsed_time)
         
         if result and result[0]:
-            # Convert the embedding to a list (it may be returned as a numpy array or similar)
-            return result[0]
+            # Convert the embedding to a list - handle different return types from pgvector
+            embedding = result[0]
+            if isinstance(embedding, str):
+                # If it's a string representation, parse it
+                try:
+                    return ast.literal_eval(embedding)
+                except (ValueError, SyntaxError):
+                    # If parsing fails, try removing brackets and splitting
+                    clean_str = embedding.strip('[]')
+                    return [float(x.strip()) for x in clean_str.split(',')]
+            elif hasattr(embedding, 'tolist'):
+                # If it's a numpy array or similar, convert to list
+                return embedding.tolist()
+            elif isinstance(embedding, list):
+                # If it's already a list, return as-is
+                return embedding
+            else:
+                # Try to convert to list
+                return list(embedding)
         else:
             return None
 
@@ -535,8 +553,19 @@ class VectorStore:
         # Convert embedding to the format expected by the database
         if isinstance(source_embedding, list):
             embedding_list = source_embedding
-        else:
+        elif hasattr(source_embedding, 'tolist'):
             embedding_list = source_embedding.tolist()
+        elif isinstance(source_embedding, str):
+            # Handle string representation of embedding
+            try:
+                embedding_list = ast.literal_eval(source_embedding)
+            except (ValueError, SyntaxError):
+                # If parsing fails, try removing brackets and splitting
+                clean_str = source_embedding.strip('[]')
+                embedding_list = [float(x.strip()) for x in clean_str.split(',')]
+        else:
+            # Try to convert to list
+            embedding_list = list(source_embedding)
         
         # Construct the SQL query for document similarity search
         documents_table = current_app.vector_settings.documents_table_name
@@ -550,16 +579,21 @@ class VectorStore:
         LIMIT %s
         """
         
-        # Add embedding and limit to params
-        params.append(embedding_list)
-        params.append(embedding_list)
-        params.append(limit)
+        # Convert embedding list to a format PostgreSQL can understand
+        embedding_str = '[' + ','.join(map(str, embedding_list)) + ']'
+        
+        # Build final params list in the correct order for the SQL query:
+        # 1. embedding (for similarity calculation)
+        # 2. document_id and other WHERE clause params
+        # 3. embedding (for ORDER BY)
+        # 4. limit
+        final_params = [embedding_str] + params + [embedding_str, limit]
         
         # Execute the query using psycopg
         conn_params = current_app.vector_settings.database_url
         with psycopg.connect(conn_params) as conn:
             with conn.cursor() as cur:
-                cur.execute(search_sql, params)
+                cur.execute(search_sql, final_params)
                 results = cur.fetchall()
         
         elapsed_time = time.time() - start_time

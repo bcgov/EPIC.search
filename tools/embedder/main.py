@@ -128,7 +128,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
         project_name = project["name"]
 
         # Ensure project record exists before processing documents
-        upsert_project(project_id, project_name)
+        upsert_project(project_id, project_name, project)
 
         print(
             f"\n=== Retrieving documents for project: {project_name} ({project_id}) ==="

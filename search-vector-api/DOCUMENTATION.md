@@ -10,17 +10,20 @@ The Search Vector API provides advanced semantic search capabilities using a mod
 
 The system implements an efficient two-stage search approach:
 
-**Stage 1: Document-Level Filtering**
+#### Stage 1: Document-Level Filtering
+
 * Uses pre-computed document metadata (keywords, tags, headings) for fast document discovery  
 * Applies project-based filtering constraints
 * Identifies the most relevant documents before chunk-level search
 
-**Stage 2: Chunk-Level Semantic Search**
+#### Stage 2: Chunk-Level Semantic Search
+
 * Performs semantic vector search within chunks of identified documents
 * Uses pgvector for efficient similarity matching
 * Maintains project filtering consistency
 
-**Fallback Logic**
+#### Search Fallback Strategy
+
 * Broader semantic search across all chunks if no documents found
 * Keyword-based search as final fallback
 * Ensures relevant results when possible
@@ -29,36 +32,40 @@ The system implements an efficient two-stage search approach:
 
 1. **Document-Level Search**: Fast filtering using pre-computed document metadata
 2. **Chunk-Level Search**: Semantic search within document chunks using vector embeddings
-3. **Vector Store**: Core service for vector and keyword operations with pgvector
-4. **Embedding Service**: Text-to-vector conversion using sentence transformer models
-5. **Keyword Extractor**: BERT-based keyword extraction from queries
-6. **Tag Extractor**: Identifies tags in query text for filtering
-7. **Re-Ranker**: Cross-encoder model for improved relevance scoring
-8. **Search Orchestrator**: Manages the complete two-stage pipeline with fallback logic
+3. **Project Inference Service**: Intelligent project detection from natural language queries
+4. **Vector Store**: Core service for vector and keyword operations with pgvector
+5. **Embedding Service**: Text-to-vector conversion using sentence transformer models
+6. **Keyword Extractor**: BERT-based keyword extraction from queries
+7. **Tag Extractor**: Identifies tags in query text for filtering
+8. **Re-Ranker**: Cross-encoder model for improved relevance scoring
+9. **Search Orchestrator**: Manages the complete two-stage pipeline with fallback logic
 
 ### Configuration Structure
 
 The application uses strongly-typed configuration classes for different aspects of the system:
 
 1. **VectorSettings**: Configuration related to vector database and dimensions
-   - `vector_table_name`: Name of the vector table in the database
-   - `embedding_dimensions`: Dimensions of embedding vectors (default: 768)
-   - `database_url`: PostgreSQL connection string
-   - `time_partition_interval`: Time partitioning interval for the database
+
+   * `vector_table_name`: Name of the vector table in the database
+   * `embedding_dimensions`: Dimensions of embedding vectors (default: 768)
+   * `database_url`: PostgreSQL connection string
+   * `time_partition_interval`: Time partitioning interval for the database
 
 2. **SearchSettings**: Configuration related to search operations
-   - `keyword_fetch_count`: Number of results to fetch in keyword search
-   - `semantic_fetch_count`: Number of results to fetch in semantic search
-   - `top_record_count`: Number of top records to return after re-ranking
-   - `reranker_batch_size`: Batch size for processing document re-ranking
+
+   * `keyword_fetch_count`: Number of results to fetch in keyword search
+   * `semantic_fetch_count`: Number of results to fetch in semantic search
+   * `top_record_count`: Number of top records to return after re-ranking
+   * `reranker_batch_size`: Batch size for processing document re-ranking
    * `min_relevance_score`: Minimum relevance score for re-ranked results (default: -10.0)
 
 > **Note**: The default minimum relevance score is set to -10.0 because cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative scores for relevant documents.
 
-3. **ModelSettings**: Configuration related to machine learning models
-   - `cross_encoder_model`: Model name for the cross-encoder re-ranker
-   - `embedding_model_name`: Model name for semantic embeddings
-   - `keyword_model_name`: Model name for keyword extraction
+3.**ModelSettings**: Configuration related to machine learning models
+
+* `cross_encoder_model`: Model name for the cross-encoder re-ranker
+* `embedding_model_name`: Model name for semantic embeddings
+* `keyword_model_name`: Model name for keyword extraction
 
 These settings are initialized in `app.py` and accessible throughout the application via the Flask app context.
 
@@ -67,6 +74,7 @@ These settings are initialized in `app.py` and accessible throughout the applica
 The system uses PostgreSQL with pgvector extension and implements a two-table structure optimized for the two-stage search:
 
 #### Documents Table
+
 Pre-computed document-level metadata for fast filtering:
 
 ```sql
@@ -89,6 +97,7 @@ CREATE INDEX documents_embedding_idx ON documents USING ivfflat (embedding vecto
 ```
 
 #### Document Chunks Table
+
 Individual chunks with semantic embeddings:
 
 ```sql
@@ -120,7 +129,7 @@ CREATE INDEX chunks_document_idx ON document_chunks (document_id);
 CREATE INDEX chunks_project_idx ON document_chunks (project_id);
 ```
 
-## Two-Stage Search Pipeline
+## Search Process
 
 The search process implements an efficient two-stage approach:
 
@@ -154,6 +163,17 @@ The search process implements an efficient two-stage approach:
 
 ## Key Features
 
+### Two-Stage Search Architecture
+
+The system's efficiency comes from its two-stage approach:
+
+**Benefits:**
+
+* Faster search by filtering documents before chunk search
+* Better relevance by using document-level metadata
+* Reduced computational overhead compared to searching all chunks
+* Maintains high recall through comprehensive fallback logic
+
 ### Semantic Search
 
 The semantic search functionality converts user queries to vector embeddings and finds similar documents using cosine similarity. The implementation uses pgvector's native vector similarity operators:
@@ -168,10 +188,10 @@ LIMIT limit
 
 Key features of semantic search:
 
-- Vector similarity using cosine distance
-- Filtering by tags and metadata
-- Time range filtering
-- Customizable result limit
+* Vector similarity using cosine distance
+* Filtering by tags and metadata
+* Time range filtering
+* Customizable result limit
 
 ### Keyword Search
 
@@ -185,14 +205,47 @@ ORDER BY rank DESC
 LIMIT limit
 ```
 
-### Result Re-ranking
+### Project-Based Filtering
 
-After retrieving results from both search methods, a cross-encoder model is used to re-rank them based on relevance to the original query:
+All search operations support project-based filtering:
 
-1. The query and each document are paired together
-2. The cross-encoder model evaluates the relevance of each pair
-3. Results are sorted based on the relevance scores
-4. Top N results are returned to the user
+* Applied consistently across both search stages  
+* Uses database indexes for efficient filtering
+* Maintains search quality within project constraints
+
+### Result Re-ranking and Advanced Relevance Scoring
+
+After retrieving results from the two-stage search pipeline, a cross-encoder model is used to re-rank them based on relevance to the original query:
+
+1. **Pair Formation**: The query and each document chunk are paired together
+2. **Cross-Encoder Evaluation**: The `cross-encoder/ms-marco-MiniLM-L-2-v2` model evaluates each query-document pair
+3. **Score Generation**: Model produces raw logit scores (can be positive or negative)
+4. **Sorting**: Results are sorted by relevance scores in descending order (higher = more relevant)
+5. **Filtering**: Results below the minimum relevance threshold are filtered out
+6. **Top-N Selection**: Final top N results are returned to the user
+
+#### Understanding Cross-Encoder Scores
+
+Cross-encoder models produce **raw logit scores** with specific characteristics:
+
+* **Can be positive OR negative** - Negative scores are normal for relevant documents
+* **Higher values = more relevant** - Relative ranking matters more than absolute values
+* **Raw logits, not probabilities** - Model outputs before normalization
+
+#### Example Scores
+
+From actual search results:
+
+```json
+{
+  "relevance_score": -4.135  // Highly relevant (passes -10.0 threshold)
+},
+{
+  "relevance_score": -6.762  // Still relevant (passes -10.0 threshold)  
+}
+```
+
+These negative scores represent relevant documents that would be incorrectly filtered with a 0.0 threshold.
 
 ## API Endpoints
 
@@ -286,35 +339,85 @@ Finds documents similar to a specified document using document-level embeddings.
 }
 ```
 
-## Key Features
+### Intelligent Project Inference
 
-### Two-Stage Search Architecture
+The search system includes automatic project detection that can infer which project(s) a user is querying about based on the natural language in their query. This feature only activates when no explicit project IDs are provided and operates with high confidence thresholds to ensure accuracy.
 
-The system's efficiency comes from its two-stage approach:
+#### How Project Inference Works
 
-**Benefits:**
+**Entity Extraction**: The system analyzes queries for:
 
-* Faster search by filtering documents before chunk search
-* Better relevance by using document-level metadata
-* Reduced computational overhead compared to searching all chunks
-* Maintains high recall through comprehensive fallback logic
+* Project names (e.g., "Site C project", "Trans Mountain pipeline")
+* Infrastructure project terms (e.g., "mine", "dam", "terminal", "facility")
+* Quoted project references
+* Capitalized project-specific terminology
 
-### Project-Based Filtering  
+**Project Matching**: Extracted entities are matched against known projects using:
 
-All search operations support project-based filtering:
+* Fuzzy string matching for similarity scoring against project names
+* Substring matching for partial project name matches  
+* Confidence scoring based on project name match quality only
+* Direct querying of the projects table for efficient lookup
 
-* Applied consistently across both search stages  
-* Uses database indexes for efficient filtering
-* Maintains search quality within project constraints
+**Automatic Application**: Project filtering is automatically applied when:
 
-### Advanced Relevance Scoring
+* Confidence score exceeds 80% threshold
+* No explicit project IDs were provided in the request
+* Clear project names are detected in the query
 
-Cross-encoder re-ranking provides superior relevance:
+#### Example Queries with Automatic Project Inference
 
-* **Model**: `cross-encoder/ms-marco-MiniLM-L-2-v2`
-* **Score Range**: Can include negative values for relevant documents
-* **Threshold**: -10.0 default to accommodate model characteristics
-* **Processing**: Batch processing for efficiency
+| Query | Detected Entity | Matched Project | Confidence | Applied |
+|-------|----------------|----------------|------------|---------|
+| "Who is the main proponent for the Site C project?" | "Site C project" | Site C Clean Energy Project | 92% | ✅ Yes |
+| "Environmental impacts of Trans Mountain pipeline" | "Trans Mountain pipeline" | Trans Mountain Pipeline | 92% | ✅ Yes |
+| "Site C dam construction timeline" | "Site C dam" | Site C Clean Energy Project | 88% | ✅ Yes |
+| "impact assessment procedures" | None | N/A | 0% | ❌ No |
+
+#### API Response with Project Inference
+
+When project inference occurs, the API response includes additional metadata:
+
+```json
+{
+  "vector_search": {
+    "documents": [...],
+    "search_metrics": {...},
+    "project_inference": {
+      "attempted": true,
+      "confidence": 0.92,
+      "inferred_project_ids": ["proj-001"],
+      "applied": true,
+      "metadata": {
+        "extracted_entities": ["Site C project"],
+        "matched_projects": [
+          {
+            "entity": "Site C project",
+            "project_id": "proj-001", 
+            "project_name": "Site C Clean Energy Project",
+            "similarity": 0.92
+          }
+        ],
+        "reasoning": ["Detected entity 'Site C project' matching project 'Site C Clean Energy Project' with similarity 0.920"]
+      }
+    }
+  }
+}
+```
+
+#### Benefits
+
+* **User-Friendly**: No need to know specific project IDs
+* **Context-Aware**: Automatically focuses search on relevant project scope
+* **Performance**: Reduces search space for faster, more relevant results
+* **Transparent**: Full inference metadata provided for debugging/auditing
+* **Conservative**: Only applies when highly confident (>80%) to avoid false positives
+
+#### Model Processing
+
+* **Batch Processing**: Configurable batch size for efficiency (default: 8)
+* **Query-Document Pairs**: Each query-document combination is evaluated together
+* **Ranking Focus**: Emphasizes relative score comparison over absolute values
 
 ## Configuration
 
@@ -385,12 +488,12 @@ curl -X POST "http://localhost:5000/api/vector-search" \
 
 ## Performance Considerations
 
-- Direct pgvector implementation provides efficient vector similarity search using index structures
-- Search time is logged for each stage of the pipeline for performance monitoring
-- For large datasets, consider:
-  - Increasing the number of IVF lists in the index
-  - Using approximate nearest neighbor search
-  - Implementing caching for frequent queries
+* Direct pgvector implementation provides efficient vector similarity search using index structures
+* Search time is logged for each stage of the pipeline for performance monitoring
+* For large datasets, consider:
+  * Increasing the number of IVF lists in the index
+  * Using approximate nearest neighbor search
+  * Implementing caching for frequent queries
 
 ## Implementation Notes
 
@@ -441,9 +544,9 @@ docker build \
 
 When preloading is enabled, the following must be specified:
 
-- `PRELOAD_EMBEDDING_MODEL`: Model to use for generating vector embeddings
-- `PRELOAD_KEYWORD_MODEL`: Model to use for keyword extraction (typically same as embedding model)
-- `PRELOAD_CROSS_ENCODER_MODEL`: Cross-encoder model for re-ranking search results
+* `PRELOAD_EMBEDDING_MODEL`: Model to use for generating vector embeddings
+* `PRELOAD_KEYWORD_MODEL`: Model to use for keyword extraction (typically same as embedding model)
+* `PRELOAD_CROSS_ENCODER_MODEL`: Cross-encoder model for re-ranking search results
 
 ##### Option 2: Startup Preloading
 
@@ -471,9 +574,9 @@ Choosing the appropriate model loading strategy depends on your specific deploym
 
 ## Future Enhancements
 
-- Add authentication and rate limiting
-- Implement caching for frequent queries
-- Support for more advanced filtering options
-- Vector quantization for larger datasets
-- Personalized search results based on user preferences
-- Support for more language models and embedding techniques
+* Add authentication and rate limiting
+* Implement caching for frequent queries
+* Support for more advanced filtering options
+* Vector quantization for larger datasets
+* Personalized search results based on user preferences
+* Support for more language models and embedding techniques

@@ -164,9 +164,9 @@ class SearchSettings:
         """Get the minimum relevance score threshold for re-ranked results.
         
         Returns:
-            float: The minimum relevance score (default: 0.0)
+            float: The minimum relevance score (default: -8.0)
         """
-        return float(self._config.get("MIN_RELEVANCE_SCORE", 0.0))
+        return float(self._config.get("MIN_RELEVANCE_SCORE", -8.0))
 
 
 class ModelSettings:
@@ -262,7 +262,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     KEYWORD_MODEL_NAME = os.getenv("KEYWORD_MODEL_NAME", "all-mpnet-base-v2")
 
     # Minimum relevance score for re-ranked results
-    MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "0.0"))
+    MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "-8.0"))
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods

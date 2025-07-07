@@ -9,22 +9,28 @@ A high-performance semantic search Python Flask API that provides document-level
 * **Semantic Vector Search**: Uses pgvector and sentence transformer models for semantic similarity
 * **Keyword-Based Search**: PostgreSQL full-text search with fallback capabilities
 * **Cross-Encoder Re-ranking**: Advanced relevance scoring using cross-encoder models
+* **Smart Query-Document Mismatch Detection**: Automatically detects and flags queries that don't match document content well
+* **Intelligent Project Inference**: Automatically detects project references in queries based on project names and applies filtering when highly confident
+* **Intelligent Relevance Filtering**: Optimized thresholds to filter irrelevant results while preserving relevant documents
 * **Project-Based Filtering**: Filter search results by specific projects
 * **Multi-Level Fallback Logic**: Ensures relevant results are always returned when possible
 * **Document Similarity Search**: Find documents similar to a given document using embeddings
 * **Comprehensive Performance Metrics**: Detailed timing for each search stage
+* **User-Friendly Messaging**: Clear feedback when queries may need refinement
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
 * **Optional Model Preloading**: Configure model loading at build-time, startup, or on-demand
 
 ## Architecture Overview
 
-The search system uses a modern two-stage approach:
+The search system uses a modern multi-stage approach with intelligent project detection:
 
+0. **Stage 0: Project Inference** - Automatically detects project references in natural language queries based on project names and applies filtering when highly confident (>80%)
 1. **Stage 1: Document-Level Filtering** - Quickly identifies relevant documents using pre-computed metadata (keywords, tags, headings)
 2. **Stage 2: Chunk-Level Search** - Performs semantic search within chunks of the identified documents
 3. **Fallback Logic** - Falls back to broader search if no documents are found
 4. **Re-ranking** - Uses cross-encoder models to improve result relevance
-5. **Project Filtering** - Applies project-based constraints throughout the pipeline
+5. **Quality Assessment** - Detects low-confidence results and provides user feedback
+6. **Project Filtering** - Applies project-based constraints throughout the pipeline
 
 This approach is much more efficient than searching all chunks and provides better relevance by first identifying the most promising documents.
 
@@ -71,9 +77,9 @@ The application uses typed configuration classes for different aspects of the sy
 * `SEMANTIC_FETCH_COUNT`: Number of results to fetch in semantic search (default: 100)
 * `TOP_RECORD_COUNT`: Number of top records to return after re-ranking (default: 10)
 * `RERANKER_BATCH_SIZE`: Batch size for the cross-encoder re-ranker (default: 8)
-* `MIN_RELEVANCE_SCORE`: Minimum relevance score for re-ranked results (default: -10.0)
+* `MIN_RELEVANCE_SCORE`: Minimum relevance score for re-ranked results (default: -8.0)
 
-> **Note**: The `MIN_RELEVANCE_SCORE` is set to -10.0 by default because cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative relevance scores for relevant documents. This threshold ensures relevant results are not filtered out.
+> **Note**: The `MIN_RELEVANCE_SCORE` has been optimized to -8.0 to provide better filtering of irrelevant results while preserving relevant documents. Cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative relevance scores for relevant documents, so positive thresholds would filter out good matches. The system also includes intelligent detection of queries that don't match the document content well (all scores below -9.0), providing user feedback for potential query refinement.
 
 #### ML Model Configuration
 
@@ -179,22 +185,26 @@ The application follows a tiered architecture:
 ## Search Pipeline Stages
 
 ### Stage 1: Document-Level Search
+
 1. Extract keywords and tags from the user query
 2. Search the `documents` table using pre-computed metadata
 3. Apply project-based filtering if specified
 4. Return a list of relevant document IDs
 
 ### Stage 2: Chunk-Level Search
+
 1. Search chunks within the documents identified in Stage 1
 2. Use semantic vector similarity for relevance ranking
 3. Apply the same project filtering for consistency
 
 ### Fallback Logic
+
 1. If no documents are found in Stage 1, perform a broader semantic search across all chunks
 2. If semantic search returns no results, fall back to keyword-based search
 3. Ensures that relevant results are returned when possible
 
 ### Re-ranking and Formatting
+
 1. Re-rank all results using a cross-encoder model for improved relevance
 2. Filter results based on minimum relevance score threshold
 3. Format results into the final API response structure
@@ -215,25 +225,28 @@ This project is licensed under the Apache License 2.0 - see the LICENSE file for
 
 Each document in the API response now includes a `relevance_score` field, which represents the cross-encoder's confidence in the document's relevance to the query. This allows clients to further filter or sort results as needed.
 
-**relevance_score**: Each document in the API response includes a `relevance_score` field. This is a float value produced by the cross-encoder model, representing the model's confidence in the document's relevance to the query. 
+**relevance_score**: Each document in the API response includes a `relevance_score` field. This is a float value produced by the cross-encoder model, representing the model's confidence in the document's relevance to the query.
 
 For the `cross-encoder/ms-marco-MiniLM-L-2-v2` model used by default:
-- Higher values indicate greater relevance
-- Scores can be negative for relevant documents (this is normal behavior)
-- The minimum relevance threshold is set to -10.0 to accommodate this score range
-- Scores are used for both filtering and sorting results
+
+* Higher values indicate greater relevance
+* Scores can be negative for relevant documents (this is normal behavior)
+* The minimum relevance threshold is set to -10.0 to accommodate this score range
+* Scores are used for both filtering and sorting results
 
 ## API Endpoints
 
 ### Vector Search
-```
+
+``` API
 POST /api/vector-search
 ```
 
 Performs the two-stage search pipeline with document-level filtering followed by chunk-level semantic search.
 
 **Request Body:**
-```json
+
+``` json
 {
   "query": "climate change impacts on wildlife",
   "project_ids": ["project-123", "project-456"]  // Optional
@@ -241,7 +254,8 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ```
 
 **Response:**
-```json
+
+``` json
 {
   "vector_search": {
     "documents": [
@@ -270,15 +284,69 @@ Performs the two-stage search pipeline with document-level filtering followed by
 }
 ```
 
-### Document Similarity Search
+### Project Inference Example
+
+When no project IDs are specified, the system automatically detects project references:
+
+**Request with Project Inference:**
+
+``` json
+{
+  "query": "who is the main proponent for the Site C project?"
+}
 ```
+
+**Response with Automatic Project Filtering:**
+
+``` json
+{
+  "vector_search": {
+    "documents": [
+      {
+        "document_id": "uuid-string",
+        "project_id": "proj-001",
+        "project_name": "Site C Clean Energy Project",
+        "proponent_name": "BC Hydro",
+        "content": "BC Hydro is the proponent for the Site C Clean Energy Project...",
+        "relevance_score": -2.45,
+        "search_quality": "normal"
+      }
+    ],
+    "search_metrics": {...},
+    "search_quality": "normal",
+    "project_inference": {
+      "attempted": true,
+      "confidence": 0.92,
+      "inferred_project_ids": ["proj-001"],
+      "applied": true,
+      "metadata": {
+        "extracted_entities": ["Site C project"],
+        "matched_projects": [
+          {
+            "entity": "Site C project",
+            "project_id": "proj-001",
+            "project_name": "Site C Clean Energy Project",
+            "similarity": 0.92
+          }
+        ],
+        "reasoning": ["Detected entity 'Site C project' matching project 'Site C Clean Energy Project' with similarity 0.920"]
+      }
+    }
+  }
+}
+```
+
+### Document Similarity Search
+
+``` API
 POST /api/document-similarity
 ```
 
 Finds documents similar to a specified document using document-level embeddings.
 
 **Request Body:**
-```json
+
+``` json
 {
   "document_id": "uuid-string",
   "project_ids": ["project-123"],  // Optional

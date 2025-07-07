@@ -17,9 +17,9 @@ import uuid
 import tempfile
 import traceback
 import strip_markdown
-import json
 import time
 import numpy as np
+
 from typing import List, Dict, Any, Tuple
 from sqlalchemy.orm import sessionmaker
 from src.models.pgvector.vector_models import DocumentChunk, Document, ProcessingLog

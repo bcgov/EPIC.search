@@ -17,10 +17,7 @@ both traditional keyword matching and modern embedding-based semantic similarity
 
 import pandas as pd
 import time
-
 from flask import current_app
-import numpy as np
-
 from .bert_keyword_extractor import get_keywords
 from .re_ranker import rerank_results
 from .vector_store import VectorStore
@@ -338,6 +335,12 @@ def format_data(data):
     if len(data) == 0:
         return result
     
+    # Check if results have low confidence (all scores were very low)
+    has_low_confidence = False
+    if hasattr(data, 'iterrows') and not data.empty:
+        # Check if any row has the low_confidence flag
+        has_low_confidence = any(row.get('low_confidence', False) for _, row in data.iterrows())
+    
     # Process DataFrame directly instead of converting to numpy array
     if hasattr(data, 'iterrows'):
         for idx, row in data.iterrows():
@@ -355,21 +358,26 @@ def format_data(data):
             s3_key = metadata.get("s3_key")        
 
             # Append to a list or process as needed
-            result.append(
-                {
-                    "document_id": document_id,
-                    "document_type": document_type,
-                    "document_name": document_name,
-                    "document_saved_name": document_saved_name,
-                    "page_number": page_number,
-                    "project_id": project_id,
-                    "project_name": project_name,
-                    "proponent_name": proponent_name,
-                    "s3_key": s3_key,
-                    "content": row.get('content', ''),
-                    "relevance_score": float(row.get('relevance_score', 0.0)),
-                }
-            )
+            formatted_result = {
+                "document_id": document_id,
+                "document_type": document_type,
+                "document_name": document_name,
+                "document_saved_name": document_saved_name,
+                "page_number": page_number,
+                "project_id": project_id,
+                "project_name": project_name,
+                "proponent_name": proponent_name,
+                "s3_key": s3_key,
+                "content": row.get('content', ''),
+                "relevance_score": float(row.get('relevance_score', 0.0)),
+            }
+            
+            # Add low confidence warning if applicable
+            if has_low_confidence:
+                formatted_result["search_quality"] = "low_confidence"
+                formatted_result["search_note"] = "Results may not be highly relevant to your query. Consider refining your search terms."
+            
+            result.append(formatted_result)
     else:
         # Fallback to numpy array processing for backward compatibility
         import numpy as np

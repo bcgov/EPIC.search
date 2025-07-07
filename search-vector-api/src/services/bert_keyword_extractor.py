@@ -1,5 +1,6 @@
 # Global model instance - loaded only once
 from flask import current_app
+
 import logging
 
 _keymodel = None

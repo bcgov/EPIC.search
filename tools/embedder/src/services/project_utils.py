@@ -3,9 +3,14 @@ from sqlalchemy.orm import sessionmaker
 from src.config.settings import get_settings
 from sqlalchemy import create_engine
 
-def upsert_project(project_id: str, project_name: str):
+def upsert_project(project_id: str, project_name: str, project_metadata: dict = None):
     """
     Insert or update a project in the projects table using SQLAlchemy ORM.
+    
+    Args:
+        project_id (str): The unique project identifier
+        project_name (str): The project name
+        project_metadata (dict, optional): Full project data from API to store as JSONB
     """
     settings = get_settings()
     database_url = settings.vector_store_settings.db_url
@@ -18,8 +23,14 @@ def upsert_project(project_id: str, project_name: str):
         project = session.query(Project).filter_by(project_id=project_id).first()
         if project:
             project.project_name = project_name
+            if project_metadata:
+                project.project_metadata = project_metadata
         else:
-            project = Project(project_id=project_id, project_name=project_name)
+            project = Project(
+                project_id=project_id, 
+                project_name=project_name,
+                project_metadata=project_metadata
+            )
             session.add(project)
         session.commit()
     except Exception as e:

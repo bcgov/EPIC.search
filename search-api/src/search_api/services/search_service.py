@@ -9,11 +9,11 @@ This service handles the core search functionality, including:
 
 import os
 import time
-import requests
 from datetime import datetime, timezone
 
 from flask import current_app
 from .synthesizer_resolver import get_synthesizer
+from .vector_search_client import VectorSearchClient
 
 
 class SearchService:
@@ -24,45 +24,7 @@ class SearchService:
     """
 
     @classmethod
-    def call_vector_search_api(cls, query):
-        """Call the external vector search API to retrieve relevant documents.
-        
-        Args:
-            query (str): The search query to send to the vector search service
-            
-        Returns:
-            tuple: A tuple containing:
-                - list: Retrieved documents matching the query
-                - dict: Search performance metrics
-                
-        Note:
-            Returns empty results ([], {}) if the API call fails
-        """
-        try:
-            vector_search_url = os.getenv(
-                "VECTOR_SEARCH_API_URL", "http://localhost:3300/api/vector-search"
-            )
-            current_app.logger.info(
-                f"Calling vector search API at address: {vector_search_url}"
-            )
-            response = requests.post(
-                vector_search_url, json={"query": query}, timeout=300
-            )
-            response.raise_for_status()
-
-            api_response = response.json()
-            documents = api_response["vector_search"]["documents"]
-            metrics = api_response["vector_search"]["search_metrics"]
-
-            return documents, metrics
-        except Exception as e:
-            # Log the error
-            current_app.logger.error(f"Error calling vector search API: {str(e)}")
-            # Return empty results
-            return [], {}
-
-    @classmethod
-    def get_documents_by_query(cls, query):
+    def get_documents_by_query(cls, query, project_ids=None):
         """Process a user query to retrieve and synthesize relevant information.
         
         This method orchestrates the complete search flow:
@@ -73,6 +35,7 @@ class SearchService:
         
         Args:
             query (str): The user's search query
+            project_ids (list, optional): List of project IDs to filter by
             
         Returns:
             dict: A dictionary containing:
@@ -98,13 +61,15 @@ class SearchService:
  
         # Perform the vector DB search by calling the vector search api
         search_start = time.time()
-        documents, search_metrics = cls.call_vector_search_api(query)
+        documents, search_metrics, quality, project_inference = VectorSearchClient.search(query, project_ids)
         
         if not documents:
             return {"result": {"response": "No relevant information found.", "documents": [], "metrics": metrics}}  
 
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
         metrics["search_breakdown"] = search_metrics  # Include detailed metrics
+        metrics["quality"] = quality # Add quality metrics from vector search API
+        metrics["project_inference"] = project_inference # Add project inference info
 
         # Prep and query the LLM
         llm_start = time.time()
@@ -127,6 +92,7 @@ class SearchService:
                     "response": "An error occurred while processing your request with the LLM. Please try again later.",
                     "documents": documents,
                     "metrics": metrics,
+                    "quality": quality
                 }
             }
 
@@ -138,5 +104,44 @@ class SearchService:
                 "response": response["response"],
                 "documents": response["documents"],
                 "metrics": metrics,
+                "quality": quality,
+                "project_inference": project_inference
+            }
+        }
+
+    @classmethod
+    def get_similar_documents(cls, document_id, project_ids=None, limit=10):
+        """Find documents similar to a given document.
+        
+        Args:
+            document_id (str): The ID of the document to find similarities for
+            project_ids (list, optional): List of project IDs to filter by
+            limit (int): Maximum number of similar documents to return
+            
+        Returns:
+            dict: A dictionary containing:
+                - source_document_id (str): The ID of the source document
+                - documents (list): Similar documents with similarity scores
+                - metrics (dict): Performance metrics
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+
+        # Call vector search API for similar documents
+        search_start = time.time()
+        source_document_id, documents, search_metrics = VectorSearchClient.find_similar_documents(
+            document_id, project_ids, limit
+        )
+        
+        metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
+        metrics["search_breakdown"] = search_metrics
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+
+        return {
+            "result": {
+                "source_document_id": source_document_id,
+                "documents": documents,
+                "metrics": metrics
             }
         }
