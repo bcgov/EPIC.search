@@ -3,7 +3,9 @@ import psycopg
 from psycopg.rows import dict_row
 from typing import List
 from src.config import get_settings
+from src.config.settings import get_settings
 
+settings = get_settings()
 """
 Vector Store module for PostgreSQL with pgvector extension.
 
@@ -74,7 +76,8 @@ class VectorStore:
                 return True
                 
             # If extension doesn't exist, try to create it if auto_create is enabled
-            if self.settings.auto_create_extension:
+            auto_create_extension = getattr(settings.vector_store_settings, 'auto_create_extension', True)
+            if auto_create_extension:
                 with conn.cursor() as cur:
                     cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 conn.commit()

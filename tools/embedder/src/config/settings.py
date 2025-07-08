@@ -57,9 +57,8 @@ class VectorStoreSettings(BaseModel):
     """
     db_url: str = Field(default_factory=lambda: os.getenv("VECTOR_DB_URL"))
     embedding_dimensions: int = os.environ.get("EMBEDDING_DIMENSIONS", 768)
-    auto_create_extension: bool = Field(default_factory=lambda: os.environ.get("AUTO_CREATE_PGVECTOR_EXTENSION", "True").lower() == "true")
-    reset_db: bool = Field(default_factory=lambda: os.environ.get("RESET_DB", "False").lower() == "true")
-
+    auto_create_extension: bool = Field(default_factory=lambda: os.environ.get("AUTO_CREATE_PGVECTOR_EXTENSION", "True").lower() in ("true", "1", "yes"))
+    reset_db: bool = Field(default_factory=lambda: os.environ.get("RESET_DB", "False").lower() in ("true", "1", "yes"))
 
 class ChunkSettings(BaseModel):
     """
