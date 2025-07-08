@@ -2,15 +2,16 @@
 
 This module provides intelligent project detection capabilities that analyze user queries
 to identify project names and other project-related entities. When users ask questions 
-like "who is the main proponent for the Site C project?", the system can automatically 
-infer which project(s) they're referring to and apply appropriate filtering without 
-requiring explicit project IDs.
+like "Coyote Hydrogen project zoning and land use?", the system can automatically 
+infer which project(s) they're referring to, apply appropriate filtering, and clean 
+the query to focus on actual search terms without requiring explicit project IDs.
 
 The service includes:
 1. Named entity recognition for project names and project-related terms
 2. Fuzzy matching against known project names in the projects table
 3. Confidence scoring for automatic project inference based solely on project name similarity
-4. Integration with the search pipeline for transparent project filtering
+4. Query cleaning to remove identified project names and focus on actual search topics
+5. Integration with the search pipeline for transparent project filtering
 
 Note: Project inference is based exclusively on project names from the projects table,
 not on proponent organizations, to ensure focused and accurate project detection.
@@ -326,6 +327,63 @@ class ProjectInferenceService:
             return selected_projects, confidence
         else:
             return [], confidence
+        
+    def clean_query_after_inference(self, query: str, inference_metadata: Dict[str, Any]) -> str:
+        """Remove identified project names from the query to focus on actual search terms.
+        
+        After project inference identifies project names in the query, this method removes
+        those project references so the search focuses on the actual topic rather than
+        the project name itself. This prevents documents that mention the project name
+        from being prioritized over documents about the actual search topic.
+        
+        Args:
+            query (str): The original search query
+            inference_metadata (Dict[str, Any]): Metadata from project inference containing extracted entities
+            
+        Returns:
+            str: Cleaned query with project names removed
+        """
+        cleaned_query = query
+        
+        # Get the extracted entities that were used for project inference
+        extracted_entities = inference_metadata.get("extracted_entities", [])
+        
+        for entity in extracted_entities:
+            # Remove the entity and common variations
+            entity_lower = entity.lower()
+            
+            # Remove exact matches (case-insensitive)
+            import re
+            
+            # Pattern 1: Remove exact entity matches with word boundaries
+            pattern1 = r'\b' + re.escape(entity) + r'\b'
+            cleaned_query = re.sub(pattern1, '', cleaned_query, flags=re.IGNORECASE)
+            
+            # Pattern 2: Remove entity with "project" suffix/prefix
+            entity_base = entity_lower.replace(' project', '').replace('project ', '').strip()
+            if entity_base and entity_base != entity_lower:
+                pattern2 = r'\b' + re.escape(entity_base) + r'\s*(project|pipeline|development|proposal|mine|dam|terminal|facility)\b'
+                cleaned_query = re.sub(pattern2, '', cleaned_query, flags=re.IGNORECASE)
+            
+            # Pattern 3: Remove "the [entity]" patterns
+            pattern3 = r'\bthe\s+' + re.escape(entity) + r'\b'
+            cleaned_query = re.sub(pattern3, '', cleaned_query, flags=re.IGNORECASE)
+        
+        # Clean up extra whitespace and punctuation
+        cleaned_query = re.sub(r'\s+', ' ', cleaned_query)  # Multiple spaces to single space
+        cleaned_query = re.sub(r'\s*[,;]\s*', ' ', cleaned_query)  # Remove commas/semicolons with spaces
+        cleaned_query = cleaned_query.strip()
+        
+        # If the cleaned query is too short or empty, keep some of the original
+        if len(cleaned_query.strip()) < 5:
+            # Keep the original query but still log that we attempted cleaning
+            logging.info(f"Cleaned query too short ('{cleaned_query}'), keeping original: '{query}'")
+            return query
+        
+        if cleaned_query != query:
+            logging.info(f"Cleaned query: '{query}' -> '{cleaned_query}'")
+        
+        return cleaned_query
 
 
 # Global instance for easy access

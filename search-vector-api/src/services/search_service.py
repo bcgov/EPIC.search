@@ -39,9 +39,10 @@ class SearchService:
         metadata for improved efficiency and accuracy:
         
         Stage 0: Intelligent Project Inference (when no project_ids provided)
-        - Analyzes the query for project names, organizations, and project-related entities
+        - Analyzes the query for project names and project-related entities
         - Matches extracted entities against known projects using fuzzy matching
         - Automatically applies project filtering when confidence exceeds 80%
+        - Removes identified project names from search terms to focus on actual topics
         - Only activates when no explicit project IDs are provided in the request
         
         Stage 1: Document Discovery
@@ -130,17 +131,21 @@ class SearchService:
         inference_metadata = None
         confidence = 0.0
         original_project_ids = project_ids
+        cleaned_query = query  # Default to original query
         
         if not project_ids:  # Only infer if no explicit project IDs provided
             inferred_project_ids, confidence, inference_metadata = project_inference_service.infer_projects_from_query(query)
             
             if inferred_project_ids and confidence > 0.8:  # High confidence threshold
                 project_ids = inferred_project_ids
+                # Clean the query to remove project names that were used for inference
+                cleaned_query = project_inference_service.clean_query_after_inference(query, inference_metadata)
                 logging.info(f"Project inference successful: Using inferred projects {inferred_project_ids} with confidence {confidence:.3f}")
+                logging.info(f"Using cleaned query: '{cleaned_query}' (original: '{query}')")
             else:
                 logging.info(f"Project inference skipped: confidence {confidence:.3f} below threshold or no projects found")
         
-        documents, search_metrics = search(query, project_ids)  # Pass project_ids to search function
+        documents, search_metrics = search(cleaned_query, project_ids)  # Use cleaned query for search
 
         # Check if results have low confidence (indicating possible query-document mismatch)
         search_quality = "normal"
@@ -171,6 +176,8 @@ class SearchService:
                 "confidence": confidence,
                 "inferred_project_ids": inferred_project_ids or [],
                 "applied": bool(inferred_project_ids and confidence > 0.8),
+                "original_query": query,
+                "cleaned_query": cleaned_query if cleaned_query != query else None,
                 "metadata": inference_metadata
             }
             

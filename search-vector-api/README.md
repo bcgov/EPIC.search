@@ -10,7 +10,7 @@ A high-performance semantic search Python Flask API that provides document-level
 * **Keyword-Based Search**: PostgreSQL full-text search with fallback capabilities
 * **Cross-Encoder Re-ranking**: Advanced relevance scoring using cross-encoder models
 * **Smart Query-Document Mismatch Detection**: Automatically detects and flags queries that don't match document content well
-* **Intelligent Project Inference**: Automatically detects project references in queries based on project names and applies filtering when highly confident
+* **Intelligent Project Inference**: Automatically detects project references in queries based on project names, applies filtering when highly confident, and removes project names from the search to focus on actual topics
 * **Intelligent Relevance Filtering**: Optimized thresholds to filter irrelevant results while preserving relevant documents
 * **Project-Based Filtering**: Filter search results by specific projects
 * **Multi-Level Fallback Logic**: Ensures relevant results are always returned when possible
@@ -24,7 +24,7 @@ A high-performance semantic search Python Flask API that provides document-level
 
 The search system uses a modern multi-stage approach with intelligent project detection:
 
-0. **Stage 0: Project Inference** - Automatically detects project references in natural language queries based on project names and applies filtering when highly confident (>80%)
+0. **Stage 0: Project Inference** - Automatically detects project references in natural language queries based on project names, applies filtering when highly confident (>80%), and removes project names from search terms to focus on actual topics
 1. **Stage 1: Document-Level Filtering** - Quickly identifies relevant documents using pre-computed metadata (keywords, tags, headings)
 2. **Stage 2: Chunk-Level Search** - Performs semantic search within chunks of the identified documents
 3. **Fallback Logic** - Falls back to broader search if no documents are found
@@ -292,7 +292,7 @@ When no project IDs are specified, the system automatically detects project refe
 
 ``` json
 {
-  "query": "who is the main proponent for the Site C project?"
+  "query": "Coyote Hydrogen project zoning and land use information"
 }
 ```
 
@@ -304,11 +304,11 @@ When no project IDs are specified, the system automatically detects project refe
     "documents": [
       {
         "document_id": "uuid-string",
-        "project_id": "proj-001",
-        "project_name": "Site C Clean Energy Project",
-        "proponent_name": "BC Hydro",
-        "content": "BC Hydro is the proponent for the Site C Clean Energy Project...",
-        "relevance_score": -2.45,
+        "project_id": "proj-002",
+        "project_name": "Coyote Hydrogen Project",
+        "proponent_name": "Example Energy Corp",
+        "content": "The zoning requirements for the facility include industrial designation and land use permits...",
+        "relevance_score": -3.12,
         "search_quality": "normal"
       }
     ],
@@ -316,17 +316,19 @@ When no project IDs are specified, the system automatically detects project refe
     "search_quality": "normal",
     "project_inference": {
       "attempted": true,
-      "confidence": 0.92,
-      "inferred_project_ids": ["proj-001"],
+      "confidence": 0.88,
+      "inferred_project_ids": ["proj-002"],
       "applied": true,
+      "original_query": "Coyote Hydrogen project zoning and land use information",
+      "cleaned_query": "zoning and land use information",
       "metadata": {
-        "extracted_entities": ["Site C project"],
+        "extracted_entities": ["Coyote Hydrogen project"],
         "matched_projects": [
           {
-            "entity": "Site C project",
-            "project_id": "proj-001",
-            "project_name": "Site C Clean Energy Project",
-            "similarity": 0.92
+            "entity": "Coyote Hydrogen project",
+            "project_id": "proj-002",
+            "project_name": "Coyote Hydrogen Project",
+            "similarity": 0.88
           }
         ],
         "reasoning": ["Detected entity 'Site C project' matching project 'Site C Clean Energy Project' with similarity 0.920"]

@@ -359,6 +359,13 @@ The search system includes automatic project detection that can infer which proj
 * Confidence scoring based on project name match quality only
 * Direct querying of the projects table for efficient lookup
 
+**Query Cleaning**: After project identification, the system automatically:
+
+* Removes identified project names from the search query
+* Focuses search on actual topics rather than project names
+* Prevents project name mentions from dominating search results
+* Ensures relevant content is prioritized over project name references
+
 **Automatic Application**: Project filtering is automatically applied when:
 
 * Confidence score exceeds 80% threshold
@@ -367,12 +374,12 @@ The search system includes automatic project detection that can infer which proj
 
 #### Example Queries with Automatic Project Inference
 
-| Query | Detected Entity | Matched Project | Confidence | Applied |
-|-------|----------------|----------------|------------|---------|
-| "Who is the main proponent for the Site C project?" | "Site C project" | Site C Clean Energy Project | 92% | ✅ Yes |
-| "Environmental impacts of Trans Mountain pipeline" | "Trans Mountain pipeline" | Trans Mountain Pipeline | 92% | ✅ Yes |
-| "Site C dam construction timeline" | "Site C dam" | Site C Clean Energy Project | 88% | ✅ Yes |
-| "impact assessment procedures" | None | N/A | 0% | ❌ No |
+| Query | Detected Entity | Cleaned Query | Matched Project | Confidence | Applied |
+|-------|----------------|---------------|----------------|------------|---------|
+| "Who is the main proponent for the Site C project?" | "Site C project" | "Who is the main proponent for" | Site C Clean Energy Project | 92% | ✅ Yes |
+| "Environmental impacts of Trans Mountain pipeline" | "Trans Mountain pipeline" | "Environmental impacts of" | Trans Mountain Pipeline | 92% | ✅ Yes |
+| "Coyote Hydrogen project zoning and land use" | "Coyote Hydrogen project" | "zoning and land use" | Coyote Hydrogen Project | 88% | ✅ Yes |
+| "impact assessment procedures" | None | "impact assessment procedures" | N/A | 0% | ❌ No |
 
 #### API Response with Project Inference
 
@@ -388,17 +395,19 @@ When project inference occurs, the API response includes additional metadata:
       "confidence": 0.92,
       "inferred_project_ids": ["proj-001"],
       "applied": true,
+      "original_query": "Coyote Hydrogen project zoning and land use",
+      "cleaned_query": "zoning and land use",
       "metadata": {
-        "extracted_entities": ["Site C project"],
+        "extracted_entities": ["Coyote Hydrogen project"],
         "matched_projects": [
           {
-            "entity": "Site C project",
+            "entity": "Coyote Hydrogen project",
             "project_id": "proj-001", 
-            "project_name": "Site C Clean Energy Project",
+            "project_name": "Coyote Hydrogen Project",
             "similarity": 0.92
           }
         ],
-        "reasoning": ["Detected entity 'Site C project' matching project 'Site C Clean Energy Project' with similarity 0.920"]
+        "reasoning": ["Detected entity 'Coyote Hydrogen project' matching project 'Coyote Hydrogen Project' with similarity 0.920"]
       }
     }
   }
@@ -412,6 +421,8 @@ When project inference occurs, the API response includes additional metadata:
 * **Performance**: Reduces search space for faster, more relevant results
 * **Transparent**: Full inference metadata provided for debugging/auditing
 * **Conservative**: Only applies when highly confident (>80%) to avoid false positives
+* **Intelligent Query Processing**: Removes project names from search to focus on actual topics
+* **Improved Relevance**: Prevents project name mentions from dominating search results
 
 #### Model Processing
 

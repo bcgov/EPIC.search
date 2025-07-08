@@ -109,6 +109,7 @@ class Search(Resource):
     then performs semantic search within relevant document chunks.
     
     The implementation prioritizes both search quality and performance through:
+    - Intelligent project inference with automatic query cleaning
     - Document-level filtering using keywords, tags, and headings
     - Semantic vector search within relevant chunks
     - Cross-encoder re-ranking for optimal relevance
@@ -125,6 +126,11 @@ class Search(Resource):
         
         This endpoint implements a modern search strategy that leverages document-level
         metadata for improved efficiency and accuracy:
+        
+        Stage 0: Project Inference (when no project IDs provided)
+        - Automatically detects project references in natural language queries
+        - Applies project filtering when highly confident (>80% threshold)
+        - Removes identified project names from search terms to focus on actual topics
         
         Stage 1: Document Discovery
         - Searches the documents table using pre-computed keywords, tags, and headings
@@ -144,7 +150,8 @@ class Search(Resource):
         
         Returns:
             Response: JSON containing matched documents and detailed search metrics
-                     for each stage of the search pipeline
+                     for each stage of the search pipeline, including project inference
+                     metadata when applicable
         """
         request_data = SearchRequestSchema().load(API.payload)
         query = request_data["query"]
