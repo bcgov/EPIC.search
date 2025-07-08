@@ -107,12 +107,15 @@ The preloaded model approach is recommended for production deployments as it eli
 The Embedder performs the following operations:
 
 - Retrieves documents from S3 storage
-- Converts PDF content to searchable text
+- **Validates PDF content** and intelligently skips scanned/image-based documents
+- Converts PDF content to searchable text  
 - Splits documents into manageable chunks
 - Creates vector embeddings for each chunk
 - Stores embeddings in a vector database with rich metadata (including S3 keys)
-- Extracts and indexes document tags
-- Tracks processing status for each document
+- Extracts and indexes document tags and keywords (5 per chunk for focused results)
+- Stores complete project metadata as JSONB for analytics
+- **Comprehensive failure tracking**: Captures complete document metadata (PDF title, author, creator, creation date, page count, file size) even for failed processing
+- Tracks processing status and detailed metrics for each document
 
 ## Environment Variables
 
@@ -161,9 +164,20 @@ For detailed technical documentation, see [DOCUMENTATION.md](DOCUMENTATION.md).
 
 ## Monitoring
 
-Processing progress is logged to the console during execution. Each document's processing status is also recorded in the database.
+Processing progress is logged to the console during execution. Each document's processing status is also recorded in the database with comprehensive metrics.
 
-For detailed troubleshooting, check the console output for error messages, which include specific document IDs and failure reasons.
+### Enhanced Failure Analysis
+
+The system captures detailed document metadata even for failed processing attempts, including:
+
+- Complete PDF metadata (title, author, creator, creation date, format info)
+- Page count and file size
+- Validation status and specific failure reasons (e.g., scanned PDFs detected by content/producer analysis, corrupted files)
+- Full exception details for runtime errors
+
+This enables detailed analysis of processing patterns and identification of problematic document types.
+
+For detailed troubleshooting, check the console output for error messages, which include specific document IDs and failure reasons. Query the `processing_logs` table for comprehensive failure analytics.
 
 ## Troubleshooting
 

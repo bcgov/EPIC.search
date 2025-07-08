@@ -198,29 +198,65 @@ def chunk_and_embed_pages(
     )
     return chunks_to_upsert, list(all_tags), list(all_keywords), list(all_headings), semantic_embedding
 
-def _download_and_validate_pdf(s3_key: str, temp_dir: str = None) -> str:
+def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict = None) -> tuple:
     """
-    Download a PDF from S3 and validate it. Returns the path to the temp file if valid, else None.
+    Download a PDF from S3 and validate it. Returns (temp_path, doc_info) where temp_path is the path to the temp file if valid (else None).
+    doc_info contains metadata about the document regardless of validation success.
     """
-    pdf_bytes = read_file_from_s3(s3_key)
-    if temp_dir is None:
-        temp_dir = tempfile.gettempdir()
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, dir=temp_dir) as temp:
-        temp.write(pdf_bytes)
-        temp.flush()
-        temp_path = temp.name
-    is_valid, reason = validate_pdf_file(temp_path, s3_key)
-    if not is_valid:
-        if reason == "scanned_or_image_pdf":
-            print(f"[SKIP] File {s3_key} is likely a scanned/image-based PDF (PDF 1.4, no extractable text). Marking as failed and deleting temp file.")
-        else:
-            print(f"[SKIP] File {s3_key} failed PDF validation: {reason}. Deleting temp file.")
+    import pymupdf
+    
+    doc_info = {
+        "s3_key": s3_key,
+        "document_name": os.path.basename(s3_key),
+        "file_size_bytes": None,
+        "pdf_version": None,
+        "page_count": None,
+        "validation_status": None,
+        "validation_reason": None
+    }
+    
+    try:
+        pdf_bytes = read_file_from_s3(s3_key)
+        doc_info["file_size_bytes"] = len(pdf_bytes)
+        
+        if temp_dir is None:
+            temp_dir = tempfile.gettempdir()
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, dir=temp_dir) as temp:
+            temp.write(pdf_bytes)
+            temp.flush()
+            temp_path = temp.name
+        
+        # Extract PDF metadata
         try:
-            os.remove(temp_path)
-        except Exception as cleanup_err:
-            print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
-        return None
-    return temp_path
+            doc = pymupdf.open(temp_path)
+            doc_info["metadata"] = doc.metadata
+            doc_info["page_count"] = doc.page_count
+            doc.close()
+        except Exception as pdf_meta_err:
+            print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
+        
+        is_valid, reason = validate_pdf_file(temp_path, s3_key)
+        doc_info["validation_status"] = "valid" if is_valid else "invalid"
+        doc_info["validation_reason"] = reason if not is_valid else None
+        
+        if not is_valid:
+            if reason == "scanned_or_image_pdf":
+                print(f"[SKIP] File {s3_key} is likely a scanned/image-based PDF (PDF {doc_info.get('pdf_version', 'unknown')}, no extractable text). Marking as failed and deleting temp file.")
+            else:
+                print(f"[SKIP] File {s3_key} failed PDF validation: {reason}. Deleting temp file.")
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_err:
+                print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
+            return None, doc_info
+        
+        return temp_path, doc_info
+        
+    except Exception as e:
+        doc_info["validation_status"] = "error"
+        doc_info["validation_reason"] = f"Download/processing error: {str(e)}"
+        print(f"[ERROR] Failed to download/process {s3_key}: {e}")
+        return None, doc_info
 
 def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
     """
@@ -285,7 +321,10 @@ def load_data(
     project_id = base_metadata.get("project_id", "")
     print(f"[Worker] Actually processing: doc_id={doc_id}, file_key={s3_key}, project_id={project_id}")
     temp_path = None
-    metrics = {}
+    metrics = {
+        "document_info": None,  # Will be populated with doc metadata regardless of success/failure
+    }
+    
     # Try to use a shared engine if available, else create locally
     try:
         from src.models.pgvector.vector_db_utils import engine as shared_engine
@@ -298,37 +337,76 @@ def load_data(
         if database_url and database_url.startswith('postgresql:'):
             database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
         engine_to_use = create_engine(database_url)
+    
     Session = sessionmaker(bind=engine_to_use)
     session = Session()
+    
     try:
         t0 = time.perf_counter()
-        temp_path = _download_and_validate_pdf(s3_key, temp_dir)
+        temp_path, doc_info = _download_and_validate_pdf(s3_key, temp_dir, metrics)
         metrics["download_and_validate_pdf"] = time.perf_counter() - t0
+        metrics["document_info"] = doc_info  # Always store document info, even on failure
+        
         if not temp_path:
+            # Log failure with document info in metrics
+            log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+            if log:
+                log.metrics = metrics
+                log.status = "failure"
+            else:
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                session.add(log)
+            session.commit()
             return None
+
         t1 = time.perf_counter()
         pages = read_as_pages(temp_path)
         metrics["read_as_pages"] = time.perf_counter() - t1
+        
         if not any(page.get("text", "").strip() for page in pages):
             print(f"[WARN] No readable text found in any page of file {s3_key}. Skipping file.")
             try:
                 os.remove(temp_path)
             except Exception as cleanup_err:
                 print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
+            
+            # Log failure with document info
+            log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+            if log:
+                log.metrics = metrics
+                log.status = "failure"
+            else:
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                session.add(log)
+            session.commit()
             return None
+
         t2 = time.perf_counter()
         chunks_to_upsert, all_tags, all_keywords, all_headings, semantic_embedding = chunk_and_embed_pages(pages, base_metadata, s3_key, metrics)
         metrics["chunk_and_embed_pages_time"] = time.perf_counter() - t2
+        
         # Do NOT flatten chunk_and_embed_pages metrics; keep them nested for clarity
         if not chunks_to_upsert:
             print(f"[WARN] No valid text content found in file {s3_key}. Skipping file.")
+            # Log failure with document info
+            log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+            if log:
+                log.metrics = metrics
+                log.status = "failure"
+            else:
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                session.add(log)
+            session.commit()
             return None
+
         t3 = time.perf_counter()
         _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id)
         metrics["process_and_insert_chunks"] = time.perf_counter() - t3
+
         t4 = time.perf_counter()
         _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding)
         metrics["upsert_document_record"] = time.perf_counter() - t4
+
         # Insert metrics into processing_logs table (assumes metrics column exists and is JSONB)
         log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
         if log:
@@ -338,11 +416,29 @@ def load_data(
             log = ProcessingLog(document_id=doc_id, project_id=project_id, status="success", metrics=metrics)
             session.add(log)
         session.commit()
+        
         return s3_key
+        
     except Exception as e:
         session.rollback()
         traceback_str = traceback.format_exc()
         print(f"\n[ERROR] Exception processing file:\n  S3 Key: {s3_key}\n  Doc ID: {doc_id}\n  Project ID: {project_id}\n  Error: {e}\nTraceback:\n{traceback_str}\n")
+        
+        # Log failure with document info and exception details
+        metrics["error"] = str(e)
+        metrics["traceback"] = traceback_str
+        try:
+            log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+            if log:
+                log.metrics = metrics
+                log.status = "failure"
+            else:
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                session.add(log)
+            session.commit()
+        except Exception as log_err:
+            print(f"[ERROR] Failed to log failure metrics: {log_err}")
+        
         raise
     finally:
         session.close()

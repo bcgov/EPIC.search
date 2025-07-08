@@ -76,6 +76,7 @@ graph TB
 3. Documents are processed in batches using parallel execution.
 4. Each document is:
    - Downloaded from S3
+   - **Validated for text content** (skips scanned/image-based PDFs that would require OCR)
    - Converted from PDF to markdown
    - Chunked into smaller text segments
    - Embedded using a configurable vector model
@@ -159,9 +160,66 @@ All configuration is managed via environment variables and loaded by `get_settin
 
 ## Metrics & Logging
 
-- All processing steps collect structured metrics (timings, counts, errors, etc.).
-- Metrics are stored as JSONB in the `processing_logs` table for analytics and monitoring.
-- The `reset_db` flag allows safe table (re)creation for development or migration.
+The system collects comprehensive metrics and document metadata for all processing attempts, whether successful or failed.
+
+### Processing Metrics Collection
+
+- **All processing steps** collect structured metrics (timings, counts, errors, etc.)
+- **Metrics are stored as JSONB** in the `processing_logs` table for analytics and monitoring
+- **Document metadata is always captured**, including:
+  - Document name and S3 key
+  - File size in bytes
+  - Complete PDF metadata (title, author, creator, creation date, etc.)
+  - Page count
+  - Validation status and failure reasons
+
+### Enhanced Failure Analysis
+
+The system provides detailed failure insights by capturing document metadata even when processing fails:
+
+```sql
+-- Find all failed PDFs with their metadata
+SELECT document_id, status, 
+       metrics->'document_info'->>'metadata' as pdf_metadata,
+       metrics->'document_info'->>'page_count' as page_count,
+       metrics->'document_info'->>'file_size_bytes' as file_size,
+       metrics->'document_info'->>'validation_reason' as failure_reason
+FROM processing_logs 
+WHERE status = 'failure';
+
+-- Find documents by PDF creator or title
+SELECT document_id, 
+       metrics->'document_info'->>'document_name' as doc_name,
+       metrics->'document_info'->'metadata'->>'title' as pdf_title,
+       metrics->'document_info'->'metadata'->>'creator' as pdf_creator
+FROM processing_logs 
+WHERE metrics->'document_info'->'metadata'->>'creator' IS NOT NULL;
+
+-- Find scanned/image PDFs specifically
+SELECT document_id, 
+       metrics->'document_info'->>'document_name' as doc_name,
+       metrics->'document_info'->'metadata' as pdf_metadata
+FROM processing_logs 
+WHERE status = 'failure' 
+AND metrics->'document_info'->>'validation_reason' LIKE '%scanned%';
+```
+
+### Metrics Structure
+
+**Success cases** include:
+
+- Complete document metadata
+- Processing timing metrics for each step
+- Chunk and embedding statistics
+
+**Failure cases** include:
+
+- Complete PDF metadata (title, author, creator, creation date, format info, etc.)
+- Validation failure reasons
+- Exception details and full traceback (for runtime errors)
+- Processing metrics up to the point of failure
+
+The `reset_db` flag allows safe table (re)creation for development or migration.
 
 ## Docker Deployment
 
@@ -173,6 +231,33 @@ All configuration is managed via environment variables and loaded by `get_settin
 - Modular design allows for easy extension (new document types, models, chunking strategies, etc.).
 - All code is documented with clear docstrings and error handling.
 - See README.md for usage, configuration, and deployment details.
+
+## PDF Validation & Scanned Document Detection
+
+The system includes intelligent PDF validation to identify and skip scanned/image-based documents that would require OCR processing.
+
+### Validation Logic
+
+The validation process uses a two-tier approach:
+
+1. **Primary Check - Content Analysis**:
+   - Extracts text from the first page
+   - Rejects documents with no extractable text or minimal content patterns (e.g., "-----")
+   - Version-agnostic approach works regardless of PDF format version
+
+2. **Secondary Check - Producer/Creator Analysis**:
+   - Identifies common scanning device signatures in PDF metadata
+   - Supported indicators: HP Digital Sending Device, Scanner, Xerox, Canon, Epson, Ricoh, etc.
+   - If scanning device detected AND minimal text content (< 50 characters), document is rejected
+
+### Benefits
+
+- **Efficient processing**: Avoids attempting to process image-heavy documents
+- **Resource optimization**: Prevents time/compute waste on documents requiring OCR
+- **Comprehensive detection**: Catches scanned PDFs regardless of version (1.4, 1.7, 2.0+)
+- **Future-proof**: Content-based validation adapts to new scanning technologies
+
+Documents identified as scanned are logged with detailed metadata for potential future OCR processing.
 
 ---
 
