@@ -583,6 +583,138 @@ docker run -p 8080:8080 vector-search-api
 
 Choosing the appropriate model loading strategy depends on your specific deployment needs, performance requirements, and infrastructure constraints. Build-time preloading is ideal for production deployments where response time consistency is critical, while lazy loading may be more suitable for development environments.
 
+### Statistics API
+
+The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
+
+#### Processing Statistics
+
+```http
+GET /api/stats/processing
+POST /api/stats/processing
+```
+
+Retrieves aggregated processing statistics across all projects or filtered by specific project IDs.
+
+**GET Request (All Projects):**
+
+```http
+GET /api/stats/processing
+```
+
+**POST Request (Filtered Projects):**
+
+```json
+{
+  "projectIds": ["project-123", "project-456"]
+}
+```
+
+**Response:**
+
+```json
+{
+  "processing_stats": {
+    "projects": [
+      {
+        "project_id": "project-123",
+        "project_name": "Site C Clean Energy Project",
+        "total_files": 150,
+        "successful_files": 140,
+        "failed_files": 10,
+        "success_rate": 93.33
+      }
+    ],
+    "summary": {
+      "total_projects": 5,
+      "total_files_across_all_projects": 750,
+      "total_successful_files": 720,
+      "total_failed_files": 30,
+      "overall_success_rate": 96.0
+    }
+  }
+}
+```
+
+#### Project Processing Details
+
+```http
+GET /api/stats/project/{project_id}
+```
+
+Provides detailed processing logs for a specific project including individual document processing records.
+
+**Response:**
+
+```json
+{
+  "project_details": {
+    "project_id": "project-123",
+    "project_name": "Site C Clean Energy Project",
+    "processing_logs": [
+      {
+        "log_id": 1,
+        "document_id": "environmental_assessment.pdf",
+        "status": "success",
+        "processed_at": "2024-01-15T10:30:00Z",
+        "metrics": {
+          "processing_time_ms": 1500,
+          "file_size_bytes": 2048000
+        }
+      }
+    ],
+    "summary": {
+      "total_files": 50,
+      "successful_files": 48,
+      "failed_files": 2,
+      "success_rate": 96.0
+    }
+  }
+}
+```
+
+#### Processing Summary
+
+```http
+GET /api/stats/summary
+```
+
+Provides a high-level summary of processing statistics across the entire system.
+
+**Response:**
+
+```json
+{
+  "processing_summary": {
+    "total_projects": 5,
+    "total_files_across_all_projects": 750,
+    "total_successful_files": 720,
+    "total_failed_files": 30,
+    "overall_success_rate": 96.0,
+    "projects_with_failures": 2,
+    "avg_success_rate_per_project": 95.5
+  }
+}
+```
+
+#### Stats Database Requirements
+
+The Stats API requires the following database tables:
+
+**projects table:**
+
+* `project_id` (String, Primary Key)
+* `project_name` (VARCHAR)
+
+**processing_logs table:**
+
+* `id` (Integer, Primary Key)
+* `project_id` (String, Foreign Key)
+* `document_id` (VARCHAR)
+* `status` (VARCHAR: "success" or "failure")
+* `processed_at` (TIMESTAMP)
+* `metrics` (JSONB)
+
 ## Future Enhancements
 
 * Add authentication and rate limiting

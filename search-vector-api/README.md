@@ -15,6 +15,7 @@ A high-performance semantic search Python Flask API that provides document-level
 * **Project-Based Filtering**: Filter search results by specific projects
 * **Multi-Level Fallback Logic**: Ensures relevant results are always returned when possible
 * **Document Similarity Search**: Find documents similar to a given document using embeddings
+* **Processing Statistics Service**: Comprehensive statistics about document processing success/failure rates by project
 * **Comprehensive Performance Metrics**: Detailed timing for each search stage
 * **User-Friendly Messaging**: Clear feedback when queries may need refinement
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
@@ -355,3 +356,40 @@ Finds documents similar to a specified document using document-level embeddings.
   "limit": 10  // Optional, default: 10
 }
 ```
+
+### Processing Statistics
+
+```http
+GET /api/stats/processing
+POST /api/stats/processing
+```
+
+Retrieves aggregated processing statistics across projects, including total files processed, success rates, and failure counts.
+
+**GET Request:** Returns statistics for all projects.
+
+**POST Request Body:**
+
+```json
+{
+  "projectIds": ["project-123", "project-456"]
+}
+```
+
+### Project Processing Details
+
+```http
+GET /api/stats/project/{project_id}
+```
+
+Provides detailed processing logs for a specific project including individual document processing records.
+
+### Processing Summary
+
+```http
+GET /api/stats/summary
+```
+
+Provides a high-level summary of processing statistics across the entire system.
+
+For detailed documentation on the Stats API, see [STATS_SERVICE.md](STATS_SERVICE.md).
