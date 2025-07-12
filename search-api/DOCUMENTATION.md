@@ -82,7 +82,7 @@ GET /api/document/view?key=path%2Fto%2Fdocument.pdf&file_name=document.pdf
 - 404 Not Found - Document not found or inaccessible
 - 500 Internal Server Error - Server error
 
-### POST /api/search
+### POST /api/search/query
 
 Processes a search query and returns relevant documents with an LLM-generated summary.
 
@@ -90,7 +90,8 @@ Processes a search query and returns relevant documents with an LLM-generated su
 
 ```json
 {
-  "question": "What is the environmental impact of the project?"
+  "question": "What is the environmental impact of the project?",
+  "projectIds": ["P-123"]
 }
 ```
 
@@ -110,7 +111,8 @@ Processes a search query and returns relevant documents with an LLM-generated su
         "project_id": "P-123",
         "project_name": "Example Project"
       }
-    ],    "metrics": {
+    ],
+    "metrics": {
       "start_time": "2025-05-15 14:30:45 UTC",
       "get_synthesizer_time": 12.34,
       "llm_provider": "openai",
@@ -118,8 +120,97 @@ Processes a search query and returns relevant documents with an LLM-generated su
       "search_time_ms": 234.56,
       "search_breakdown": { /* detailed search metrics */ },
       "llm_time_ms": 345.67,
-      "total_time_ms": 592.57
+      "total_time_ms": 592.57,
+      "quality": "normal",
+      "project_inference": { /* project inference info */ }      
     }
+  }
+}
+```
+
+### POST /api/search/similar
+
+Finds documents similar to a given document using document-level embeddings.
+
+**Request:**
+
+```json
+{
+  "documentId": "65130ee0381111002240b89e",
+  "projectIds": ["P-123"],
+  "limit": 5
+}
+```
+
+**Response:**
+
+```json
+{
+  "result": {
+    "source_document_id": "65130ee0381111002240b89e",
+    "documents": [
+      {
+        "document_id": "651c37412c14e00022713dad",
+        "document_keywords": ["shared lheidli", "environmental assessment"],
+        "document_tags": ["Employment", "Communities"],
+        "document_headings": [],
+        "project_id": "650b5adc5d77c20022fb59fc",
+        "similarity_score": 0.8553,
+        "created_at": "2025-07-07T20:24:32.738719+00:00"
+      }
+      // ... more similar documents ...
+    ],
+    "metrics": {
+      "start_time": "2025-07-10 12:00:00 UTC",
+      "search_time_ms": 114.24,
+      "search_breakdown": { /* detailed timing */ },
+      "total_time_ms": 120.00
+    }
+  }
+}
+```
+
+### GET/POST /api/stats/processing
+
+Returns processing statistics for all projects (GET) or for specific projects (POST with `projectIds`).
+
+**Response:**
+
+```json
+{
+  "result": {
+    "processing_stats": { /* stats data */ },
+    "metrics": { /* timing and meta info */ }
+  }
+}
+```
+
+### GET /api/stats/project/<project_id>
+
+Returns detailed processing logs for a specific project.
+
+**Response:**
+
+```json
+{
+  "result": {
+    "project_details": { /* project log data */ },
+    "metrics": { /* timing and meta info */ }
+  }
+}
+```
+
+### GET /api/stats/summary
+
+Returns a high-level processing summary across the entire system.
+
+**Response:**
+
+```json
+{
+  "result": {
+    "system_summary": { /* summary data */ },
+    "metrics": { /* timing and meta info */ }
   }
 }
 ```

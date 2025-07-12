@@ -28,6 +28,13 @@ The system implements an efficient two-stage search approach:
 * Keyword-based search as final fallback
 * Ensures relevant results when possible
 
+#### Direct Metadata Search Mode
+
+* Activated when both project and document type are confidently inferred AND the query is generic
+* Returns document-level results ordered by document date instead of semantic chunks
+* Optimized for queries like "any correspondence for Project X" or "show me all letters for this project"
+* Bypasses semantic search for faster, more relevant results when content analysis isn't needed
+
 ### Components
 
 1. **Document-Level Search**: Fast filtering using pre-computed document metadata
@@ -84,7 +91,7 @@ CREATE TABLE documents (
     document_tags TEXT[],     -- Pre-computed tags for filtering  
     document_headings TEXT[], -- Document headings/sections
     project_id UUID,          -- Project association for filtering
-    project_name TEXT,
+    document_metadata JSONB,  -- Contains document-level metadata including document_date, project_name
     embedding VECTOR(768),    -- Document-level embedding
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -94,6 +101,8 @@ CREATE INDEX documents_keywords_idx ON documents USING GIN (document_keywords);
 CREATE INDEX documents_tags_idx ON documents USING GIN (document_tags);  
 CREATE INDEX documents_project_idx ON documents (project_id);
 CREATE INDEX documents_embedding_idx ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX documents_metadata_idx ON documents USING GIN (document_metadata);
+CREATE INDEX documents_date_idx ON documents ((document_metadata->>'document_date'));
 ```
 
 #### Document Chunks Table
@@ -107,9 +116,12 @@ CREATE TABLE document_chunks (
     metadata JSONB,  -- Contains structured chunk metadata including:
                     -- {
                     --   "document_id": "uuid-string", 
-                    --   "document_type": "string",
-                    --   "document_name": "string",
-                    --   "document_saved_name": "string", 
+                    --   "document_metadata": {
+                    --     "document_type": "string",
+                    --     "document_name": "string",
+                    --     "document_saved_name": "string",
+                    --     "document_date": "YYYY-MM-DD"
+                    --   },
                     --   "page_number": "string",
                     --   "project_id": "string",
                     --   "project_name": "string",
@@ -131,7 +143,82 @@ CREATE INDEX chunks_project_idx ON document_chunks (project_id);
 
 ## Search Process
 
-The search process implements an efficient two-stage approach:
+The search process implements an intelligent multi-mode approach:
+
+### Direct Metadata Search Process
+
+When both project and document type are confidently inferred (e.g., from queries like "I am looking for any correspondence for the Coyote Hydrogen project"), the system:
+
+1. **Detection**: Analyzes if the query is generic (requesting documents rather than specific content)
+2. **Direct Query**: Queries the `documents` table directly by project_id and document_type_id
+3. **Ordering**: Returns results ordered by document_date (newest first)
+4. **Performance**: Extremely fast since no semantic analysis is required
+
+**Direct Metadata Search Example:**
+
+For generic document requests where both project and document type are inferred:
+
+```json
+{
+  "query": "I am looking for any correspondence for the Coyote Hydrogen project"
+}
+```
+
+**Response (Direct Metadata Mode):**
+
+```json
+{
+  "vector_search": {
+    "documents": [
+      {
+        "document_id": "uuid-string",
+        "document_type": "Letter",
+        "document_name": "response_letter.pdf",
+        "document_saved_name": "Response to Public Comments 2023.pdf",
+        "document_date": "2023-10-15",
+        "page_number": null,
+        "project_id": "project-coyote-hydrogen",
+        "project_name": "Coyote Hydrogen Project",
+        "proponent_name": "Coyote Energy Corp",
+        "s3_key": "project-coyote/letters/response_letter.pdf",
+        "content": "Full document available",
+        "relevance_score": 1.0,
+        "search_mode": "document_metadata"
+      }
+    ],
+    "search_metrics": {
+      "metadata_search_ms": 12.5,      // Direct metadata query time
+      "formatting_ms": 2.1,            // Result formatting time
+      "total_search_ms": 14.6,         // Total time (much faster)
+      "search_mode": "direct_metadata"
+    },
+    "project_inference": {
+      "attempted": true,
+      "confidence": 0.92,
+      "inferred_project_ids": ["project-coyote-hydrogen"],
+      "applied": true,
+      "metadata": {
+        "extracted_entities": ["Coyote Hydrogen project"],
+        "matched_projects": [...]
+      }
+    },
+    "document_type_inference": {
+      "attempted": true,
+      "confidence": 0.85,
+      "inferred_document_type_ids": ["5df79dd77b5abbf7da6f51be"],
+      "applied": true,
+      "metadata": {
+        "extracted_entities": ["correspondence"],
+        "matched_document_types": [...]
+      }
+    }
+  }
+}
+```
+
+### Two-Stage Semantic Search
+
+For content-specific queries, the system implements an efficient two-stage approach:
 
 ### Stage 1: Document-Level Search
 
@@ -247,6 +334,130 @@ From actual search results:
 
 These negative scores represent relevant documents that would be incorrectly filtered with a 0.0 threshold.
 
+## Inference Control
+
+The search API supports fine-grained control over which inference pipelines run during query processing. This allows clients to:
+
+* Enable/disable project inference
+* Enable/disable document type inference  
+* Use environment-based defaults
+* Override defaults on a per-request basis
+
+### Inference Configuration
+
+#### Environment Variable
+
+Add to your `.env` file:
+
+```bash
+# Set to true to enable default inference pipelines when inference parameter is not provided
+# When false, no inference will run unless explicitly specified in the inference parameter
+USE_DEFAULT_INFERENCE=true
+```
+
+**Default:** `true` (if not specified, all inference pipelines are enabled by default)
+
+**Important:** If you don't include `USE_DEFAULT_INFERENCE` in your environment configuration, it automatically defaults to `true`, meaning both PROJECT and DOCUMENTTYPE inference will run when no `inference` parameter is provided in the API request.
+
+### Request Parameter
+
+The search request accepts an optional `inference` parameter:
+
+```json
+{
+  "query": "water quality correspondence",
+  "projectIds": [],  // optional
+  "documentTypeIds": [],  // optional
+  "inference": ["PROJECT", "DOCUMENTTYPE"]  // optional
+}
+```
+
+#### Inference Parameter Values
+
+| Value | Description |
+|-------|-------------|
+| `["PROJECT"]` | Only run project inference |
+| `["DOCUMENTTYPE"]` | Only run document type inference |
+| `["PROJECT", "DOCUMENTTYPE"]` | Run both inference pipelines |
+| `[]` | Disable all inference pipelines |
+| `null` or not provided | Use `USE_DEFAULT_INFERENCE` setting |
+
+### Behavior Logic
+
+The system determines which inference pipelines to run using this logic:
+
+1. **If `inference` parameter is explicitly provided** (even if empty): Use it exactly as specified
+2. **If `inference` parameter is `null`/not provided AND `USE_DEFAULT_INFERENCE=true` (or not set)**: Run all inference pipelines (PROJECT and DOCUMENTTYPE)
+3. **If `inference` parameter is `null`/not provided AND `USE_DEFAULT_INFERENCE=false`**: Run no inference pipelines
+
+**Key Point:** If you don't set `USE_DEFAULT_INFERENCE` in your environment at all, the system defaults to `true`, enabling all inference pipelines by default.
+
+**Important:** Inference is automatically skipped when explicit IDs are provided, regardless of inference settings:
+
+* If `projectIds` are provided in the request, PROJECT inference is skipped
+* If `documentTypeIds` are provided in the request, DOCUMENTTYPE inference is skipped  
+* This prevents unnecessary processing when IDs are already known
+
+### Response Metadata
+
+The search response includes inference settings in the metadata:
+
+```json
+{
+  "vector_search": {
+    "documents": [...],
+    "search_metrics": {...},
+    "inference_settings": {
+      "use_default_inference": true,
+      "inference_parameter": ["PROJECT", "DOCUMENTTYPE"],
+      "project_inference_enabled": true,
+      "document_type_inference_enabled": true,
+      "project_inference_skipped": false,
+      "document_type_inference_skipped": false,
+      "skip_reason": null
+    },
+    "project_inference": {
+      // ... project inference metadata if attempted
+    },
+    "document_type_inference": {
+      // ... document type inference metadata if attempted
+    }
+  }
+}
+```
+
+### Use Cases
+
+#### Development and Testing
+
+* Disable inference to test raw search functionality: `"inference": []`
+* Test specific inference pipelines in isolation: `"inference": ["PROJECT"]`
+
+#### Performance Optimization
+
+* Skip expensive inference when IDs are already known
+* Reduce processing time for bulk operations
+
+#### Client-Specific Requirements
+
+* Some clients may only need project inference
+* Others may want to handle document type filtering manually
+
+#### Fallback Scenarios
+
+* Gradual rollout: Start with `USE_DEFAULT_INFERENCE=false`, enable per client
+* Error recovery: Disable inference if pipelines are experiencing issues
+
+### Migration Guide
+
+#### For Existing Clients
+
+No changes required. Existing requests will continue to work with the same behavior if `USE_DEFAULT_INFERENCE=true` (default).
+
+#### For New Integrations
+
+Consider explicitly setting the `inference` parameter to make inference behavior clear and not depend on environment configuration.
+
 ## API Endpoints
 
 ### Vector Search
@@ -262,7 +473,9 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ```json
 {
   "query": "climate change impacts on wildlife",
-  "project_ids": ["project-123", "project-456"]  // Optional project filtering
+  "projectIds": ["project-123", "project-456"],  // Optional project filtering
+  "documentTypeIds": ["doc-type-123"],           // Optional document type filtering
+  "inference": ["PROJECT", "DOCUMENTTYPE"]       // Optional inference control
 }
 ```
 
@@ -271,7 +484,7 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ```json
 {
   "vector_search": {
-    "documents": [
+    "document_chunks": [
       {
         "document_id": "uuid-string",
         "document_type": "PDF",
@@ -283,15 +496,27 @@ Performs the two-stage search pipeline with document-level filtering followed by
         "proponent_name": "Environmental Research Group", 
         "s3_key": "project-123/documents/wildlife_study.pdf",
         "content": "Document chunk content with relevant information...",
-        "relevance_score": -4.15
+        "relevance_score": -4.15,
+        "search_mode": "semantic"
       }
     ],
     "search_metrics": {
       "document_search_ms": 1715.4,     // Stage 1: Document-level search time
-      "chunk_search_ms": 126.49,       // Stage 2: Chunk-level search time  
+      "chunk_search_ms": 126.49,       // Stage 2: Chunk-level search time within found documents
+      "semantic_search_ms": 3787.95,   // Semantic search fallback time (when no documents found)
       "reranking_ms": 2659.92,         // Cross-encoder re-ranking time
       "formatting_ms": 0.0,            // Result formatting time
-      "total_search_ms": 4502.32       // Total search pipeline time
+      "total_search_ms": 4502.32,      // Total search pipeline time
+      "search_mode": "semantic"
+    },
+    "inference_settings": {
+      "use_default_inference": true,
+      "inference_parameter": ["PROJECT", "DOCUMENTTYPE"],
+      "project_inference_enabled": true,
+      "document_type_inference_enabled": true,
+      "project_inference_skipped": false,
+      "document_type_inference_skipped": false,
+      "skip_reason": null
     }
   }
 }
@@ -430,6 +655,65 @@ When project inference occurs, the API response includes additional metadata:
 * **Query-Document Pairs**: Each query-document combination is evaluated together
 * **Ranking Focus**: Emphasizes relative score comparison over absolute values
 
+### Document Type Handling
+
+The search system ensures that all API responses include a `document_type` field with human-readable document type names. The system supports multiple data sources for document type information:
+
+#### Chunk-Level Results (Primary)
+
+For search results based on document chunks, the system prioritizes document type information stored in the chunk metadata:
+
+1. **Nested Document Metadata** (Preferred): `chunk_metadata.document_metadata.document_type`
+   * This is the standard approach where chunk metadata contains a `document_metadata` object
+   * The `document_type` field within this object contains the human-readable type name
+
+2. **Direct Field** (Legacy Support): `chunk_metadata.document_type`
+   * For backward compatibility with older chunk metadata structures
+   * Used as fallback when nested structure is not available
+
+#### Document-Level Results (Fallback)
+
+For document-level search results, the system uses document metadata:
+
+1. **Direct Document Type**: `document_metadata.documentType`
+   * Human-readable document type name stored directly in document metadata
+
+2. **Document Type ID Lookup**: `document_metadata.documentTypeId`
+   * Numeric ID that gets mapped to human-readable names using the document type lookup table
+   * Used when direct type name is not available
+
+#### Metadata Structure Examples
+
+**Preferred Chunk Metadata Structure:**
+
+```json
+{
+  "document_id": "uuid-string",
+  "document_metadata": {
+    "document_type": "Environmental Assessment",
+    "document_name": "Climate_Impact_Study.pdf",
+    "document_saved_name": "Climate Impact Assessment 2023.pdf"
+  },
+  "page_number": "15",
+  "project_id": "project-123",
+  "project_name": "Climate Research Initiative"
+}
+```
+
+**Legacy Chunk Metadata Structure:**
+
+```json
+{
+  "document_id": "uuid-string",
+  "document_type": "Environmental Assessment",
+  "document_name": "Climate_Impact_Study.pdf",
+  "page_number": "15",
+  "project_id": "project-123"
+}
+```
+
+This hierarchical approach ensures robust document type population while supporting different metadata structures that may exist in the system.
+
 ## Configuration
 
 The application uses environment variables for configuration with sensible defaults. Environment variables can be set directly or through a `.env` file in the root directory. A sample configuration is provided in the `sample.env` file.
@@ -461,6 +745,7 @@ The configuration variables are organized into logical groups:
 | TOP_RECORD_COUNT | Number of top records to return after re-ranking | 10 |
 | RERANKER_BATCH_SIZE | Batch size for the cross-encoder re-ranker | 8 |
 | MIN_RELEVANCE_SCORE | Minimum relevance score for re-ranked results | 0.0 |
+| USE_DEFAULT_INFERENCE | Enable all inference pipelines by default when inference parameter is not provided | true |
 
 #### ML Model Configuration
 
@@ -723,3 +1008,55 @@ The Stats API requires the following database tables:
 * Vector quantization for larger datasets
 * Personalized search results based on user preferences
 * Support for more language models and embedding techniques
+
+### Response Structure
+
+The API returns different response structures based on the search mode:
+
+#### Document-Level Results (`documents`)
+
+**When**: Direct Metadata Search Mode (generic queries like "any correspondence for Project X")
+**Structure**: Document-level results ordered by date
+**Key**: `"documents"`
+**Features**:
+
+* `page_number`: Always `null` (document-level results)
+* `content`: "Full document available"
+* `search_mode`: "document_metadata"
+* `relevance_score`: 1.0 (perfect metadata match)
+
+#### Chunk-Level Results (`document_chunks`)
+
+**When**: Semantic Search Mode (content-specific queries)
+**Structure**: Document chunk results ranked by semantic relevance
+**Key**: `"document_chunks"`
+**Features**:
+
+* `page_number`: Actual page number where chunk was found
+* `content`: Relevant chunk text content  
+* `search_mode`: "semantic"
+* `relevance_score`: Cross-encoder relevance score
+
+This distinction makes it clear whether you're getting complete documents or specific content chunks, improving API usability and client-side processing.
+
+### Search Metrics
+
+The API returns detailed timing metrics for each stage of the search pipeline:
+
+#### Timing Metrics
+
+* **`document_search_ms`**: Time spent searching the documents table using keywords, tags, and headings (Stage 1)
+* **`chunk_search_ms`**: Time spent searching chunks within identified documents (Stage 2 - normal path)  
+* **`semantic_search_ms`**: Time spent on semantic search across all chunks when no documents found (alternative search path)
+* **`metadata_search_ms`**: Time spent on direct metadata search for generic queries (Direct Metadata Search Mode)
+* **`reranking_ms`**: Time spent re-ranking results using the cross-encoder model
+* **`formatting_ms`**: Time spent formatting final results
+* **`total_search_ms`**: Total time for the complete search pipeline
+
+#### Search Mode Indicators
+
+* **`search_mode`**: Indicates which search strategy was used:
+  * `"semantic"`: Two-stage semantic search with possible fallback
+  * `"direct_metadata"`: Direct metadata search for generic queries
+
+**Note**: Only relevant timing metrics are included in each response. For example, `chunk_search_ms` and `semantic_search_ms` are mutually exclusive - you'll see one or the other, but not both in the same response.

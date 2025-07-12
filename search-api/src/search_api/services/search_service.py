@@ -24,24 +24,36 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query, project_ids=None):
+    def get_documents_by_query(cls, query, project_ids=None, document_type_ids=None, inference=None):
         """Process a user query to retrieve and synthesize relevant information.
         
         This method orchestrates the complete search flow:
         1. Initializes performance metrics
-        2. Retrieves relevant documents via vector search
+        2. Retrieves relevant documents via vector search with optional filtering
         3. Processes documents through LLM for synthesis
         4. Formats and returns the final response
         
         Args:
             query (str): The user's search query
-            project_ids (list, optional): List of project IDs to filter by
+            project_ids (list, optional): Optional list of project IDs to filter search results by.
+                                        If not provided, searches across all projects.
+            document_type_ids (list, optional): Optional list of document type IDs to filter search results by.
+                                               If not provided, searches across all document types.
+            inference (list, optional): Optional list of inference types to enable 
+                                       (e.g., ["PROJECT", "DOCUMENTTYPE"]). If not provided,
+                                       uses the vector search API's default inference settings.
             
         Returns:
             dict: A dictionary containing:
                 - response (str): LLM-generated answer
-                - documents (list): Relevant documents used for the answer
-                - metrics (dict): Performance metrics for the operation
+                - documents OR document_chunks (list): Relevant documents/chunks used for the answer
+                  (key depends on vector search response type)
+                - metrics (dict): Performance metrics for the operation including search metadata
+                
+        Note:
+            The response will contain either 'documents' (metadata-focused) or 'document_chunks' 
+            (content-focused) depending on what the vector search API returns.
+            All parameters except 'query' are optional and maintain backward compatibility.
         """
         metrics = {}
         start_time = time.time()
@@ -61,24 +73,32 @@ class SearchService:
  
         # Perform the vector DB search by calling the vector search api
         search_start = time.time()
-        documents, search_metrics, quality, project_inference = VectorSearchClient.search(query, project_ids)
+        documents_or_chunks, search_metrics, search_quality, project_inference, document_type_inference, additional_metadata = VectorSearchClient.search(
+            query, project_ids, document_type_ids, inference
+        )
         
-        if not documents:
-            return {"result": {"response": "No relevant information found.", "documents": [], "metrics": metrics}}  
+        # Determine the response type from metadata
+        response_type = additional_metadata.get("response_type", "documents")
+        documents_key = "documents" if response_type == "documents" else "document_chunks"
+        
+        if not documents_or_chunks:
+            return {"result": {"response": "No relevant information found.", documents_key: [], "metrics": metrics}}  
 
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
         metrics["search_breakdown"] = search_metrics  # Include detailed metrics
-        metrics["quality"] = quality # Add quality metrics from vector search API
+        metrics["search_quality"] = search_quality # Add quality metrics from vector search API
         metrics["project_inference"] = project_inference # Add project inference info
+        metrics["document_type_inference"] = document_type_inference # Add document type inference info
+        metrics["search_metadata"] = additional_metadata # Add additional search metadata
 
         # Prep and query the LLM
         llm_start = time.time()
         current_app.logger.info(f"Calling LLM synthesizer for query: {query}")
         try:
-            formatted_documents = synthesizer.format_documents_for_context(documents)
+            formatted_documents = synthesizer.format_documents_for_context(documents_or_chunks)
             llm_prompt = synthesizer.create_prompt(query, formatted_documents)
             llm_response = synthesizer.query_llm(llm_prompt)
-            response = synthesizer.format_llm_response(documents, llm_response)
+            response = synthesizer.format_llm_response(documents_or_chunks, llm_response)
             metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
         except Exception as e:
             # Log the error
@@ -90,9 +110,9 @@ class SearchService:
             return {
                 "result": {
                     "response": "An error occurred while processing your request with the LLM. Please try again later.",
-                    "documents": documents,
+                    documents_key: documents_or_chunks,
                     "metrics": metrics,
-                    "quality": quality
+                    "search_quality": search_quality
                 }
             }
 
@@ -102,9 +122,9 @@ class SearchService:
         return {
             "result": {
                 "response": response["response"],
-                "documents": response["documents"],
+                documents_key: response["documents"],
                 "metrics": metrics,
-                "quality": quality,
+                "search_quality": search_quality,
                 "project_inference": project_inference
             }
         }

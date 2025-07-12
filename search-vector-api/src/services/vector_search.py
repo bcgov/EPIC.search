@@ -19,15 +19,92 @@ import pandas as pd
 import time
 from flask import current_app
 from .bert_keyword_extractor import get_keywords
-from .re_ranker import rerank_results
+from .re_ranker import rerank_results, rerank_results_with_metrics
 from .vector_store import VectorStore
+import re
 
 
-def search(question, project_ids=None):
+def get_document_type_name(document_metadata, chunk_metadata=None):
+    """Map document type ID to document type name using available metadata.
+    
+    This function supports multiple metadata structures to ensure robust document type
+    population across different data sources:
+    
+    Priority Order:
+    1. chunk_metadata.document_metadata.document_type (preferred nested structure)
+    2. chunk_metadata.document_type (legacy direct field for backward compatibility)
+    3. document_metadata.documentType (document-level direct field)
+    4. document_metadata.document_type_id (lookup via document type mapping)
+    
+    Args:
+        document_metadata (dict): The document metadata containing document_type_id (from documents table)
+        chunk_metadata (dict, optional): The chunk metadata that should contain a document_metadata object
+                                        with document_type field, or a direct document_type field for legacy support
+        
+    Returns:
+        str: The document type name/display name, or None if not found
+    """
+    # First try to get document type from chunk metadata's document_metadata object
+    if chunk_metadata:
+        # Check if chunk metadata contains a document_metadata object
+        chunk_doc_metadata = chunk_metadata.get('document_metadata')
+        if chunk_doc_metadata and isinstance(chunk_doc_metadata, dict):
+            document_type = chunk_doc_metadata.get('document_type')
+            if document_type:
+                return document_type
+        
+        # Fallback: try direct document_type field (legacy support)
+        direct_document_type = chunk_metadata.get('document_type')
+        if direct_document_type:
+            return direct_document_type
+    
+    # Then try to get document type from document_metadata (document-level results)
+    if document_metadata:
+        # First try the direct documentType field (most reliable)
+        document_type = document_metadata.get('documentType')
+        if document_type:
+            return document_type
+            
+        # Fallback to lookup by document_type_id
+        document_type_id = document_metadata.get('document_type_id')
+        if document_type_id:
+            try:
+                # Import the document types lookup dictionary using absolute import
+                from src.utils.document_types import DOCUMENT_TYPE_LOOKUP
+                
+                # Look up the document type name by ID
+                document_type_name = DOCUMENT_TYPE_LOOKUP.get(document_type_id)
+                
+                if document_type_name:
+                    return document_type_name
+                    
+            except ImportError:
+                # Try alternative import paths
+                try:
+                    from utils.document_types import DOCUMENT_TYPE_LOOKUP
+                    document_type_name = DOCUMENT_TYPE_LOOKUP.get(document_type_id)
+                    if document_type_name:
+                        return document_type_name
+                except ImportError:
+                    pass
+            except Exception:
+                pass
+            
+            # If lookup fails, return the ID as fallback
+            return document_type_id
+    
+    # No document type found
+    return None
+
+
+def search(question, project_ids=None, document_type_ids=None):
     """Main search function implementing a two-stage search strategy.
     
     This function orchestrates a modern search pipeline that leverages document-level
     metadata for improved efficiency and accuracy:
+    
+    Direct Metadata Mode: When both project and document type are specified and the query
+    is generic (e.g., "any correspondence"), returns document-level results ordered by date
     
     Stage 1: Document-level filtering using pre-computed keywords, tags, and headings
     Stage 2: Semantic search within relevant document chunks
@@ -39,6 +116,8 @@ def search(question, project_ids=None):
         question (str): The search query text
         project_ids (list, optional): List of project IDs to filter results.
                                     If None or empty, searches across all projects.
+        document_type_ids (list, optional): List of document type IDs to filter results.
+                                          If None or empty, searches across all document types.
         
     Returns:
         tuple: A tuple containing:
@@ -56,8 +135,35 @@ def search(question, project_ids=None):
     # Instantiate VectorStore
     vec_store = VectorStore()
     
+    # Check if this should be a direct metadata search (generic document request)
+    if (project_ids and document_type_ids and 
+        is_generic_document_request(question)):
+        
+        import logging
+        logging.info(f"Direct metadata search mode activated for query: '{question}'")
+        logging.info(f"Project IDs: {project_ids}, Document Type IDs: {document_type_ids}")
+        
+        # Perform direct metadata search
+        documents, metadata_search_time = perform_direct_metadata_search(
+            vec_store, project_ids, document_type_ids, doc_limit
+        )
+        metrics["metadata_search_ms"] = metadata_search_time
+        metrics["search_mode"] = "direct_metadata"
+        
+        # Format the document results directly (no re-ranking needed for date-ordered results)
+        format_start = time.time()
+        formatted_data = format_document_data(documents)
+        metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
+        
+        # Total time
+        metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        logging.info(f"Direct metadata search completed: {len(formatted_data)} documents found")
+        
+        return formatted_data, metrics
+    
     # Stage 1: Find relevant documents using document-level metadata
-    relevant_documents, doc_search_time = perform_document_level_search(vec_store, question, doc_limit, project_ids)
+    relevant_documents, doc_search_time = perform_document_level_search(vec_store, question, doc_limit, project_ids, document_type_ids)
     metrics["document_search_ms"] = doc_search_time
     
     # Debug logging
@@ -72,13 +178,13 @@ def search(question, project_ids=None):
         )
         metrics["chunk_search_ms"] = chunk_search_time
     else:
-        # Fallback: if no documents found, perform traditional search with project filtering
-        logging.info("Stage 2 - No documents found, using fallback search")
-        chunk_results, fallback_time = perform_fallback_search(vec_store, question, chunk_limit, project_ids)
-        metrics["fallback_search_ms"] = fallback_time
-        logging.info(f"Fallback search found {len(chunk_results) if not chunk_results.empty else 0} chunks")
+        # Alternative path: if no documents found, perform semantic search across all chunks with project filtering
+        logging.info("Stage 2 - No documents found, using semantic search across all chunks")
+        chunk_results, semantic_search_time = perform_semantic_search_all_chunks(vec_store, question, chunk_limit, project_ids, document_type_ids)
+        metrics["semantic_search_ms"] = semantic_search_time
+        logging.info(f"Semantic search across all chunks found {len(chunk_results) if not chunk_results.empty else 0} chunks")
     
-    # If both document search and fallback search returned no results, try a simple keyword search
+    # If both document search and semantic search returned no results, try a simple keyword search
     if chunk_results.empty:
         logging.info("Stage 2.5 - Semantic search returned no results, trying keyword search as last resort")
         try:
@@ -102,8 +208,23 @@ def search(question, project_ids=None):
         logging.warning("chunk_results is empty before re-ranking!")
     
     # Re-rank results using cross-encoder
-    reranked_results, rerank_time = perform_reranking(question, chunk_results, top_n)
+    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n)
     metrics["reranking_ms"] = rerank_time
+    
+    # Add filtering metrics to the search metrics
+    metrics.update({
+        "filtering_total_chunks": filtering_metrics["total_chunks_before_filtering"],
+        "filtering_excluded_chunks": filtering_metrics["excluded_chunks_count"],
+        "filtering_exclusion_percentage": filtering_metrics["exclusion_percentage"],
+        "filtering_final_chunks": filtering_metrics["final_chunk_count"]
+    })
+    
+    # Add score range information if available
+    if filtering_metrics["score_range_excluded"]:
+        metrics["filtering_excluded_score_range"] = filtering_metrics["score_range_excluded"]
+    if filtering_metrics["score_range_included"]:
+        metrics["filtering_included_score_range"] = filtering_metrics["score_range_included"]
+    
     results = reranked_results
     
     # Debug logging for re-ranking
@@ -262,6 +383,7 @@ def perform_reranking(query, combined_results, top_n):
         tuple: A tuple containing:
             - DataFrame: Re-ranked search results limited to top_n
             - float: Time taken in milliseconds
+            - dict: Filtering metrics including exclusion counts
     """
     start_time = time.time()
     
@@ -270,14 +392,22 @@ def perform_reranking(query, combined_results, top_n):
         import logging
         logging.warning("perform_reranking: received empty DataFrame")
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
-        return combined_results, elapsed_ms
+        empty_metrics = {
+            "total_chunks_before_filtering": 0,
+            "excluded_chunks_count": 0,
+            "exclusion_percentage": 0.0,
+            "final_chunk_count": 0,
+            "score_range_excluded": None,
+            "score_range_included": None
+        }
+        return combined_results, elapsed_ms, empty_metrics
     
-    # Re-rank the results using the batch size from config
+    # Re-rank the results using the batch size from config and get metrics
     batch_size = current_app.search_settings.reranker_batch_size
-    reranked_results = rerank_results(query, combined_results, top_n, batch_size=batch_size)
+    reranked_results, filtering_metrics = rerank_results_with_metrics(query, combined_results, top_n, batch_size=batch_size)
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
-    return reranked_results, elapsed_ms
+    return reranked_results, elapsed_ms, filtering_metrics
 
 
 def hybrid_search(
@@ -314,7 +444,7 @@ def hybrid_search(
     
     # Re-rank the results if needed
     if rerank:
-        final_results, _ = perform_reranking(query, deduplicated_results, top_n)
+        final_results, _, _ = perform_reranking(query, deduplicated_results, top_n)  # Ignore timing and metrics for this legacy function
         return final_results
     
     return deduplicated_results
@@ -346,13 +476,14 @@ def format_data(data):
         for idx, row in data.iterrows():
             # Get metadata - it should be in the 'metadata' column
             metadata = row.get('metadata', {})
+            document_metadata = row.get('document_metadata', {})
 
             project_id = metadata.get("project_id")
             document_id = metadata.get("document_id")
             project_name = metadata.get("project_name")
-            document_type = metadata.get("document_type")
-            document_name = metadata.get("doc_internal_name")
-            document_saved_name = metadata.get("document_name")
+            document_type = get_document_type_name(document_metadata, metadata)  # Pass both document_metadata and chunk metadata
+            document_name = metadata.get("document_name")  # Human-readable filename
+            document_saved_name = metadata.get("doc_internal_name")  # Technical/hash filename
             page_number = metadata.get("page_number")
             proponent_name = metadata.get("proponent_name")
             s3_key = metadata.get("s3_key")        
@@ -370,6 +501,7 @@ def format_data(data):
                 "s3_key": s3_key,
                 "content": row.get('content', ''),
                 "relevance_score": float(row.get('relevance_score', 0.0)),
+                "search_mode": "semantic"  # Indicate this was a semantic search
             }
             
             # Add low confidence warning if applicable
@@ -384,15 +516,43 @@ def format_data(data):
         documents = np.array(data)
         
         for i, row in enumerate(documents):
-            # row[4] contains the metadata dictionary
-            metadata = row[4] if len(row) > 4 else {}
+            # Try to intelligently determine the structure based on row length and content
+            if len(row) >= 6:
+                # Semantic search format with document_metadata: id, metadata, content, embedding, document_metadata, similarity
+                metadata = row[1] if len(row) > 1 else {}
+                content = row[2] if len(row) > 2 else ''
+                document_metadata = row[4] if len(row) > 4 else {}
+                relevance_score = float(row[5]) if len(row) > 5 else 0.0
+            elif len(row) >= 5:
+                # Check if this is a 5-column format with document_metadata or without
+                # If row[3] looks like a dict/JSON, it might be document_metadata
+                # If row[4] is a float, it's likely the score
+                try:
+                    score_candidate = float(row[4])
+                    # This looks like: id, content, metadata, document_metadata, rank
+                    content = row[1] if len(row) > 1 else ''
+                    metadata = row[2] if len(row) > 2 else {}
+                    document_metadata = row[3] if len(row) > 3 else {}
+                    relevance_score = score_candidate
+                except (ValueError, TypeError):
+                    # This looks like: id, metadata, content, embedding, similarity (no document_metadata)
+                    metadata = row[1] if len(row) > 1 else {}
+                    content = row[2] if len(row) > 2 else ''
+                    document_metadata = {}
+                    relevance_score = float(row[4]) if len(row) > 4 else 0.0
+            else:
+                # Fallback for unknown format
+                metadata = row[1] if len(row) > 1 else {}
+                content = row[2] if len(row) > 2 else ''
+                document_metadata = {}
+                relevance_score = 0.0
 
             project_id = metadata.get("project_id")
             document_id = metadata.get("document_id")
             project_name = metadata.get("project_name")
-            document_type = metadata.get("document_type")
-            document_name = metadata.get("doc_internal_name")
-            document_saved_name = metadata.get("document_name")
+            document_type = get_document_type_name(document_metadata, metadata)  # Pass both document_metadata and chunk metadata
+            document_name = metadata.get("document_name")  # Human-readable filename
+            document_saved_name = metadata.get("doc_internal_name")  # Technical/hash filename
             page_number = metadata.get("page_number")
             proponent_name = metadata.get("proponent_name")
             s3_key = metadata.get("s3_key")        
@@ -409,15 +569,16 @@ def format_data(data):
                     "project_name": project_name,
                     "proponent_name": proponent_name,
                     "s3_key": s3_key,
-                    "content": row[1] if len(row) > 1 else '',
-                    "relevance_score": float(row[3]) if len(row) > 3 else 0.0,
+                    "content": content,
+                    "relevance_score": relevance_score,
+                    "search_mode": "semantic"  # Indicate this was a semantic search
                 }
             )
     
     return result
 
 
-def perform_document_level_search(vec_store, query, limit, project_ids=None):
+def perform_document_level_search(vec_store, query, limit, project_ids=None, document_type_ids=None):
     """Perform document-level search using keywords, tags, and headings.
     
     Searches the documents table using pre-computed document-level metadata
@@ -428,6 +589,7 @@ def perform_document_level_search(vec_store, query, limit, project_ids=None):
         query (str): The search query text
         limit (int): Maximum number of documents to return
         project_ids (list, optional): List of project IDs to filter results
+        document_type_ids (list, optional): List of document type IDs to filter results
         
     Returns:
         tuple: A tuple containing:
@@ -436,10 +598,12 @@ def perform_document_level_search(vec_store, query, limit, project_ids=None):
     """
     start_time = time.time()
     
-    # Build predicates for project filtering
+    # Build predicates for project and document type filtering
     predicates = {}
     if project_ids:
         predicates['project_ids'] = project_ids  # Pass as a special key
+    if document_type_ids:
+        predicates['document_type_ids'] = document_type_ids  # Pass as a special key
     
     # Perform document-level search
     document_results = vec_store.document_level_search(
@@ -476,27 +640,34 @@ def perform_chunk_search_within_documents(vec_store, document_ids, query, limit)
     
     # Rename columns to match expected format for format_data function
     if not chunk_results.empty:
-        # The search_chunks_by_documents already returns the correct column names
-        # [id, metadata, content, document_id, project_id, similarity]
+        # The search_chunks_by_documents returns: [id, metadata, content, document_id, project_id, similarity]
         chunk_results["search_type"] = "semantic"
-        # Reorder to match expected structure: id, content, search_type, similarity, metadata
-        chunk_results = chunk_results[["id", "content", "search_type", "similarity", "metadata"]]
+        
+        # Add empty document_metadata column for compatibility with format_data function
+        # Note: We'll populate document_type in the format_data function using chunk metadata when possible
+        chunk_results["document_metadata"] = [{}] * len(chunk_results)
+        
+        # Reorder to match expected structure: id, content, search_type, similarity, metadata, document_metadata
+        chunk_results = chunk_results[["id", "content", "search_type", "similarity", "metadata", "document_metadata"]]
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return chunk_results, elapsed_ms
 
 
-def perform_fallback_search(vec_store, query, limit, project_ids=None):
-    """Perform fallback search when no relevant documents are found.
+def perform_semantic_search_all_chunks(vec_store, query, limit, project_ids=None, document_type_ids=None):
+    """Perform semantic search across all document chunks.
     
-    Falls back to the traditional approach of searching all chunks
-    when document-level search doesn't find relevant documents.
+    Performs semantic vector search across all document chunks in the database
+    when document-level filtering doesn't find relevant documents.
+    This ensures comprehensive coverage even when the document-level
+    keywords/tags don't match the query terms.
     
     Args:
         vec_store (VectorStore): The vector store instance
         query (str): The search query text
         limit (int): Maximum number of results to return
         project_ids (list, optional): List of project IDs to filter results
+        document_type_ids (list, optional): List of document type IDs to filter results
         
     Returns:
         tuple: A tuple containing:
@@ -508,25 +679,31 @@ def perform_fallback_search(vec_store, query, limit, project_ids=None):
     # Use the configured table name for chunks
     table_name = current_app.vector_settings.vector_table_name
     
-    # Build predicates for project filtering
+    # Build predicates for project and document type filtering
     predicates = {}
     if project_ids:
         predicates['project_ids'] = project_ids  # Pass as a special key
+    if document_type_ids:
+        predicates['document_type_ids'] = document_type_ids  # Pass as a special key
     
     # Debug logging
     import logging
-    logging.info(f"Fallback search - table: {table_name}, query: '{query}', limit: {limit}, predicates: {predicates}")
+    logging.info(f"Semantic search all chunks - table: {table_name}, query: '{query}', limit: {limit}, predicates: {predicates}")
     
-    # Perform semantic search on all chunks as fallback
+    # Perform semantic search on all chunks
     semantic_results = vec_store.semantic_search(
         table_name, query, limit=limit, predicates=predicates, return_dataframe=True
     )
     
     if not semantic_results.empty:
         semantic_results["search_type"] = "semantic"
-        # The semantic_search returns: [id, metadata, content, embedding, similarity]
-        # We need to reorder to: [id, content, search_type, similarity, metadata]
-        semantic_results = semantic_results[["id", "content", "search_type", "similarity", "metadata"]]
+        
+        # Add empty document_metadata column for compatibility with format_data function  
+        semantic_results["document_metadata"] = [{}] * len(semantic_results)
+        
+        # For semantic search on all chunks, semantic_search returns: [id, metadata, content, embedding, similarity]
+        # We need to reorder to: [id, content, search_type, similarity, metadata, document_metadata]
+        semantic_results = semantic_results[["id", "content", "search_type", "similarity", "metadata", "document_metadata"]]
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return semantic_results, elapsed_ms
@@ -645,15 +822,220 @@ def format_similar_documents(similar_docs_df):
     
     formatted_docs = []
     for _, row in similar_docs_df.iterrows():
+        # Get document metadata
+        document_metadata = row.get('document_metadata', {})
+        if isinstance(document_metadata, str):
+            import json
+            try:
+                document_metadata = json.loads(document_metadata)
+            except:
+                document_metadata = {}
+        elif document_metadata is None:
+            document_metadata = {}
+        
+        # Extract fields from document metadata with correct mapping based on user example
+        document_type = document_metadata.get("document_type") or get_document_type_name(document_metadata, None)
+        
+        # Based on user example: document_name should be human-readable filename
+        document_name = document_metadata.get("document_name")  # Human-readable filename
+        
+        # Based on user example: document_saved_name should be hash/technical filename
+        # Try the direct field first, then fallbacks
+        document_saved_name = (document_metadata.get("document_saved_name") or 
+                              document_metadata.get("doc_internal_name") or 
+                              document_metadata.get("document_internal_name") or
+                              document_metadata.get("internal_name") or
+                              document_metadata.get("file_name") or
+                              document_metadata.get("filename"))
+                              
+        project_name = document_metadata.get("project_name")
+        proponent_name = document_metadata.get("proponent_name")
+        s3_key = document_metadata.get("s3_key")
+        
         doc = {
             "document_id": row["document_id"],
-            "document_keywords": row.get("document_keywords"),
-            "document_tags": row.get("document_tags"), 
-            "document_headings": row.get("document_headings"),
+            "document_type": document_type,
+            "document_name": document_name,
+            "document_saved_name": document_saved_name,
             "project_id": row.get("project_id"),
-            "similarity_score": round(float(row["similarity"]), 4),
-            "created_at": row.get("created_at").isoformat() if row.get("created_at") else None
+            "project_name": project_name,
+            "proponent_name": proponent_name,
+            "s3_key": s3_key,
+            "similarity_score": round(float(row["similarity"]), 4)
         }
         formatted_docs.append(doc)
     
     return formatted_docs
+
+
+def is_generic_document_request(query: str) -> bool:
+    """Check if the query is a generic document request (not seeking specific content).
+    
+    Generic queries are those that ask for documents of a certain type without
+    seeking specific information within those documents. Queries with content-specific
+    terms (like 'complaints', 'concerns', 'issues') should use semantic search.
+    
+    Args:
+        query (str): The search query text
+        
+    Returns:
+        bool: True if the query is generic, False otherwise
+    """
+    # First check for content-specific terms that indicate semantic search is needed
+    content_specific_terms = [
+        r'\b(complaints?|concerns?|issues?|problems?|violations?|incidents?)\b',
+        r'\b(about|regarding|related to|concerning)\b',
+        r'\b(contain|containing|with|have|having|include|including)\b',
+        r'\b(mention|mentioning|discuss|discussing|address|addressing)\b',
+        r'\b(refer|referring|reference|references)\s+(to|the|a|an)\b',
+        r'\b(talk|talking|speak|speaking)\s+(about|of|on)\b',
+        r'\b(environmental|safety|health|regulatory|compliance)\b',
+        r'\b(impact|effect|consequence|result|outcome)\b',
+        r'\bthat\s+(talk|speak|discuss|mention|refer|address|cover)\b',
+        r'\b(nation|first nation|indigenous|aboriginal|métis|inuit)\b'
+    ]
+    
+    query_lower = query.lower()
+    
+    # If query contains content-specific terms, it's NOT generic
+    for pattern in content_specific_terms:
+        if re.search(pattern, query_lower, re.IGNORECASE):
+            return False
+    
+    # Check for truly generic patterns (asking for documents without specific content)
+    generic_patterns = [
+        # Patterns with explicit project references (for project inference)
+        r'\b(any|all)\s+(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\bshow\s+me\s+(all|any)?\s*(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\bfind\s+(all|any)?\s*(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\bget\s+(all|any)?\s*(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\blist\s+(all|any)?\s*(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\blooking\s+for\s+(any|all)\s+(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\bneed\s+(any|all)\s+(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        r'\bprovide\s+(any|all)\s+(correspondence|letters?|documents?|files?)\s+(for|from)\b',
+        
+        # Patterns for when project/type filtering is provided via API (no "for/from" needed)
+        r'\b(any|all)\s+(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\bshow\s+me\s+(all|any)?\s*(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\bfind\s+(all|any)?\s*(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\bget\s+(all|any)?\s*(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\blist\s+(all|any)?\s*(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\blooking\s+for\s+(any|all)\s+(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\bneed\s+(any|all)\s+(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        r'\bprovide\s+(any|all)\s+(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\b',
+        
+        # Simpler patterns for direct document type requests
+        r'^\s*(?:show me |give me |find |get |list )?(?:any |all )?(?:the\s+)?(correspondence|letters?|documents?|files?|reports?|studies|assessments?|analyses|plans?|orders?|agreements?|contracts?|certificates?|permits?|licenses?)\s*\??\s*$',
+        
+        # More specific patterns for pure document requests
+        r'^\s*(?:show me |give me |find |get |list )?(?:any |all )?(?:the )?(?:correspondence|letters?|documents?|files?)\s+(?:for|from|related to)\s+[^?]*\??\s*$'
+    ]
+    
+    for pattern in generic_patterns:
+        if re.search(pattern, query_lower, re.IGNORECASE):
+            return True
+    
+    return False
+
+
+def perform_direct_metadata_search(vec_store, project_ids, document_type_ids, limit):
+    """Perform direct metadata-based document search without semantic analysis.
+    
+    This function is used when both project and document type are confidently inferred
+    and the query is generic (e.g., "any correspondence for Project X"). Instead of
+    semantic search, it returns all documents matching the metadata criteria,
+    ordered by document date.
+    
+    Args:
+        vec_store (VectorStore): The vector store instance
+        project_ids (list): List of project IDs to filter results
+        document_type_ids (list): List of document type IDs to filter results
+        limit (int): Maximum number of documents to return
+        
+    Returns:
+        tuple: A tuple containing:
+            - DataFrame: Document results ordered by date
+            - float: Time taken in milliseconds
+    """
+    start_time = time.time()
+    
+    # Get documents directly by metadata filtering
+    documents = vec_store.get_documents_by_metadata(
+        project_ids=project_ids,
+        document_type_ids=document_type_ids,
+        order_by="document_date DESC",  # Order by date, newest first
+        limit=limit,
+        return_dataframe=True
+    )
+    
+    elapsed_ms = round((time.time() - start_time) * 1000, 2)
+    return documents, elapsed_ms
+
+
+def format_document_data(documents_df):
+    """Format document-level search results into a list of dictionaries.
+    
+    Args:
+        documents_df (DataFrame): Document-level search results data
+        
+    Returns:
+        list: List of dictionaries containing formatted document information
+    """
+    result = []
+    
+    # Check if data is empty
+    if len(documents_df) == 0:
+        return result
+    
+    # Process DataFrame directly
+    if hasattr(documents_df, 'iterrows'):
+        for idx, row in documents_df.iterrows():
+            # Extract document information directly from the DataFrame columns
+            # The get_documents_by_metadata function already extracts JSON fields into columns
+            document_id = str(row.get("document_id", ""))
+            project_id = str(row.get("project_id", ""))
+            
+            # These fields are extracted from document_metadata JSON in the SQL query
+            document_name = row.get("document_name")
+            document_saved_name = row.get("document_saved_name") 
+            project_name = row.get("project_name")
+            proponent_name = row.get("proponent_name")
+            s3_key = row.get("s3_key")
+            document_date = row.get("document_date")
+            
+            # Get document type - try from metadata JSON first, then fallback to helper function
+            document_metadata = row.get('document_metadata', {})
+            if isinstance(document_metadata, str):
+                import json
+                try:
+                    document_metadata = json.loads(document_metadata)
+                except:
+                    document_metadata = {}
+            elif document_metadata is None:
+                document_metadata = {}
+            
+            document_type = document_metadata.get("document_type") or get_document_type_name(document_metadata, None)
+            
+            # For document-level results, content is typically a summary or first chunk
+            content = row.get('content', '') or row.get('document_summary', '') or "Full document available"
+
+            # Append to result list
+            formatted_result = {
+                "document_id": document_id,
+                "document_type": document_type,
+                "document_name": document_name,
+                "document_saved_name": document_saved_name,
+                "document_date": document_date,
+                "page_number": None,  # Not applicable for document-level results
+                "project_id": project_id,
+                "project_name": project_name,
+                "proponent_name": proponent_name,
+                "s3_key": s3_key,
+                "content": content,
+                "relevance_score": 1.0,  # Perfect relevance for metadata matches
+                "search_mode": "document_metadata"  # Indicate this was a metadata search
+            }
+            
+            result.append(formatted_result)
+    
+    return result

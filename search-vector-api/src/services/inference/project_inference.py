@@ -23,7 +23,7 @@ import pandas as pd
 import psycopg
 
 from flask import current_app
-from .vector_store import VectorStore
+from ..vector_store import VectorStore
 from typing import List, Tuple, Dict, Any
 from difflib import SequenceMatcher
 
@@ -130,43 +130,55 @@ class ProjectInferenceService:
         query_lower = query.lower()
         
         # Pattern 1: Project names with explicit project-related terms
-        # "BC Hydro project", "Trans Mountain pipeline", "Site C dam", etc.
+        # More precise patterns to avoid capturing entire sentences
         project_patterns = [
-            r'\b([A-Z][a-zA-Z\s&]+(?:project|pipeline|development|proposal|application|mine|dam|terminal|facility))\b',
-            r'\b([A-Z][a-zA-Z\s&]+)\s+(?:project|pipeline|development|proposal|application|mine|dam|terminal|facility)\b',
-            r'\bthe\s+([A-Z][a-zA-Z\s&]+)\s+(?:project|pipeline|development|proposal|application|mine|dam|terminal|facility)\b'
+            # Match project names before the project keyword - avoid capturing prepositions
+            r'(?:^|[^a-zA-Z])([A-Z][a-zA-Z0-9\s&-]{2,25})\s+(?:project|pipeline|development|proposal|mine|dam|terminal|facility)\b',
+            # Match "the [ProjectName] project" patterns - avoid capturing prepositions  
+            r'\bthe\s+([A-Z][a-zA-Z0-9\s&-]{2,25})\s+(?:project|pipeline|development|proposal|mine|dam|terminal|facility)\b'
         ]
         
         for pattern in project_patterns:
             matches = re.findall(pattern, query, re.IGNORECASE)
-            entities.extend([match.strip() for match in matches])
+            # Clean up matches to remove prepositions and common words
+            for match in matches:
+                cleaned_match = match.strip()
+                # Remove leading prepositions and common words
+                cleaned_match = re.sub(r'^(for|the|of|in|at|on|to|from)\s+', '', cleaned_match, flags=re.IGNORECASE)
+                if len(cleaned_match) > 3 and not cleaned_match.lower().startswith(('for', 'the', 'of', 'in', 'at')):
+                    entities.append(cleaned_match)
         
-        # Pattern 2: Standalone capitalized project names
-        # Look for capitalized phrases that could be project names
-        # But exclude common non-project words
-        standalone_pattern = r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,2})\b'
+        # Pattern 2: Standalone capitalized project names (more conservative)
+        # Look for 2-4 word capitalized phrases that could be project names
+        standalone_pattern = r'\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){1,3})\b'
         standalone_matches = re.findall(standalone_pattern, query)
         
         # Filter out common English words and very generic terms
         excluded_words = {
             'The', 'Project', 'Development', 'Company', 'Corporation', 'Inc', 'Ltd',
             'Environmental', 'Impact', 'Assessment', 'Report', 'Study', 'Management',
-            'British Columbia', 'Government', 'Ministry', 'Department', 'Agency'
+            'British Columbia', 'Government', 'Ministry', 'Department', 'Agency',
+            'Indigenous', 'Nations', 'First', 'Nation', 'Looking', 'For', 'Any',
+            'Correspondence', 'Letter', 'Document', 'Mentions', 'Am'
         }
         
         for match in standalone_matches:
             words = match.split()
-            # Only include if it's not all excluded words and has some substance
-            if not any(word in excluded_words for word in words) and len(words) >= 2:
+            # Only include if it doesn't contain excluded words and looks like a project name
+            if (not any(word in excluded_words for word in words) and 
+                len(words) >= 2 and len(match) <= 30):  # Reasonable length limit
                 entities.append(match.strip())
         
-        # Pattern 3: Quoted project names
-        quoted_pattern = r'["\']([^"\']+)["\']'
+        # Pattern 3: Quoted project names (more conservative length)
+        quoted_pattern = r'["\']([^"\']{3,30})["\']'
         quoted_matches = re.findall(quoted_pattern, query)
         entities.extend([match.strip() for match in quoted_matches])
         
-        # Remove duplicates and short entities
-        entities = list(set([entity for entity in entities if len(entity) > 3]))
+        # Remove duplicates and apply reasonable length constraints
+        entities = list(set([
+            entity for entity in entities 
+            if 3 < len(entity) <= 30 and not entity.lower().startswith('i am')
+        ]))
         
         logging.debug(f"Extracted project entities from '{query}': {entities}")
         return entities
@@ -344,44 +356,59 @@ class ProjectInferenceService:
             str: Cleaned query with project names removed
         """
         cleaned_query = query
+        original_length = len(query)
         
         # Get the extracted entities that were used for project inference
         extracted_entities = inference_metadata.get("extracted_entities", [])
         
         for entity in extracted_entities:
-            # Remove the entity and common variations
+            # Only remove entities that are clearly project names (longer than 10 chars)
+            # This prevents removing important short terms
+            if len(entity) < 10:
+                continue
+                
             entity_lower = entity.lower()
             
-            # Remove exact matches (case-insensitive)
+            # Remove exact matches (case-insensitive) - but be more conservative
             import re
             
             # Pattern 1: Remove exact entity matches with word boundaries
+            # For entities that were matched successfully, remove them regardless of keywords
             pattern1 = r'\b' + re.escape(entity) + r'\b'
             cleaned_query = re.sub(pattern1, '', cleaned_query, flags=re.IGNORECASE)
             
-            # Pattern 2: Remove entity with "project" suffix/prefix
+            # Pattern 2: Remove entity with "project" suffix/prefix - more targeted
             entity_base = entity_lower.replace(' project', '').replace('project ', '').strip()
-            if entity_base and entity_base != entity_lower:
+            if entity_base and entity_base != entity_lower and len(entity_base) > 5:
                 pattern2 = r'\b' + re.escape(entity_base) + r'\s*(project|pipeline|development|proposal|mine|dam|terminal|facility)\b'
                 cleaned_query = re.sub(pattern2, '', cleaned_query, flags=re.IGNORECASE)
             
-            # Pattern 3: Remove "the [entity]" patterns
+            # Pattern 3: Remove "the [entity]" patterns - for any successfully matched entity
             pattern3 = r'\bthe\s+' + re.escape(entity) + r'\b'
             cleaned_query = re.sub(pattern3, '', cleaned_query, flags=re.IGNORECASE)
+            
+            # Pattern 4: Remove "for the [entity] project" patterns
+            pattern4 = r'\bfor\s+the\s+' + re.escape(entity) + r'\s+project\b'
+            cleaned_query = re.sub(pattern4, '', cleaned_query, flags=re.IGNORECASE)
         
         # Clean up extra whitespace and punctuation
         cleaned_query = re.sub(r'\s+', ' ', cleaned_query)  # Multiple spaces to single space
         cleaned_query = re.sub(r'\s*[,;]\s*', ' ', cleaned_query)  # Remove commas/semicolons with spaces
         cleaned_query = cleaned_query.strip()
         
+        # If we removed more than 70% of the original query, it's too aggressive - keep original
+        if len(cleaned_query) < original_length * 0.3:
+            logging.warning(f"Project cleaning too aggressive (removed {100*(1-len(cleaned_query)/original_length):.0f}%), keeping original: '{query}'")
+            return query
+        
         # If the cleaned query is too short or empty, keep some of the original
-        if len(cleaned_query.strip()) < 5:
+        if len(cleaned_query.strip()) < 8:
             # Keep the original query but still log that we attempted cleaning
             logging.info(f"Cleaned query too short ('{cleaned_query}'), keeping original: '{query}'")
             return query
         
         if cleaned_query != query:
-            logging.info(f"Cleaned query: '{query}' -> '{cleaned_query}'")
+            logging.info(f"Project cleaning: '{query}' -> '{cleaned_query}'")
         
         return cleaned_query
 

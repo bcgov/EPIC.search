@@ -46,7 +46,7 @@ class DocumentChunk(Base):
 class Document(Base):
     """
     ORM model for the documents table.
-    Stores document-level tags, keywords, headings, project, and semantic embedding.
+    Stores document-level tags, keywords, headings, project, semantic embedding, and document metadata.
     Embedding dimension is configurable via settings.
     """
     __tablename__ = 'documents'
@@ -54,6 +54,7 @@ class Document(Base):
     document_tags = Column(JSONB)
     document_keywords = Column(JSONB)
     document_headings = Column(JSONB)
+    document_metadata = Column(JSONB)  # Stores document metadata (API document info, type, etc.)
     project_id = Column(String)
     embedding = Column(Vector(EMBEDDING_DIM))  # Configurable dimensions
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
@@ -61,6 +62,7 @@ class Document(Base):
         Index('ix_documents_tags', 'document_tags', postgresql_using='gin'),
         Index('ix_documents_keywords', 'document_keywords', postgresql_using='gin'),
         Index('ix_documents_headings', 'document_headings', postgresql_using='gin'),
+        Index('ix_documents_metadata', 'document_metadata', postgresql_using='gin'),
         Index('ix_documents_project_id', 'project_id'),
         # Removed HNSW index on document_embedding; now created via raw SQL in init_vec_db
     )

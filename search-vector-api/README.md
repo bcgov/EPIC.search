@@ -20,12 +20,13 @@ A high-performance semantic search Python Flask API that provides document-level
 * **User-Friendly Messaging**: Clear feedback when queries may need refinement
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
 * **Optional Model Preloading**: Configure model loading at build-time, startup, or on-demand
+* **Inference Control**: Optional control over which inference pipelines (PROJECT, DOCUMENTTYPE) are executed per request
 
 ## Architecture Overview
 
-The search system uses a modern multi-stage approach with intelligent project detection:
+The search system uses a modern multi-stage approach with intelligent project and document type detection:
 
-0. **Stage 0: Project Inference** - Automatically detects project references in natural language queries based on project names, applies filtering when highly confident (>80%), and removes project names from search terms to focus on actual topics
+0. **Stage 0: Inference Pipeline** - Automatically detects project and document type references in natural language queries, applies filtering when highly confident, and removes detected entities from search terms to focus on actual topics
 1. **Stage 1: Document-Level Filtering** - Quickly identifies relevant documents using pre-computed metadata (keywords, tags, headings)
 2. **Stage 2: Chunk-Level Search** - Performs semantic search within chunks of the identified documents
 3. **Fallback Logic** - Falls back to broader search if no documents are found
@@ -88,6 +89,10 @@ The application uses typed configuration classes for different aspects of the sy
 * `EMBEDDING_MODEL_NAME`: Model name for semantic embeddings (default: "all-mpnet-base-v2")
 * `KEYWORD_MODEL_NAME`: Model name for keyword extraction (default: "all-mpnet-base-v2")
 * `PRELOAD_MODELS`: Whether to preload ML models at container startup (default: false)
+
+#### Inference Control Configuration
+
+* `USE_DEFAULT_INFERENCE`: Whether to enable all inference pipelines by default when no `inference` parameter is provided in API requests (default: true)
 
 ## Project Structure
 
@@ -182,6 +187,7 @@ The application follows a tiered architecture:
 * **Search Service** - Orchestrates the complete two-stage search process with fallback logic
 * **Re-Ranker** - Cross-encoder model for improving search result relevance
 * **Project Filtering** - Applies project-based constraints throughout the search pipeline
+* **Inference Pipeline** - Intelligent project and document type detection with configurable control
 
 ## Search Pipeline Stages
 
@@ -235,6 +241,43 @@ For the `cross-encoder/ms-marco-MiniLM-L-2-v2` model used by default:
 * The minimum relevance threshold is set to -10.0 to accommodate this score range
 * Scores are used for both filtering and sorting results
 
+## Inference Control
+
+The API supports optional control over which inference pipelines are executed for each request:
+
+### Available Inference Types
+
+* **PROJECT**: Automatically detects project references in queries and applies project filtering
+* **DOCUMENTTYPE**: Automatically detects document type references and applies document type filtering
+
+### Configuration
+
+Use the `USE_DEFAULT_INFERENCE` environment variable to control the default behavior:
+
+* `USE_DEFAULT_INFERENCE=true` (default): Enable all inference pipelines when no `inference` parameter is provided
+* `USE_DEFAULT_INFERENCE=false`: Disable all inference pipelines when no `inference` parameter is provided
+
+### Request-Level Control
+
+Use the optional `inference` parameter in API requests to control which inference pipelines run:
+
+```json
+{
+  "query": "your search query",
+  "inference": ["PROJECT", "DOCUMENTTYPE"]  // Optional: specify which pipelines to run
+}
+```
+
+**Behavior:**
+
+* `inference: ["PROJECT"]` - Only project inference runs
+* `inference: ["DOCUMENTTYPE"]` - Only document type inference runs  
+* `inference: ["PROJECT", "DOCUMENTTYPE"]` - Both pipelines run
+* `inference: []` - No inference pipelines run
+* `inference: null` or not provided - Uses `USE_DEFAULT_INFERENCE` setting
+
+**Automatic Skipping:** Even when inference is enabled, it will be automatically skipped if explicit IDs are already provided (e.g., if you specify `project_ids` in your request, project inference will be skipped as it's not needed).
+
 ## API Endpoints
 
 ### Vector Search
@@ -250,7 +293,8 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ``` json
 {
   "query": "climate change impacts on wildlife",
-  "project_ids": ["project-123", "project-456"]  // Optional
+  "project_ids": ["project-123", "project-456"],  // Optional
+  "inference": ["PROJECT", "DOCUMENTTYPE"]        // Optional inference control
 }
 ```
 
@@ -280,6 +324,14 @@ Performs the two-stage search pipeline with document-level filtering followed by
       "reranking_ms": 2659.92,
       "formatting_ms": 0.0,
       "total_search_ms": 4502.32
+    },
+    "inference_settings": {
+      "use_default_inference": true,
+      "inference_parameter": ["PROJECT", "DOCUMENTTYPE"],
+      "project_inference_enabled": true,
+      "document_type_inference_enabled": true,
+      "project_inference_skipped": false,
+      "document_type_inference_skipped": false
     }
   }
 }
@@ -315,6 +367,14 @@ When no project IDs are specified, the system automatically detects project refe
     ],
     "search_metrics": {...},
     "search_quality": "normal",
+    "inference_settings": {
+      "use_default_inference": true,
+      "inference_parameter": null,
+      "project_inference_enabled": true,
+      "document_type_inference_enabled": true,
+      "project_inference_skipped": false,
+      "document_type_inference_skipped": false
+    },
     "project_inference": {
       "attempted": true,
       "confidence": 0.88,
@@ -334,6 +394,39 @@ When no project IDs are specified, the system automatically detects project refe
         ],
         "reasoning": ["Detected entity 'Site C project' matching project 'Site C Clean Energy Project' with similarity 0.920"]
       }
+    }
+  }
+}
+```
+
+### Inference with Explicit IDs Example
+
+When explicit IDs are provided, inference is automatically skipped:
+
+**Request with Explicit Project IDs:**
+
+``` json
+{
+  "query": "environmental impact assessment",
+  "project_ids": ["proj-123"],
+  "inference": ["PROJECT", "DOCUMENTTYPE"]
+}
+```
+
+**Response showing skipped inference:**
+
+``` json
+{
+  "vector_search": {
+    "documents": [...],
+    "inference_settings": {
+      "use_default_inference": true,
+      "inference_parameter": ["PROJECT", "DOCUMENTTYPE"],
+      "project_inference_enabled": true,
+      "document_type_inference_enabled": true,
+      "project_inference_skipped": true,
+      "document_type_inference_skipped": false,
+      "skip_reason": "explicit_ids_provided"
     }
   }
 }

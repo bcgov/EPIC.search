@@ -37,16 +37,18 @@ from src.path_setup import setup_paths
 setup_paths()
 
 from src.config.settings import get_settings
+from src.config.document_types import get_document_type
 settings = get_settings()
 
-def build_document_embedding(tags, keywords, headings, embedding_fn):
+def build_document_embedding(tags, keywords, headings, document_metadata, embedding_fn):
     """
-    Build a semantic embedding for a document from tags, keywords, and headings.
+    Build a semantic embedding for a document from tags, keywords, headings, and document metadata.
 
     Args:
         tags (list of str): Document tags.
         keywords (list of str): Document keywords.
         headings (list of str): Document headings.
+        document_metadata (dict): Document metadata including type, name, etc.
         embedding_fn (callable): Function to generate embedding, e.g. get_embedding.
 
     Returns:
@@ -56,10 +58,24 @@ def build_document_embedding(tags, keywords, headings, embedding_fn):
     tags_sorted = sorted(tags)
     keywords_sorted = sorted(keywords)
     headings_sorted = sorted(headings)
+    
+    # Extract metadata text for embedding
+    metadata_parts = []
+    if document_metadata:
+        if "document_type" in document_metadata:
+            metadata_parts.append(document_metadata["document_type"])
+        if "document_name" in document_metadata:
+            # Extract meaningful parts from document name (remove file extension)
+            doc_name = document_metadata["document_name"]
+            if doc_name.endswith('.pdf'):
+                doc_name = doc_name[:-4]
+            metadata_parts.append(doc_name)
+    
     combined_text = (
         " ".join(tags_sorted) + " [SEP] " +
         " ".join(keywords_sorted) + " [SEP] " +
-        " ".join(headings_sorted)
+        " ".join(headings_sorted) + " [SEP] " +
+        " ".join(metadata_parts)
     )
     embedding = embedding_fn([combined_text])[0] if combined_text.strip() else None
     return embedding, combined_text
@@ -131,6 +147,15 @@ def chunk_and_embed_pages(
                 "s3_key": s3_key,
                 # tags/keywords will be filled after extraction
             }
+            
+            # Add document metadata fields to chunk metadata for performance (avoid joins)
+            if base_metadata and "document_metadata" in base_metadata:
+                doc_meta = base_metadata["document_metadata"]
+                if doc_meta:
+                    if "document_type" in doc_meta:
+                        chunk_metadata["document_type"] = doc_meta["document_type"]
+                    if "document_date" in doc_meta:
+                        chunk_metadata["document_date"] = doc_meta["document_date"]
             chunk_texts.append(chunk_text)
             chunk_metadatas.append(chunk_metadata)
             chunk_dicts.append({
@@ -192,11 +217,9 @@ def chunk_and_embed_pages(
             chunk_metrics["avg_chunks_per_page"] = sum(chunks_per_page) / len(chunks_per_page)
         else:
             chunk_metrics["avg_chunks_per_page"] = 0.0
-    # After all_tags, all_keywords, all_headings are finalized, build semantic embedding
-    semantic_embedding, _ = build_document_embedding(
-        list(all_tags), list(all_keywords), list(all_headings), get_embedding
-    )
-    return chunks_to_upsert, list(all_tags), list(all_keywords), list(all_headings), semantic_embedding
+    # After all_tags, all_keywords, all_headings are finalized, return them
+    # Document-level semantic embedding will be built in load_data with metadata
+    return chunks_to_upsert, list(all_tags), list(all_keywords), list(all_headings), None
 
 def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict = None) -> tuple:
     """
@@ -282,9 +305,9 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
     session.add_all(chunk_objs)
     session.commit()
 
-def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding=None):
+def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding=None, document_metadata=None):
     """
-    Upsert the document-level record (tags, keywords, headings, project_id, semantic_embedding) into the documents table using SQLAlchemy ORM.
+    Upsert the document-level record (tags, keywords, headings, project_id, semantic_embedding, document_metadata) into the documents table using SQLAlchemy ORM.
     """
     # Convert ndarray to list for JSON serialization
     if isinstance(semantic_embedding, np.ndarray):
@@ -294,6 +317,7 @@ def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_heading
         doc.document_tags = all_tags
         doc.document_keywords = all_keywords
         doc.document_headings = all_headings
+        doc.document_metadata = document_metadata
         doc.project_id = project_id
         doc.embedding = semantic_embedding
     else:
@@ -302,20 +326,88 @@ def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_heading
             document_tags=all_tags,
             document_keywords=all_keywords,
             document_headings=all_headings,
+            document_metadata=document_metadata,
             project_id=project_id,
             embedding=semantic_embedding
         )
         session.add(doc)
     session.commit()
 
+def extract_document_metadata(api_doc: Dict[str, Any], base_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Extract explicit metadata from the API document object and base metadata.
+    Only extracts specific fields rather than storing the entire object.
+    Uses snake_case for consistency with the rest of the codebase.
+    
+    Args:
+        api_doc: API document object
+        base_metadata: Base metadata containing project information
+        
+    Returns:
+        dict: Explicit document metadata with resolved values
+    """
+    if not api_doc:
+        return {}
+    
+    metadata = {}
+    
+    # Extract document type with lookup
+    type_id = api_doc.get("type")
+    if type_id:
+        metadata["document_type"] = get_document_type(type_id)
+        metadata["document_type_id"] = type_id
+    
+    # Extract other explicit fields as needed
+    if "name" in api_doc:
+        metadata["document_name"] = api_doc["name"]
+    elif base_metadata and "document_name" in base_metadata:
+        metadata["document_name"] = base_metadata["document_name"]
+    
+    if "uploadDate" in api_doc:
+        metadata["upload_date"] = api_doc["uploadDate"]
+    
+    if "fileSize" in api_doc:
+        metadata["file_size"] = api_doc["fileSize"]
+    
+    if "status" in api_doc:
+        metadata["document_status"] = api_doc["status"]
+    
+    if "date" in api_doc:
+        metadata["document_date"] = api_doc["date"]
+    
+    # Add document ID for reference
+    if "_id" in api_doc:
+        metadata["api_document_id"] = api_doc["_id"]
+    
+    # Extract project-level fields from base_metadata to avoid duplication in chunks
+    if base_metadata:
+        if "project_name" in base_metadata:
+            metadata["project_name"] = base_metadata["project_name"]
+        if "proponent_name" in base_metadata:
+            metadata["proponent_name"] = base_metadata["proponent_name"]
+        if "doc_internal_name" in base_metadata:
+            metadata["document_saved_name"] = base_metadata["doc_internal_name"]
+    
+    # Add s3_key if available (this will be added during processing)
+    # Note: s3_key will be added later in the processing flow
+    
+    return metadata
+
 def load_data(
     s3_key: str,
     base_metadata: Dict[str, Any],
-    temp_dir: str = None
+    temp_dir: str = None,
+    api_doc: Dict[str, Any] = None
 ) -> str:
     """
     Orchestrate the loading and processing of a document from S3 into the vector store.
     Also records per-method timing metrics in the processing_logs table.
+    
+    Args:
+        s3_key: S3 key for the document
+        base_metadata: Metadata to attach to chunks
+        temp_dir: Temporary directory for file processing
+        api_doc: API document object to store as document metadata
     """
     doc_id = base_metadata.get("document_id") or os.path.basename(s3_key)
     project_id = base_metadata.get("project_id", "")
@@ -381,9 +473,23 @@ def load_data(
             session.commit()
             return None
 
+        # Extract explicit metadata from API document early so it can be included in chunk metadata
+        document_metadata = extract_document_metadata(api_doc, base_metadata)
+        
+        # Add s3_key to document metadata
+        document_metadata["s3_key"] = s3_key
+        
+        # Add document metadata to base_metadata for inclusion in chunks (keep duplication for performance)
+        base_metadata_with_doc = {**base_metadata, "document_metadata": document_metadata}
+
         t2 = time.perf_counter()
-        chunks_to_upsert, all_tags, all_keywords, all_headings, semantic_embedding = chunk_and_embed_pages(pages, base_metadata, s3_key, metrics)
+        chunks_to_upsert, all_tags, all_keywords, all_headings, _ = chunk_and_embed_pages(pages, base_metadata_with_doc, s3_key, metrics)
         metrics["chunk_and_embed_pages_time"] = time.perf_counter() - t2
+        
+        # Build document-level semantic embedding with metadata
+        semantic_embedding, _ = build_document_embedding(
+            list(all_tags), list(all_keywords), list(all_headings), document_metadata, get_embedding
+        )
         
         # Do NOT flatten chunk_and_embed_pages metrics; keep them nested for clarity
         if not chunks_to_upsert:
@@ -404,7 +510,7 @@ def load_data(
         metrics["process_and_insert_chunks"] = time.perf_counter() - t3
 
         t4 = time.perf_counter()
-        _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding)
+        _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding, document_metadata)
         metrics["upsert_document_record"] = time.perf_counter() - t4
 
         # Insert metrics into processing_logs table (assumes metrics column exists and is JSONB)

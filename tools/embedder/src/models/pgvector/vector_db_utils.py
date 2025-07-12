@@ -50,21 +50,68 @@ def init_vec_db():
 
     # Add HNSW vector indexes with explicit operator class (required by pgvector)
     with engine.connect() as conn:
-        # DocumentChunk embedding index
+        # Start with large dataset parameters since you're planning to scale quickly
+        print("Initializing HNSW indexes for large-scale continuous ingestion...")
+        
         conn.execute(
             text("""
             CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_vector
-            ON document_chunks USING hnsw (embedding vector_cosine_ops);
+            ON document_chunks USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 32, ef_construction = 400);
             """)
         )
-        # Document embedding index
+        
         conn.execute(
             text("""
             CREATE INDEX IF NOT EXISTS ix_documents_embedding_vector
-            ON documents USING hnsw (embedding vector_cosine_ops);
+            ON documents USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 32, ef_construction = 400);
             """)
         )
+        
+        # All the metadata indexes (these are always beneficial)
+        conn.execute(
+            text("""
+            CREATE INDEX IF NOT EXISTS idx_documents_metadata_type_id 
+            ON documents ((document_metadata->>'document_type_id'));
+            """)
+        )
+        
+        conn.execute(
+            text("""
+            CREATE INDEX IF NOT EXISTS idx_documents_metadata_date 
+            ON documents ((document_metadata->>'document_date')) 
+            WHERE document_metadata->>'document_date' IS NOT NULL;
+            """)
+        )
+        
+        conn.execute(
+            text("""
+            CREATE INDEX IF NOT EXISTS idx_documents_metadata_status 
+            ON documents ((document_metadata->>'document_status'));
+            """)
+        )
+        
+        conn.execute(
+            text("""
+            CREATE INDEX IF NOT EXISTS idx_document_chunks_project_document 
+            ON document_chunks (project_id, document_id);
+            """)
+        )
+        
+        conn.execute(
+            text("""
+            CREATE INDEX IF NOT EXISTS idx_documents_published_project 
+            ON documents (project_id) 
+            WHERE document_metadata->>'document_status' = 'published';
+            """)
+        )
+        
+        # Set runtime parameters for large datasets
+        conn.execute(text("SET hnsw.ef_search = 200;"))
+             
         conn.commit()
+        print("HNSW indexes initialized for large-scale operations")
 
 def get_session():
     """

@@ -124,6 +124,24 @@ class VectorStore:
                             # For other tables, check metadata
                             where_conditions.append(f"metadata->>'project_id' IN ({placeholders})")
                             params.extend(value)
+                elif key == 'document_type_ids':
+                    # Handle multiple document type IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        # Document type filtering depends on the table
+                        if table_name == "documents":
+                            # For documents table, use document_metadata column directly
+                            where_conditions.append(f"document_metadata->>'document_type_id' IN ({placeholders})")
+                            params.extend(value)
+                        else:
+                            # For document_chunks table, join with documents table to filter by document type
+                            where_conditions.append(f"""
+                                document_id IN (
+                                    SELECT document_id FROM documents 
+                                    WHERE document_metadata->>'document_type_id' IN ({placeholders})
+                                )
+                            """)
+                            params.extend(value)
                 elif key == 'project_id':
                     # Handle single project ID
                     if table_name == current_app.vector_settings.vector_table_name:
@@ -150,13 +168,24 @@ class VectorStore:
         sql_params = [embedding_list] + params + [embedding_list, limit]
         
         # Construct the SQL query using cosine distance with pgvector
-        search_sql = f"""
-        SELECT id, metadata, content, embedding, 1 - (embedding <=> %s::vector) as similarity
-        FROM {table_name}
-        WHERE {where_clause}
-        ORDER BY embedding <=> %s::vector
-        LIMIT %s
-        """
+        # Note: document_metadata only exists on documents table, not on document_chunks
+        if table_name == "documents":
+            search_sql = f"""
+            SELECT id, metadata, content, embedding, document_metadata, 1 - (embedding <=> %s::vector) as similarity
+            FROM {table_name}
+            WHERE {where_clause}
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """
+        else:
+            # For document_chunks table, don't select document_metadata
+            search_sql = f"""
+            SELECT id, metadata, content, embedding, 1 - (embedding <=> %s::vector) as similarity
+            FROM {table_name}
+            WHERE {where_clause}
+            ORDER BY embedding <=> %s::vector
+            LIMIT %s
+            """
         
         # Execute the query using psycopg
         conn_params = current_app.vector_settings.database_url
@@ -170,7 +199,11 @@ class VectorStore:
         
         if return_dataframe:
             # Specify the correct column order for the semantic search results
-            columns = ["id", "metadata", "content", "embedding", "similarity"]
+            # Note: document_metadata only included when querying documents table
+            if table_name == "documents":
+                columns = ["id", "metadata", "content", "embedding", "document_metadata", "similarity"]
+            else:
+                columns = ["id", "metadata", "content", "embedding", "similarity"]
             return self._create_dataframe_from_results(results, columns)
         else:
             return results
@@ -201,13 +234,24 @@ class VectorStore:
         keywords = [keyword for keyword in weighted_keywords]
         tsquery_str = " OR ".join(keywords)  
         tags_condition = "metadata->'tags' ?| %s" if tags else "TRUE"
-        search_sql = f"""
-        SELECT id, content, metadata, ts_rank_cd(to_tsvector('simple', content), query) as rank
-        FROM {table_name}, websearch_to_tsquery('simple', %s) query
-        WHERE to_tsvector('simple', content) @@ query  AND {tags_condition}
-        ORDER BY rank DESC
-        LIMIT %s
-        """
+        # Note: document_metadata only exists on documents table, not on document_chunks
+        if table_name == "documents":
+            search_sql = f"""
+            SELECT id, content, metadata, document_metadata, ts_rank_cd(to_tsvector('simple', content), query) as rank
+            FROM {table_name}, websearch_to_tsquery('simple', %s) query
+            WHERE to_tsvector('simple', content) @@ query  AND {tags_condition}
+            ORDER BY rank DESC
+            LIMIT %s
+            """
+        else:
+            # For document_chunks table, don't select document_metadata
+            search_sql = f"""
+            SELECT id, content, metadata, ts_rank_cd(to_tsvector('simple', content), query) as rank
+            FROM {table_name}, websearch_to_tsquery('simple', %s) query
+            WHERE to_tsvector('simple', content) @@ query  AND {tags_condition}
+            ORDER BY rank DESC
+            LIMIT %s
+            """
 
         start_time = time.time()
         # Attempt to reconstruct the raw SQL for debugging (not for production use)
@@ -235,7 +279,12 @@ class VectorStore:
         self._log_search_time("Keyword", elapsed_time)
 
         if return_dataframe:
-            df = pd.DataFrame(results, columns=["id", "content", "metadata", "rank"])
+            # Note: document_metadata only included when querying documents table
+            if table_name == "documents":
+                columns = ["id", "content", "metadata", "document_metadata", "rank"]
+            else:
+                columns = ["id", "content", "metadata", "rank"]
+            df = pd.DataFrame(results, columns=columns)
             df["id"] = df["id"].astype(str)
             return df
         else:
@@ -324,6 +373,12 @@ class VectorStore:
                         placeholders = ','.join(['%s'] * len(value))
                         where_conditions.append(f"project_id IN ({placeholders})")
                         params.extend(value)
+                elif key == 'document_type_ids':
+                    # Handle multiple document type IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        where_conditions.append(f"document_metadata->>'document_type_id' IN ({placeholders})")
+                        params.extend(value)
                 # Add other predicate handling as needed
         
         # Build the final WHERE clause
@@ -360,6 +415,101 @@ class VectorStore:
                 results, 
                 columns=["document_id", "document_keywords", "document_tags", 
                         "document_headings", "project_id", "embedding", "created_at"]
+            )
+            df["document_id"] = df["document_id"].astype(str)
+            return df
+        else:
+            return results
+
+    def get_documents_by_metadata(
+        self,
+        project_ids: Optional[List[str]] = None,
+        document_type_ids: Optional[List[str]] = None,
+        order_by: str = "created_at DESC",
+        limit: int = 50,
+        return_dataframe: bool = True,
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
+        """
+        Get documents by direct metadata filtering without search terms.
+        
+        This method retrieves documents based purely on metadata criteria
+        (project ID, document type ID) without any search term matching.
+        Useful for queries like "any correspondence for project X".
+        
+        Args:
+            project_ids: List of project IDs to filter by.
+            document_type_ids: List of document type IDs to filter by.
+            order_by: SQL ORDER BY clause (default: "created_at DESC").
+            limit: Maximum number of documents to return (default: 50).
+            return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
+            
+        Returns:
+            Either a pandas DataFrame or a list of tuples containing document results.
+        """
+        start_time = time.time()
+        
+        # Build WHERE conditions
+        where_conditions = ["TRUE"]
+        params = []
+        
+        # Filter by project IDs
+        if project_ids:
+            placeholders = ",".join(["%s"] * len(project_ids))
+            where_conditions.append(f"project_id IN ({placeholders})")
+            params.extend(project_ids)
+        
+        # Filter by document type IDs
+        # Note: This assumes document metadata contains document_type_id (with underscore)
+        if document_type_ids:
+            placeholders = ",".join(["%s"] * len(document_type_ids))
+            where_conditions.append(f"document_metadata->>'document_type_id' IN ({placeholders})")
+            params.extend(document_type_ids)
+        
+        # Build the final WHERE clause
+        where_clause = " AND ".join(where_conditions)
+        
+        import logging
+        logging.info(f"Direct metadata search WHERE clause: {where_clause}")
+        logging.info(f"Direct metadata search parameters: {params}")
+        
+        # Construct the SQL query for direct metadata search
+        documents_table = current_app.vector_settings.documents_table_name
+        metadata_sql = f"""
+        SELECT document_id, document_keywords, document_tags, document_headings, 
+               project_id, document_metadata, created_at,
+               document_metadata->>'document_date' as document_date,
+               document_metadata->>'document_name' as document_name,
+               document_metadata->>'document_saved_name' as document_saved_name,
+               document_metadata->>'project_name' as project_name,
+               document_metadata->>'proponent_name' as proponent_name,
+               document_metadata->>'s3_key' as s3_key
+        FROM {documents_table}
+        WHERE {where_clause}
+        ORDER BY {order_by}
+        LIMIT %s
+        """
+        
+        params.append(limit)
+        
+        # Execute the query using psycopg
+        conn_params = current_app.vector_settings.database_url
+        with psycopg.connect(conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute(metadata_sql, params)
+                results = cur.fetchall()
+                
+                logging.info(f"Direct metadata search returned {len(results)} results")
+        
+        elapsed_time = time.time() - start_time
+        self._log_search_time("Direct metadata", elapsed_time)
+        
+        if return_dataframe:
+            df = pd.DataFrame(
+                results, 
+                columns=["document_id", "document_keywords", "document_tags", 
+                        "document_headings", "project_id", "document_metadata", 
+                        "created_at", "document_date", "document_name", "document_saved_name",
+                        "project_name", "proponent_name", "s3_key"]
             )
             df["document_id"] = df["document_id"].astype(str)
             return df
@@ -408,8 +558,9 @@ class VectorStore:
         
         # Construct the SQL query for chunk search within specific documents
         chunks_table = current_app.vector_settings.vector_table_name
+        # Note: document_metadata does not exist on document_chunks table
         search_sql = f"""
-        SELECT id, metadata, content, document_id, project_id, 
+        SELECT id, metadata, content, document_id, project_id,
                1 - (embedding <=> %s::vector) as similarity
         FROM {chunks_table}
         WHERE document_id IN ({placeholders})
@@ -545,6 +696,12 @@ class VectorStore:
                 elif key == 'project_id':
                     where_conditions.append("project_id = %s")
                     params.append(value)
+                elif key == 'document_type_ids':
+                    # Handle multiple document type IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        where_conditions.append(f"document_metadata->>'document_type_id' IN ({placeholders})")
+                        params.extend(value)
                 # Add other predicate handling as needed
         
         # Build the final WHERE clause
@@ -571,7 +728,7 @@ class VectorStore:
         documents_table = current_app.vector_settings.documents_table_name
         search_sql = f"""
         SELECT document_id, document_keywords, document_tags, document_headings, 
-               project_id, embedding, created_at,
+               project_id, embedding, created_at, document_metadata,
                1 - (embedding <=> %s::vector) as similarity
         FROM {documents_table}
         WHERE {where_clause}
@@ -603,7 +760,8 @@ class VectorStore:
             df = pd.DataFrame(
                 results, 
                 columns=["document_id", "document_keywords", "document_tags", 
-                        "document_headings", "project_id", "embedding", "created_at", "similarity"]
+                        "document_headings", "project_id", "embedding", "created_at", 
+                        "document_metadata", "similarity"]
             )
             df["document_id"] = df["document_id"].astype(str)
             return df

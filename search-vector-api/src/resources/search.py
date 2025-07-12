@@ -76,6 +76,8 @@ class SearchRequestSchema(Schema):
     Attributes:
         query: The required search query string provided by the user
         projectIds: Optional list of project IDs to filter search results
+        documentTypeIds: Optional list of document type IDs to filter search results
+        inference: Optional list of inference types to run ('PROJECT', 'DOCUMENTTYPE')
     """
 
     class Meta:  # pylint: disable=too-few-public-methods
@@ -87,6 +89,11 @@ class SearchRequestSchema(Schema):
                       metadata={"description": "Search query text to find relevant documents"})
     projectIds = fields.List(fields.Str(), data_key="projectIds", required=False, 
                            metadata={"description": "Optional list of project IDs to filter search results. If not provided, searches across all projects."})
+    documentTypeIds = fields.List(fields.Str(), data_key="documentTypeIds", required=False, 
+                                metadata={"description": "Optional list of document type IDs to filter search results. If not provided, may be automatically inferred from the query."})
+    inference = fields.List(fields.Str(validate=lambda x: x in ['PROJECT', 'DOCUMENTTYPE']), 
+                          data_key="inference", required=False, load_default=None,
+                          metadata={"description": "Optional list of inference types to run. Valid values: 'PROJECT', 'DOCUMENTTYPE'. If not provided, uses USE_DEFAULT_INFERENCE environment variable setting."})
 
 
 API = Namespace("vector-search", description="Endpoints for semantic and keyword vector search operations")
@@ -142,11 +149,19 @@ class Search(Resource):
         - Uses embeddings to find the most semantically similar content
         - Returns the best matching chunks from promising documents
         
-        Fallback Strategy:
-        - If no relevant documents found in Stage 1, searches all chunks
+        Alternative Path:
+        - If no relevant documents found in Stage 1, performs semantic search across all chunks
         - Ensures comprehensive coverage even for edge cases
         
         The pipeline also includes cross-encoder re-ranking for optimal relevance.
+        
+        Inference Control:
+        The optional 'inference' parameter controls which inference pipelines to run:
+        - ['PROJECT'] - Only run project inference
+        - ['DOCUMENTTYPE'] - Only run document type inference
+        - ['PROJECT', 'DOCUMENTTYPE'] - Run both inference pipelines (default behavior)
+        - [] - Disable all inference pipelines
+        - Not provided - Uses USE_DEFAULT_INFERENCE environment variable setting
         
         Returns:
             Response: JSON containing matched documents and detailed search metrics
@@ -156,8 +171,10 @@ class Search(Resource):
         request_data = SearchRequestSchema().load(API.payload)
         query = request_data["query"]
         project_ids = request_data.get("projectIds", None)  # Optional parameter
+        document_type_ids = request_data.get("documentTypeIds", None)  # Optional parameter
+        inference = request_data.get("inference", None)  # Optional parameter
         
-        documents = SearchService.get_documents_by_query(query, project_ids)
+        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference)
         return Response(
             json.dumps(documents), status=HTTPStatus.OK, mimetype="application/json"
         )

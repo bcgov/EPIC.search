@@ -164,6 +164,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
             s3_file_keys = []
             metadata_list = []
             docs_to_process = []
+            api_docs_list = []  # Store API document objects
 
             for doc in files_data:
                 doc_id = doc["_id"]
@@ -181,6 +182,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
                 s3_file_keys.append(s3_key)
                 metadata_list.append(doc_meta)
                 docs_to_process.append(doc)
+                api_docs_list.append(doc)  # Store the API document object
                 if shallow_mode and (shallow_success_count + len(s3_file_keys)) >= shallow_limit:
                     # Only add up to the shallow limit
                     break
@@ -196,6 +198,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
                     project_id,
                     s3_file_keys,
                     metadata_list,
+                    api_docs_list,  # Pass API document objects
                     batch_size=files_concurrency_size,
                     temp_dir=embedder_temp_dir,  # Pass temp dir to process_files
                 )

@@ -167,6 +167,19 @@ class SearchSettings:
             float: The minimum relevance score (default: -8.0)
         """
         return float(self._config.get("MIN_RELEVANCE_SCORE", -8.0))
+    
+    @property
+    def use_default_inference(self) -> bool:
+        """Get whether to use default inference pipelines when inference parameter is not provided.
+        
+        When True (default), all inference pipelines (PROJECT and DOCUMENTTYPE) will run 
+        if the inference parameter is not specified in the request.
+        When False, no inference will run unless explicitly specified in the inference parameter.
+        
+        Returns:
+            bool: Whether to use default inference (default: True)
+        """
+        return self._config.get("USE_DEFAULT_INFERENCE", "true").lower() in ("true", "1", "yes", "on")
 
 
 class ModelSettings:
@@ -255,6 +268,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     SEMANTIC_FETCH_COUNT = int(os.getenv("SEMANTIC_FETCH_COUNT", "100"))
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))
     RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "8"))
+    USE_DEFAULT_INFERENCE = os.getenv("USE_DEFAULT_INFERENCE", "true")
 
     # ML Model Configuration
     CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")
