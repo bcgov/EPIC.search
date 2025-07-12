@@ -1,18 +1,21 @@
 """Vector search implementation combining semantic and keyword search capabilities.
 
-This module provides the core search functionality that combines semantic vector search
-with keyword-based search. It implements the complete search pipeline including:
+This module provides the core hybrid search functionality that combines semantic vector search
+with keyword-based search in a multi-stage pipeline including:
 
-1. Performing keyword-based search using PostgreSQL full-text search
-2. Performing semantic vector search using pgvector similarity matching
-3. Combining results from both search methods
-4. Removing duplicate results based on document ID
-5. Re-ranking results using a cross-encoder model for improved relevance
-6. Formatting results for the API response
-7. Tracking performance metrics for each step of the pipeline
+1. Document-level keyword filtering using PostgreSQL full-text search on pre-computed metadata
+2. Semantic vector search within relevant document chunks using pgvector similarity matching
+3. Fallback semantic search across all chunks when document filtering finds no results
+4. Final fallback keyword search on chunks when all semantic approaches fail
+5. Cross-encoder re-ranking for improved relevance ordering
+6. Removing duplicate results based on document ID
+7. Formatting results for the API response
+8. Tracking performance metrics for each step of the pipeline
 
-The search pipeline is designed to provide high-quality search results by leveraging
-both traditional keyword matching and modern embedding-based semantic similarity.
+The hybrid search pipeline is designed to provide high-quality search results by leveraging
+both traditional keyword matching for efficient document filtering and modern embedding-based 
+semantic similarity for content relevance, with multiple fallback strategies to ensure 
+comprehensive coverage.
 """
 
 import pandas as pd
@@ -97,20 +100,25 @@ def get_document_type_name(document_metadata, chunk_metadata=None):
     return None
 
 
-def search(question, project_ids=None, document_type_ids=None):
-    """Main search function implementing a two-stage search strategy.
+def search(question, project_ids=None, document_type_ids=None, min_relevance_score=None, top_n=None):
+    """Main search function implementing a hybrid multi-stage search strategy.
     
-    This function orchestrates a modern search pipeline that leverages document-level
-    metadata for improved efficiency and accuracy:
+    This function orchestrates a modern search pipeline that combines keyword and semantic search
+    for optimal efficiency and accuracy:
     
     Direct Metadata Mode: When both project and document type are specified and the query
     is generic (e.g., "any correspondence"), returns document-level results ordered by date
     
-    Stage 1: Document-level filtering using pre-computed keywords, tags, and headings
-    Stage 2: Semantic search within relevant document chunks
+    Hybrid Search Pipeline:
+    Stage 1: Document-level keyword filtering using pre-computed keywords, tags, and headings
+    Stage 2: Semantic vector search within chunks of relevant documents (from Stage 1)
+    Fallback 2.1: If Stage 1 finds no documents, semantic search across all chunks
+    Fallback 2.2: If semantic search fails, keyword search on chunks as last resort
+    Stage 3: Cross-encoder re-ranking for optimal relevance ordering
     
-    This approach is much more efficient than searching all chunks and provides
-    better relevance by first identifying the most promising documents.
+    This hybrid approach is much more efficient than searching all chunks directly and provides
+    better relevance by first identifying promising documents through keyword filtering,
+    then applying expensive semantic search only to relevant content.
     
     Args:
         question (str): The search query text
@@ -118,6 +126,10 @@ def search(question, project_ids=None, document_type_ids=None):
                                     If None or empty, searches across all projects.
         document_type_ids (list, optional): List of document type IDs to filter results.
                                           If None or empty, searches across all document types.
+        min_relevance_score (float, optional): Minimum relevance score threshold for filtering results.
+                                             If None, uses the MIN_RELEVANCE_SCORE config value.
+        top_n (int, optional): Maximum number of results to return after ranking.
+                              If None, uses the TOP_RECORD_COUNT config value.
         
     Returns:
         tuple: A tuple containing:
@@ -130,7 +142,10 @@ def search(question, project_ids=None, document_type_ids=None):
     # Use strongly typed configuration properties
     doc_limit = current_app.search_settings.keyword_fetch_count  # Number of documents to find
     chunk_limit = current_app.search_settings.semantic_fetch_count  # Number of chunks to return
-    top_n = current_app.search_settings.top_record_count
+    
+    # Use provided top_n parameter or fall back to config value
+    if top_n is None:
+        top_n = current_app.search_settings.top_record_count
     
     # Instantiate VectorStore
     vec_store = VectorStore()
@@ -208,7 +223,7 @@ def search(question, project_ids=None, document_type_ids=None):
         logging.warning("chunk_results is empty before re-ranking!")
     
     # Re-rank results using cross-encoder
-    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n)
+    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n, min_relevance_score)
     metrics["reranking_ms"] = rerank_time
     
     # Add filtering metrics to the search metrics
@@ -368,7 +383,7 @@ def remove_duplicates(combined_results):
     return deduplicated_results, elapsed_ms
 
 
-def perform_reranking(query, combined_results, top_n):
+def perform_reranking(query, combined_results, top_n, min_relevance_score=None):
     """Re-rank the results using the cross-encoder re-ranker model.
     
     Takes the combined search results and re-ranks them using a more powerful
@@ -378,6 +393,8 @@ def perform_reranking(query, combined_results, top_n):
         query (str): The original search query
         combined_results (DataFrame): Combined search results 
         top_n (int): Number of top results to return after re-ranking
+        min_relevance_score (float, optional): Minimum relevance score threshold for filtering results.
+                                             If None, uses the MIN_RELEVANCE_SCORE config value.
         
     Returns:
         tuple: A tuple containing:
@@ -404,7 +421,7 @@ def perform_reranking(query, combined_results, top_n):
     
     # Re-rank the results using the batch size from config and get metrics
     batch_size = current_app.search_settings.reranker_batch_size
-    reranked_results, filtering_metrics = rerank_results_with_metrics(query, combined_results, top_n, batch_size=batch_size)
+    reranked_results, filtering_metrics = rerank_results_with_metrics(query, combined_results, top_n, batch_size=batch_size, min_relevance_score=min_relevance_score)
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return reranked_results, elapsed_ms, filtering_metrics
@@ -444,7 +461,7 @@ def hybrid_search(
     
     # Re-rank the results if needed
     if rerank:
-        final_results, _, _ = perform_reranking(query, deduplicated_results, top_n)  # Ignore timing and metrics for this legacy function
+        final_results, _, _ = perform_reranking(query, deduplicated_results, top_n, None)  # Ignore timing and metrics for this legacy function
         return final_results
     
     return deduplicated_results

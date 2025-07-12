@@ -112,6 +112,19 @@ class InferencePipeline:
         else:
             logging.info(f"Skipping document type inference: explicit document type IDs provided: {document_type_ids}")
             
+        # Step 3: Second-pass semantic cleaning (if not a generic request)
+        if not is_generic_request and processing_state["current_query"] != processing_state["original_query"]:
+            semantic_cleaned = self._perform_semantic_cleaning(processing_state["current_query"])
+            if semantic_cleaned != processing_state["current_query"]:
+                processing_state["semantic_cleaned_query"] = semantic_cleaned
+                processing_state["current_query"] = semantic_cleaned
+                processing_state["steps_applied"].append("semantic_cleaning")
+                logging.info(f"Semantic cleaning applied: '{semantic_cleaned}'")
+            else:
+                processing_state["semantic_cleaned_query"] = processing_state["current_query"]
+        else:
+            processing_state["semantic_cleaned_query"] = processing_state["current_query"]
+            
         # Finalize processing state
         processing_state["final_query"] = processing_state["current_query"]
         
@@ -248,7 +261,8 @@ class InferencePipeline:
                 "original_query": processing_state["original_query"],
                 "final_query": processing_state["final_query"],
                 "steps_applied": processing_state["steps_applied"],
-                "query_changed": processing_state["final_query"] != processing_state["original_query"]
+                "query_changed": processing_state["final_query"] != processing_state["original_query"],
+                "semantic_cleaned_query": processing_state.get("semantic_cleaned_query") if processing_state.get("semantic_cleaned_query") != processing_state.get("original_query") else None
             },
             "project_inference": {
                 "attempted": processing_state["project_inference_metadata"] is not None,
@@ -277,6 +291,106 @@ class InferencePipeline:
         }
         
         return response
+
+    def _perform_semantic_cleaning(self, query: str) -> str:
+        """Perform second-pass semantic cleaning to remove grammatical artifacts and extract key terms.
+        
+        This method cleans queries that have already been processed by project and document type
+        inference to remove leftover grammatical artifacts and focus on the core semantic content.
+        
+        Args:
+            query (str): The query after project and document type cleaning
+            
+        Returns:
+            str: Semantically cleaned query focused on key search terms
+        """
+        import re
+        
+        cleaned_query = query.strip()
+        original_length = len(cleaned_query)
+        
+        # Priority 1: Extract quoted content (highest confidence)
+        quote_patterns = [
+            r"['\"]([^'\"]+)['\"]",  # Content within single or double quotes
+            r"'([^']+)'",           # Content within single quotes
+            r'"([^"]+)"'            # Content within double quotes
+        ]
+        
+        for pattern in quote_patterns:
+            matches = re.findall(pattern, cleaned_query, re.IGNORECASE)
+            if matches:
+                # Use the longest quoted content as the main search term
+                longest_match = max(matches, key=len)
+                if len(longest_match.strip()) >= 3:  # Ensure meaningful content
+                    logging.info(f"Semantic cleaning: extracted quoted content '{longest_match}'")
+                    return longest_match.strip()
+        
+        # Priority 2: Remove common search action phrases
+        action_phrases = [
+            r'\blook\s+for\s+(reference\s+of\s*)?',  # "look for reference of"
+            r'\bsearch\s+for\s*',                    # "search for"
+            r'\bfind\s+(reference\s+to\s*)?',        # "find reference to"
+            r'\bshow\s+me\s*',                       # "show me"
+            r'\bget\s+me\s*',                        # "get me"
+            r'\breference\s+of\s*',                  # "reference of"
+            r'\breferences?\s+to\s*',                # "reference to" / "references to"
+            r'\binformation\s+about\s*',             # "information about"
+            r'\bdetails\s+about\s*',                 # "details about"
+            r'\bany\s+information\s+on\s*',          # "any information on"
+        ]
+        
+        for pattern in action_phrases:
+            cleaned_query = re.sub(pattern, '', cleaned_query, flags=re.IGNORECASE)
+        
+        # Priority 3: Remove orphaned prepositions, articles, and conjunctions
+        orphaned_words = [
+            r'^\s*(the|a|an|in|on|at|for|of|to|with|by|from)\s+',  # At start
+            r'\s+(the|a|an|in|on|at|for|of|to|with|by|from)\s*$',  # At end
+        ]
+        
+        for pattern in orphaned_words:
+            cleaned_query = re.sub(pattern, ' ', cleaned_query, flags=re.IGNORECASE)
+        
+        # Priority 4: Clean up extra whitespace and punctuation
+        cleaned_query = re.sub(r'\s+', ' ', cleaned_query)  # Multiple spaces to single
+        cleaned_query = re.sub(r'^\s*[,;:.]\s*', '', cleaned_query)  # Leading punctuation
+        cleaned_query = re.sub(r'\s*[,;:]\s*$', '', cleaned_query)   # Trailing punctuation
+        cleaned_query = cleaned_query.strip()
+        
+        # Priority 5: Remove very short orphaned words that don't add meaning
+        words = cleaned_query.split()
+        meaningful_words = []
+        
+        for word in words:
+            # Keep words that are:
+            # - 3+ characters long, OR
+            # - 2 characters and capitalized (like "BC"), OR
+            # - Common meaningful short words
+            if (len(word) >= 3 or 
+                (len(word) == 2 and word[0].isupper()) or
+                word.lower() in ['ai', 'ml', 'it', 'bc', 'ab', 'on', 'qc', 'pe', 'ns', 'nb', 'nt', 'nu', 'yt']):
+                meaningful_words.append(word)
+        
+        if meaningful_words:
+            cleaned_query = ' '.join(meaningful_words)
+        
+        # Safety checks
+        # If we removed more than 85% of the original, it's too aggressive
+        if len(cleaned_query) < original_length * 0.15:
+            logging.warning(f"Semantic cleaning too aggressive (removed {100*(1-len(cleaned_query)/original_length):.0f}%), keeping previous: '{query}'")
+            return query
+        
+        # If the cleaned query is too short, keep the previous version
+        if len(cleaned_query.strip()) < 3:
+            logging.info(f"Semantic cleaned query too short ('{cleaned_query}'), keeping previous: '{query}'")
+            return query
+        
+        # If no meaningful change was made, return the input
+        if cleaned_query.lower() == query.lower():
+            return query
+        
+        logging.info(f"Semantic cleaning successful: '{query}' -> '{cleaned_query}'")
+        return cleaned_query
 
 
 # Global pipeline instance

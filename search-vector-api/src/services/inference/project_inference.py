@@ -113,74 +113,65 @@ class ProjectInferenceService:
             return [], 0.0, inference_metadata
     
     def _extract_project_entities(self, query: str) -> List[str]:
-        """Extract potential project names from the query.
+        """Extract potential project names from the query by matching against known project names.
         
-        Focuses on extracting project names rather than organization names,
-        using patterns that identify project-specific terminology.
+        Uses fuzzy matching against the actual project names in the database rather than
+        trying to guess what might be a project name based on capitalization patterns.
         
         Args:
             query (str): The search query text
             
         Returns:
-            List[str]: List of extracted entities that might be project names
+            List[str]: List of n-grams from the query that might match project names
         """
-        entities = []
+        # Get known project names for matching
+        projects_df = self._get_projects_cached()
+        if projects_df.empty:
+            return []
         
-        # Convert to lowercase for processing
-        query_lower = query.lower()
+        project_names = [name.lower() for name in projects_df['project_name'].tolist()]
         
-        # Pattern 1: Project names with explicit project-related terms
-        # More precise patterns to avoid capturing entire sentences
-        project_patterns = [
-            # Match project names before the project keyword - avoid capturing prepositions
-            r'(?:^|[^a-zA-Z])([A-Z][a-zA-Z0-9\s&-]{2,25})\s+(?:project|pipeline|development|proposal|mine|dam|terminal|facility)\b',
-            # Match "the [ProjectName] project" patterns - avoid capturing prepositions  
-            r'\bthe\s+([A-Z][a-zA-Z0-9\s&-]{2,25})\s+(?:project|pipeline|development|proposal|mine|dam|terminal|facility)\b'
-        ]
+        # Generate n-grams from the query (1-5 words) for fuzzy matching
+        words = re.findall(r'\b\w+\b', query.lower())
+        candidates = []
         
-        for pattern in project_patterns:
+        # Generate n-grams of different lengths
+        for n in range(1, min(6, len(words) + 1)):  # 1 to 5 words
+            for i in range(len(words) - n + 1):
+                ngram = ' '.join(words[i:i+n])
+                # Skip very short or very common phrases
+                if len(ngram) > 3 and not ngram.startswith(('i am', 'i have', 'looking for')):
+                    candidates.append(ngram)
+        
+        # Also try phrases around common project keywords
+        project_keywords = ['project', 'pipeline', 'development', 'mine', 'dam', 'terminal', 'facility']
+        for keyword in project_keywords:
+            # Find text before the keyword
+            pattern = r'(\b\w+(?:\s+\w+){0,3})\s+' + keyword + r'\b'
             matches = re.findall(pattern, query, re.IGNORECASE)
-            # Clean up matches to remove prepositions and common words
             for match in matches:
-                cleaned_match = match.strip()
-                # Remove leading prepositions and common words
-                cleaned_match = re.sub(r'^(for|the|of|in|at|on|to|from)\s+', '', cleaned_match, flags=re.IGNORECASE)
-                if len(cleaned_match) > 3 and not cleaned_match.lower().startswith(('for', 'the', 'of', 'in', 'at')):
-                    entities.append(cleaned_match)
+                candidate = match.strip().lower()
+                if len(candidate) > 3:
+                    candidates.append(candidate)
         
-        # Pattern 2: Standalone capitalized project names (more conservative)
-        # Look for 2-4 word capitalized phrases that could be project names
-        standalone_pattern = r'\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){1,3})\b'
-        standalone_matches = re.findall(standalone_pattern, query)
-        
-        # Filter out common English words and very generic terms
-        excluded_words = {
-            'The', 'Project', 'Development', 'Company', 'Corporation', 'Inc', 'Ltd',
-            'Environmental', 'Impact', 'Assessment', 'Report', 'Study', 'Management',
-            'British Columbia', 'Government', 'Ministry', 'Department', 'Agency',
-            'Indigenous', 'Nations', 'First', 'Nation', 'Looking', 'For', 'Any',
-            'Correspondence', 'Letter', 'Document', 'Mentions', 'Am'
+        # Simple exclusion for very common non-project terms
+        excluded_terms = {
+            'aboriginal groups', 'indigenous groups', 'first nations', 'environmental assessment',
+            'british columbia', 'environmental protection', 'climate change'
         }
         
-        for match in standalone_matches:
-            words = match.split()
-            # Only include if it doesn't contain excluded words and looks like a project name
-            if (not any(word in excluded_words for word in words) and 
-                len(words) >= 2 and len(match) <= 30):  # Reasonable length limit
-                entities.append(match.strip())
+        # Filter out excluded terms
+        candidates = [c for c in candidates if c not in excluded_terms]
         
-        # Pattern 3: Quoted project names (more conservative length)
-        quoted_pattern = r'["\']([^"\']{3,30})["\']'
-        quoted_matches = re.findall(quoted_pattern, query)
-        entities.extend([match.strip() for match in quoted_matches])
+        # Remove duplicates while preserving order
+        seen = set()
+        entities = []
+        for candidate in candidates:
+            if candidate not in seen:
+                seen.add(candidate)
+                entities.append(candidate)
         
-        # Remove duplicates and apply reasonable length constraints
-        entities = list(set([
-            entity for entity in entities 
-            if 3 < len(entity) <= 30 and not entity.lower().startswith('i am')
-        ]))
-        
-        logging.debug(f"Extracted project entities from '{query}': {entities}")
+        logging.debug(f"Generated {len(entities)} candidate entities from query: {entities}")
         return entities
     
     def _get_projects_cached(self) -> pd.DataFrame:
@@ -235,51 +226,62 @@ class ProjectInferenceService:
             return self._project_cache
     
     def _match_entities_to_projects(self, entities: List[str], projects_df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """Match extracted entities to known projects using fuzzy matching on project names only.
+        """Match extracted entities to known projects using fuzzy matching on project names.
         
-        This method performs matching based solely on project names, not proponent organizations,
-        to provide focused and accurate project inference based on direct project references.
+        This method performs case-insensitive fuzzy matching against actual project names
+        from the database, providing much more accurate matching than pattern-based approaches.
         
         Args:
-            entities (List[str]): List of extracted entity strings
+            entities (List[str]): List of candidate entity strings (already lowercase)
             projects_df (pd.DataFrame): DataFrame with project_id and project_name columns
             
         Returns:
-            List[Dict[str, Any]]: List of matches with similarity scores based on project name matching
+            List[Dict[str, Any]]: List of matches with similarity scores
         """
         matches = []
         
         for entity in entities:
-            entity_lower = entity.lower()
+            entity_lower = entity.lower().strip()
             
             for _, project in projects_df.iterrows():
-                project_name = str(project.get("project_name", "")).lower()
+                project_name = str(project.get("project_name", "")).lower().strip()
                 
                 # Skip empty names
                 if not project_name or project_name == "nan":
                     continue
                 
-                # Calculate similarity score for project name only
-                name_similarity = SequenceMatcher(None, entity_lower, project_name).ratio()
+                # Calculate similarity score using different methods
+                similarity = SequenceMatcher(None, entity_lower, project_name).ratio()
                 
-                # Check for partial matches and exact substring matches
-                if entity_lower in project_name or project_name in entity_lower:
-                    name_similarity = max(name_similarity, 0.9)
+                # Boost score for exact substring matches
+                if entity_lower in project_name:
+                    similarity = max(similarity, 0.8)
                 
-                # Only include matches above a minimum threshold
-                if name_similarity > 0.6:
+                # Boost score for reverse substring matches (project name in entity)
+                if project_name in entity_lower:
+                    similarity = max(similarity, 0.9)
+                
+                # Check for word-level matches (all words in entity match words in project name)
+                entity_words = set(entity_lower.split())
+                project_words = set(project_name.split())
+                
+                if entity_words and entity_words.issubset(project_words):
+                    similarity = max(similarity, 0.85)
+                
+                # Use a lower threshold since we're generating more targeted candidates
+                if similarity > 0.5:  # Lowered from 0.6
                     matches.append({
                         "entity": entity,
                         "project_id": project["project_id"],
                         "project_name": project["project_name"],
-                        "similarity": name_similarity,
-                        "match_type": "name"
+                        "similarity": similarity,
+                        "match_type": "fuzzy"
                     })
         
         # Sort by similarity score (highest first)
         matches.sort(key=lambda x: x["similarity"], reverse=True)
         
-        logging.debug(f"Found {len(matches)} project name matches")
+        logging.debug(f"Found {len(matches)} project matches with similarity > 0.5")
         return matches
     
     def _calculate_confidence_and_select_projects(
@@ -358,51 +360,65 @@ class ProjectInferenceService:
         cleaned_query = query
         original_length = len(query)
         
-        # Get the extracted entities that were used for project inference
-        extracted_entities = inference_metadata.get("extracted_entities", [])
+        # Get the matched projects to identify which entities to remove
+        matched_projects = inference_metadata.get("matched_projects", [])
         
-        for entity in extracted_entities:
-            # Only remove entities that are clearly project names (longer than 10 chars)
-            # This prevents removing important short terms
-            if len(entity) < 10:
-                continue
-                
-            entity_lower = entity.lower()
+        # Sort matched projects by similarity score (highest first) and get unique entities
+        project_entities_to_remove = set()
+        for match in matched_projects:
+            entity = match.get("entity", "")
+            similarity = match.get("similarity", 0.0)
             
-            # Remove exact matches (case-insensitive) - but be more conservative
-            import re
-            
+            # Only remove entities with high similarity (0.85+) to be more aggressive
+            if similarity >= 0.85 and len(entity) >= 5:
+                project_entities_to_remove.add(entity.lower())
+        
+        # Remove project-related entities from the query
+        for entity in project_entities_to_remove:
             # Pattern 1: Remove exact entity matches with word boundaries
-            # For entities that were matched successfully, remove them regardless of keywords
             pattern1 = r'\b' + re.escape(entity) + r'\b'
             cleaned_query = re.sub(pattern1, '', cleaned_query, flags=re.IGNORECASE)
             
-            # Pattern 2: Remove entity with "project" suffix/prefix - more targeted
-            entity_base = entity_lower.replace(' project', '').replace('project ', '').strip()
-            if entity_base and entity_base != entity_lower and len(entity_base) > 5:
-                pattern2 = r'\b' + re.escape(entity_base) + r'\s*(project|pipeline|development|proposal|mine|dam|terminal|facility)\b'
-                cleaned_query = re.sub(pattern2, '', cleaned_query, flags=re.IGNORECASE)
+            # Pattern 2: Remove "the [entity]" patterns
+            pattern2 = r'\bthe\s+' + re.escape(entity) + r'\b'
+            cleaned_query = re.sub(pattern2, '', cleaned_query, flags=re.IGNORECASE)
             
-            # Pattern 3: Remove "the [entity]" patterns - for any successfully matched entity
-            pattern3 = r'\bthe\s+' + re.escape(entity) + r'\b'
+            # Pattern 3: Remove "in the [entity]" patterns
+            pattern3 = r'\bin\s+the\s+' + re.escape(entity) + r'\b'
             cleaned_query = re.sub(pattern3, '', cleaned_query, flags=re.IGNORECASE)
             
-            # Pattern 4: Remove "for the [entity] project" patterns
-            pattern4 = r'\bfor\s+the\s+' + re.escape(entity) + r'\s+project\b'
-            cleaned_query = re.sub(pattern4, '', cleaned_query, flags=re.IGNORECASE)
+            # Pattern 4: Remove "[entity] project" patterns
+            entity_base = entity.replace(' project', '').replace('project ', '').strip()
+            if entity_base and len(entity_base) > 3:
+                pattern4 = r'\b' + re.escape(entity_base) + r'\s+project\b'
+                cleaned_query = re.sub(pattern4, '', cleaned_query, flags=re.IGNORECASE)
+        
+        # Additional patterns for common project references
+        project_patterns = [
+            r'\bin\s+the\s+[a-zA-Z\s]+\s+project\b',  # "in the [name] project"
+            r'\bfor\s+the\s+[a-zA-Z\s]+\s+project\b',  # "for the [name] project"  
+            r'\bthe\s+[a-zA-Z\s]+\s+project\b'  # "the [name] project"
+        ]
+        
+        for pattern in project_patterns:
+            cleaned_query = re.sub(pattern, '', cleaned_query, flags=re.IGNORECASE)
         
         # Clean up extra whitespace and punctuation
         cleaned_query = re.sub(r'\s+', ' ', cleaned_query)  # Multiple spaces to single space
         cleaned_query = re.sub(r'\s*[,;]\s*', ' ', cleaned_query)  # Remove commas/semicolons with spaces
         cleaned_query = cleaned_query.strip()
         
-        # If we removed more than 70% of the original query, it's too aggressive - keep original
-        if len(cleaned_query) < original_length * 0.3:
+        # Clean up any remaining orphaned prepositions at the start
+        cleaned_query = re.sub(r'^(in|for|of|at|on|with|by|from|to)\s+', '', cleaned_query, flags=re.IGNORECASE)
+        cleaned_query = cleaned_query.strip()
+        
+        # If we removed more than 80% of the original query, it's too aggressive - keep original
+        if len(cleaned_query) < original_length * 0.2:
             logging.warning(f"Project cleaning too aggressive (removed {100*(1-len(cleaned_query)/original_length):.0f}%), keeping original: '{query}'")
             return query
         
         # If the cleaned query is too short or empty, keep some of the original
-        if len(cleaned_query.strip()) < 8:
+        if len(cleaned_query.strip()) < 5:
             # Keep the original query but still log that we attempted cleaning
             logging.info(f"Cleaned query too short ('{cleaned_query}'), keeping original: '{query}'")
             return query

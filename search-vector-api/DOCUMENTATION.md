@@ -2,31 +2,37 @@
 
 ## Overview
 
-The Search Vector API provides advanced semantic search capabilities using a modern two-stage architecture that combines document-level metadata filtering with chunk-level semantic search. Built on PostgreSQL with pgvector extension, the system offers high-performance search with comprehensive fallback mechanisms and cross-encoder re-ranking.
+The Search Vector API provides advanced hybrid search capabilities using a modern multi-stage architecture that combines document-level keyword filtering with chunk-level semantic search. Built on PostgreSQL with pgvector extension, the system offers high-performance search with comprehensive fallback mechanisms and cross-encoder re-ranking.
 
 ## Architecture
 
-### Two-Stage Search Pipeline
+### Hybrid Search Pipeline
 
-The system implements an efficient two-stage search approach:
+The system implements an efficient hybrid search approach combining keyword and semantic search:
 
-#### Stage 1: Document-Level Filtering
+#### Stage 1: Document-Level Keyword Filtering
 
-* Uses pre-computed document metadata (keywords, tags, headings) for fast document discovery  
+* Uses pre-computed document metadata (keywords, tags, headings) for fast document discovery
+* Applies PostgreSQL full-text search on document-level metadata
 * Applies project-based filtering constraints
 * Identifies the most relevant documents before chunk-level search
 
 #### Stage 2: Chunk-Level Semantic Search
 
-* Performs semantic vector search within chunks of identified documents
+* Performs semantic vector search within chunks of identified documents (from Stage 1)
 * Uses pgvector for efficient similarity matching
 * Maintains project filtering consistency
 
 #### Search Fallback Strategy
 
-* Broader semantic search across all chunks if no documents found
-* Keyword-based search as final fallback
-* Ensures relevant results when possible
+* **Fallback 2.1**: Broader semantic search across all chunks if Stage 1 finds no documents
+* **Fallback 2.2**: Keyword-based search on chunks as final fallback if semantic search fails
+* Ensures relevant results when possible through multiple search strategies
+
+#### Stage 3: Cross-Encoder Re-ranking
+
+* Re-ranks results using advanced cross-encoder models for optimal relevance ordering
+* Applies relevance score filtering to maintain quality standards
 
 #### Direct Metadata Search Mode
 
@@ -37,15 +43,16 @@ The system implements an efficient two-stage search approach:
 
 ### Components
 
-1. **Document-Level Search**: Fast filtering using pre-computed document metadata
-2. **Chunk-Level Search**: Semantic search within document chunks using vector embeddings
-3. **Project Inference Service**: Intelligent project detection from natural language queries
-4. **Vector Store**: Core service for vector and keyword operations with pgvector
-5. **Embedding Service**: Text-to-vector conversion using sentence transformer models
-6. **Keyword Extractor**: BERT-based keyword extraction from queries
-7. **Tag Extractor**: Identifies tags in query text for filtering
-8. **Re-Ranker**: Cross-encoder model for improved relevance scoring
-9. **Search Orchestrator**: Manages the complete two-stage pipeline with fallback logic
+1. **Document-Level Keyword Search**: Fast filtering using pre-computed document metadata with PostgreSQL full-text search
+2. **Chunk-Level Semantic Search**: Semantic search within document chunks using vector embeddings
+3. **Keyword Fallback Search**: Final fallback using keyword search on chunks when semantic approaches fail
+4. **Project Inference Service**: Intelligent project detection from natural language queries
+5. **Vector Store**: Core service for vector and keyword operations with pgvector
+6. **Embedding Service**: Text-to-vector conversion using sentence transformer models
+7. **Keyword Extractor**: BERT-based keyword extraction from queries
+8. **Tag Extractor**: Identifies tags in query text for filtering
+9. **Re-Ranker**: Cross-encoder model for improved relevance scoring
+10. **Search Orchestrator**: Manages the complete hybrid pipeline with multi-level fallback logic
 
 ### Configuration Structure
 
@@ -426,39 +433,139 @@ The search response includes inference settings in the metadata:
 }
 ```
 
-### Use Cases
+## Ranking Configuration
 
-#### Development and Testing
+The search API supports fine-grained control over result filtering and ranking through the optional `ranking` object. This allows clients to:
 
-* Disable inference to test raw search functionality: `"inference": []`
-* Test specific inference pipelines in isolation: `"inference": ["PROJECT"]`
+* Configure minimum relevance score thresholds for filtering results
+* Set maximum number of results to return after ranking
+* Override environment defaults on a per-request basis
+* Customize search precision vs recall behavior
 
-#### Performance Optimization
+### Environment Variables
 
-* Skip expensive inference when IDs are already known
-* Reduce processing time for bulk operations
+Add to your `.env` file:
 
-#### Client-Specific Requirements
+```bash
+# Minimum relevance score threshold for filtering results
+# Cross-encoder models can produce negative scores for relevant documents
+MIN_RELEVANCE_SCORE=-8.0
 
-* Some clients may only need project inference
-* Others may want to handle document type filtering manually
+# Maximum number of results to return after ranking
+TOP_RECORD_COUNT=10
+```
 
-#### Fallback Scenarios
+**Defaults:**
 
-* Gradual rollout: Start with `USE_DEFAULT_INFERENCE=false`, enable per client
-* Error recovery: Disable inference if pipelines are experiencing issues
+* `MIN_RELEVANCE_SCORE`: `-8.0` (more inclusive threshold)
+* `TOP_RECORD_COUNT`: `10` (standard result count)
 
-### Migration Guide
+#### API Request Parameter
 
-#### For Existing Clients
+The search request accepts an optional `ranking` object:
 
-No changes required. Existing requests will continue to work with the same behavior if `USE_DEFAULT_INFERENCE=true` (default).
+```json
+{
+  "query": "environmental assessment reports",
+  "projectIds": [],  // optional
+  "documentTypeIds": [],  // optional
+  "inference": ["PROJECT", "DOCUMENTTYPE"],  // optional
+  "ranking": {  // optional
+    "minScore": -6.0,
+    "topN": 15
+  }
+}
+```
 
-#### For New Integrations
+#### Ranking Parameter Fields
 
-Consider explicitly setting the `inference` parameter to make inference behavior clear and not depend on environment configuration.
+| Field | Type | Range | Description |
+|-------|------|-------|-------------|
+| `minScore` | Float | No limit | Minimum relevance score threshold for filtering results |
+| `topN` | Integer | 1-100 | Maximum number of results to return after ranking |
 
-## API Endpoints
+**Important Notes:**
+
+* **Cross-encoder scores can be negative**: Relevant documents may have negative scores, so thresholds like `-6.0` or `-8.0` are normal
+* **Lower minScore = more inclusive**: `-10.0` includes more results than `-5.0`
+* **Higher minScore = more restrictive**: `-2.0` only includes highly relevant results
+* **If not provided**: Uses environment variable defaults
+
+### Ranking Behavior Logic
+
+The system determines ranking parameters using this logic:
+
+1. **If `ranking` object is provided**: Use specified `minScore` and/or `topN` values
+2. **If `ranking.minScore` is null/not provided**: Use `MIN_RELEVANCE_SCORE` environment variable
+3. **If `ranking.topN` is null/not provided**: Use `TOP_RECORD_COUNT` environment variable
+4. **If `ranking` object is null/not provided**: Use both environment variable defaults
+
+### Cross-Encoder Score Interpretation
+
+The ranking system uses a cross-encoder model (`cross-encoder/ms-marco-MiniLM-L-2-v2`) that produces relevance scores:
+
+* **Positive scores**: Generally indicate high relevance
+* **Negative scores**: Can still indicate relevant documents - this is normal behavior
+* **Score interpretation**: Relative ranking matters more than absolute values
+* **Typical ranges**: Scores commonly range from `-15.0` to `+10.0`
+
+### Ranking Examples
+
+#### High Precision (Fewer, More Relevant Results)
+
+```json
+{
+  "query": "environmental impact assessment",
+  "ranking": {
+    "minScore": -2.0,
+    "topN": 5
+  }
+}
+```
+
+#### High Recall (More Results, Lower Threshold)
+
+```json
+{
+  "query": "correspondence",
+  "ranking": {
+    "minScore": -10.0,
+    "topN": 20
+  }
+}
+```
+
+#### Environment Defaults Only
+
+```json
+{
+  "query": "project documents"
+  // No ranking object - uses MIN_RELEVANCE_SCORE and TOP_RECORD_COUNT
+}
+```
+
+### Response Metadata
+
+The search response includes ranking information in the metrics:
+
+```json
+{
+  "vector_search": {
+    "document_chunks": [...],
+    "search_metrics": {
+      "filtering_total_chunks": 25,
+      "filtering_excluded_chunks": 20,
+      "filtering_exclusion_percentage": 80.0,
+      "filtering_final_chunks": 5,
+      "filtering_excluded_score_range": "-15.234 to -8.567",
+      "filtering_included_score_range": "-5.123 to 2.456",
+      "reranking_ms": 45.2
+    }
+  }
+}
+```
+
+### API Endpoints
 
 ### Vector Search
 

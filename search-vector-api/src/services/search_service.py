@@ -39,7 +39,7 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None) -> Dict[str, Any]:
+    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None) -> Dict[str, Any]:
         """Retrieve relevant documents using an advanced two-stage search strategy with intelligent project inference.
         
         This method implements a modern search approach that leverages document-level
@@ -70,8 +70,20 @@ class SearchService:
         The pipeline also includes:
         - Cross-encoder re-ranking for optimal relevance ordering
         - Intelligent query-document mismatch detection
-        - Detailed performance metrics for each stage of the pipeline
+        - Comprehensive stage-specific performance metrics for each pipeline component
         - Consistent result formatting for API consumption
+        
+        Performance Metrics:
+        The response includes detailed timing metrics for each stage:
+        - inference_ms: Time spent on project/document type inference and query cleaning
+        - search_ms: Time spent on the actual search operations (document + chunk search)
+        - document_search_ms: Time spent finding relevant documents (Stage 1)
+        - chunk_search_ms: Time spent searching chunks within documents (Stage 2)
+        - semantic_search_ms: Time spent on semantic search across all chunks (fallback)
+        - reranking_ms: Time spent re-ranking results with cross-encoder
+        - formatting_ms: Time spent formatting results for API response
+        - total_pipeline_ms: Total time for inference + search stages
+        - total_search_ms: Total time for search operations only
         
         Document Type Population:
         - All search results include a 'document_type' field with human-readable type names
@@ -107,6 +119,11 @@ class SearchService:
             inference (List[str], optional): List of inference types to run.
                                            Valid values: 'PROJECT', 'DOCUMENTTYPE'.
                                            If not provided, uses USE_DEFAULT_INFERENCE setting.
+            min_relevance_score (float, optional): Minimum relevance score threshold for filtering results.
+                                                  If None, uses the MIN_RELEVANCE_SCORE config value (default: -8.0).
+                                                  Cross-encoder models can produce negative scores for relevant documents.
+            top_n (int, optional): Maximum number of results to return after ranking.
+                                  If None, uses the TOP_RECORD_COUNT config value (default: 10).
         
         Returns:
             Dict[str, Any]: Search results including documents and detailed metrics
@@ -167,6 +184,10 @@ class SearchService:
         from src.services.vector_search import is_generic_document_request
         is_generic_request = is_generic_document_request(query)
         
+        # Track inference stage timing
+        import time
+        inference_start_time = time.time()
+        
         # Process query through inference pipeline with controlled inference options
         inference_results = pipeline.process_query(
             query=query,
@@ -176,6 +197,9 @@ class SearchService:
             run_project_inference=run_project_inference,
             run_document_type_inference=run_document_type_inference
         )
+        
+        # Calculate inference timing
+        inference_time_ms = round((time.time() - inference_start_time) * 1000, 2)
         
         # Extract results from pipeline
         search_query = inference_results["query_processing"]["final_query"]
@@ -194,7 +218,29 @@ class SearchService:
         final_search_query = query if is_generic_request else search_query
         logging.info(f"Using search query: '{final_search_query}' (is_generic: {is_generic_request})")
         
-        documents, search_metrics = search(final_search_query, project_ids, document_type_ids)
+        # Track search stage timing
+        search_start_time = time.time()
+        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n)
+        search_time_ms = round((time.time() - search_start_time) * 1000, 2)
+        
+        # Create comprehensive stage-specific metrics
+        stage_metrics = {
+            "inference_ms": inference_time_ms,
+            "search_ms": search_time_ms,
+            "total_pipeline_ms": round(inference_time_ms + search_time_ms, 2)
+        }
+        
+        # Add breakdown of inference stage
+        inference_breakdown = {
+            "project_inference_enabled": run_project_inference,
+            "document_type_inference_enabled": run_document_type_inference,
+            "query_cleaning_applied": inference_results["query_processing"]["query_changed"],
+            "generic_request_detected": is_generic_request
+        }
+        
+        # Merge with existing search metrics to create comprehensive metrics
+        comprehensive_metrics = {**search_metrics, **stage_metrics}
+        comprehensive_metrics["inference_breakdown"] = inference_breakdown
 
         # Check if results have low confidence (indicating possible query-document mismatch)
         search_quality = "normal"
@@ -219,10 +265,11 @@ class SearchService:
         response = {
             "vector_search": {
                 results_key: documents,                
-                "search_metrics": search_metrics,
+                "search_metrics": comprehensive_metrics,
                 "search_quality": search_quality,
                 "original_query": query,
                 "final_semantic_query": final_search_query,  # Show the actual query sent to vector search
+                "semantic_cleaning_applied": "semantic_cleaning" in inference_results["query_processing"]["steps_applied"],
                 "search_mode": search_mode,
                 "query_processed": inference_results["query_processing"]["query_changed"],  # Indicates if query was modified through cleaning
                 "inference_settings": {

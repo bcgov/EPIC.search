@@ -1,13 +1,13 @@
 # VECTOR-SEARCH-API
 
-A high-performance semantic search Python Flask API that provides document-level and chunk-level search capabilities using pgvector and advanced ML models.
+A high-performance hybrid search Python Flask API that provides document-level and chunk-level search capabilities using pgvector and advanced ML models.
 
 ## Features
 
-* **Two-Stage Search Architecture**: Efficient document-level filtering followed by chunk-level semantic search
-* **Document-Level Metadata Search**: Pre-computed keywords, tags, and headings for fast document discovery
-* **Semantic Vector Search**: Uses pgvector and sentence transformer models for semantic similarity
-* **Keyword-Based Search**: PostgreSQL full-text search with fallback capabilities
+* **Hybrid Search Architecture**: Efficient document-level keyword filtering followed by chunk-level semantic search
+* **Document-Level Keyword Filtering**: Pre-computed keywords, tags, and headings for fast document discovery using PostgreSQL full-text search
+* **Semantic Vector Search**: Uses pgvector and sentence transformer models for semantic similarity within relevant documents
+* **Multi-Level Fallback Strategy**: Keyword-based search fallbacks when semantic approaches don't find results
 * **Cross-Encoder Re-ranking**: Advanced relevance scoring using cross-encoder models
 * **Smart Query-Document Mismatch Detection**: Automatically detects and flags queries that don't match document content well
 * **Intelligent Project Inference**: Automatically detects project references in queries based on project names, applies filtering when highly confident, and removes project names from the search to focus on actual topics
@@ -21,20 +21,21 @@ A high-performance semantic search Python Flask API that provides document-level
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
 * **Optional Model Preloading**: Configure model loading at build-time, startup, or on-demand
 * **Inference Control**: Optional control over which inference pipelines (PROJECT, DOCUMENTTYPE) are executed per request
+* **Ranking Configuration**: Configurable relevance score thresholds and result limits with per-request overrides
 
 ## Architecture Overview
 
-The search system uses a modern multi-stage approach with intelligent project and document type detection:
+The search system uses a modern hybrid multi-stage approach with intelligent project and document type detection:
 
 0. **Stage 0: Inference Pipeline** - Automatically detects project and document type references in natural language queries, applies filtering when highly confident, and removes detected entities from search terms to focus on actual topics
-1. **Stage 1: Document-Level Filtering** - Quickly identifies relevant documents using pre-computed metadata (keywords, tags, headings)
-2. **Stage 2: Chunk-Level Search** - Performs semantic search within chunks of the identified documents
-3. **Fallback Logic** - Falls back to broader search if no documents are found
+1. **Stage 1: Document-Level Keyword Filtering** - Quickly identifies relevant documents using pre-computed metadata (keywords, tags, headings) with PostgreSQL full-text search
+2. **Stage 2: Chunk-Level Semantic Search** - Performs semantic search within chunks of the identified documents
+3. **Fallback Logic** - Falls back to broader semantic search across all chunks, then keyword search on chunks as final fallback
 4. **Re-ranking** - Uses cross-encoder models to improve result relevance
 5. **Quality Assessment** - Detects low-confidence results and provides user feedback
 6. **Project Filtering** - Applies project-based constraints throughout the pipeline
 
-This approach is much more efficient than searching all chunks and provides better relevance by first identifying the most promising documents.
+This hybrid approach is much more efficient than searching all chunks and provides better relevance by first identifying the most promising documents through keyword filtering, then applying expensive semantic search only to relevant content.
 
 ## Getting Started
 
@@ -82,6 +83,23 @@ The application uses typed configuration classes for different aspects of the sy
 * `MIN_RELEVANCE_SCORE`: Minimum relevance score for re-ranked results (default: -8.0)
 
 > **Note**: The `MIN_RELEVANCE_SCORE` has been optimized to -8.0 to provide better filtering of irrelevant results while preserving relevant documents. Cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative relevance scores for relevant documents, so positive thresholds would filter out good matches. The system also includes intelligent detection of queries that don't match the document content well (all scores below -9.0), providing user feedback for potential query refinement.
+
+#### Ranking Configuration
+
+* `MIN_RELEVANCE_SCORE`: Global minimum relevance score threshold for filtering results (default: -8.0)
+* `TOP_RECORD_COUNT`: Global maximum number of results to return after ranking (default: 10)
+
+These can be overridden per-request using the `ranking` object in API requests:
+
+```json
+{
+  "query": "environmental assessment",
+  "ranking": {
+    "minScore": -6.0,    // Override minimum relevance score
+    "topN": 15           // Override maximum result count
+  }
+}
+```
 
 #### ML Model Configuration
 
@@ -264,7 +282,11 @@ Use the optional `inference` parameter in API requests to control which inferenc
 ```json
 {
   "query": "your search query",
-  "inference": ["PROJECT", "DOCUMENTTYPE"]  // Optional: specify which pipelines to run
+  "inference": ["PROJECT", "DOCUMENTTYPE"],  // Optional: specify which pipelines to run
+  "ranking": {                               // Optional: configure result filtering/limiting
+    "minScore": -6.0,
+    "topN": 10
+  }
 }
 ```
 
@@ -293,8 +315,13 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ``` json
 {
   "query": "climate change impacts on wildlife",
-  "project_ids": ["project-123", "project-456"],  // Optional
-  "inference": ["PROJECT", "DOCUMENTTYPE"]        // Optional inference control
+  "projectIds": ["project-123", "project-456"],    // Optional project filtering
+  "documentTypeIds": ["doc-type-123"],             // Optional document type filtering
+  "inference": ["PROJECT", "DOCUMENTTYPE"],        // Optional inference control
+  "ranking": {                                     // Optional ranking configuration
+    "minScore": -6.0,
+    "topN": 15
+  }
 }
 ```
 

@@ -42,6 +42,28 @@ from services.search_service import SearchService
 from .apihelper import Api as ApiHelper
 
 
+class RankingConfigSchema(Schema):
+    """Schema for validating ranking configuration.
+    
+    Defines the structure for ranking-related parameters including
+    minimum relevance score and top N results count.
+    
+    Attributes:
+        minScore: Optional minimum relevance score threshold for filtering results
+        topN: Optional maximum number of results to return after ranking
+    """
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Exclude unknown fields in the deserialized output."""
+
+        unknown = EXCLUDE
+
+    minScore = fields.Float(data_key="minScore", required=False, 
+                           metadata={"description": "Minimum relevance score threshold for filtering results. If not provided, uses MIN_RELEVANCE_SCORE environment variable setting (default: -8.0). Cross-encoder models can produce negative scores for relevant documents."})
+    topN = fields.Int(data_key="topN", required=False, validate=lambda x: 1 <= x <= 100,
+                     metadata={"description": "Maximum number of results to return after ranking (1-100). If not provided, uses TOP_RECORD_COUNT environment variable setting (default: 10)."})
+
+
 class DocumentSimilarityRequestSchema(Schema):
     """Schema for validating document similarity search requests.
     
@@ -94,6 +116,8 @@ class SearchRequestSchema(Schema):
     inference = fields.List(fields.Str(validate=lambda x: x in ['PROJECT', 'DOCUMENTTYPE']), 
                           data_key="inference", required=False, load_default=None,
                           metadata={"description": "Optional list of inference types to run. Valid values: 'PROJECT', 'DOCUMENTTYPE'. If not provided, uses USE_DEFAULT_INFERENCE environment variable setting."})
+    ranking = fields.Nested(RankingConfigSchema, data_key="ranking", required=False,
+                           metadata={"description": "Optional ranking configuration including minimum score threshold and maximum result count. If not provided, uses environment variable settings."})
 
 
 API = Namespace("vector-search", description="Endpoints for semantic and keyword vector search operations")
@@ -163,6 +187,13 @@ class Search(Resource):
         - [] - Disable all inference pipelines
         - Not provided - Uses USE_DEFAULT_INFERENCE environment variable setting
         
+        Ranking Configuration:
+        The optional 'ranking' object controls result filtering and limiting:
+        - minScore: Minimum relevance score threshold (default: MIN_RELEVANCE_SCORE env var, currently -8.0)
+        - topN: Maximum number of results to return (default: TOP_RECORD_COUNT env var, currently 10)
+        - Cross-encoder models can produce negative scores for relevant documents
+        - Lower minScore values are more inclusive, higher values are more restrictive
+        
         Returns:
             Response: JSON containing matched documents and detailed search metrics
                      for each stage of the search pipeline, including project inference
@@ -173,8 +204,13 @@ class Search(Resource):
         project_ids = request_data.get("projectIds", None)  # Optional parameter
         document_type_ids = request_data.get("documentTypeIds", None)  # Optional parameter
         inference = request_data.get("inference", None)  # Optional parameter
+        ranking_config = request_data.get("ranking", {})  # Optional parameter
         
-        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference)
+        # Extract ranking parameters with fallback to None (will use env defaults)
+        min_relevance_score = ranking_config.get("minScore") if ranking_config else None
+        top_n = ranking_config.get("topN") if ranking_config else None
+        
+        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, min_relevance_score, top_n)
         return Response(
             json.dumps(documents), status=HTTPStatus.OK, mimetype="application/json"
         )
