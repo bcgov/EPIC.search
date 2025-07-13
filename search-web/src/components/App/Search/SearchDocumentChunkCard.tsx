@@ -1,8 +1,8 @@
-import { Box, Button, Chip, Typography } from "@mui/material";
+import { Box, Button, Chip, Typography, IconButton, Tooltip } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { useState, useRef, useEffect } from "react";
-import { DescriptionTwoTone } from "@mui/icons-material";
+import { DescriptionTwoTone, OpenInNew } from "@mui/icons-material";
 import PdfLink from "@/components/Shared/PdfLink";
 
 interface SearchDocumentChunkCardProps {
@@ -62,17 +62,36 @@ const SearchDocumentChunkCard = ({
         flexDirection: "column",
         whiteSpace: "normal",
         overflow: "auto",
+        position: "relative",
       }}
     >
-      <PdfLink
-        s3Key={document.s3_key || null}
-        fileName={document.document_saved_name}
-        pageNumber={parseInt(document.page_number || "1", 10)}
-        projectId={document.project_id}
-        documentName={document.document_name}
-      >
-        {document.document_name}
-      </PdfLink>
+      {/* Open Document Icon */}
+      <Tooltip title="Open document at this page">
+        <IconButton
+          sx={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            backgroundColor: "rgba(255, 255, 255, 0.95)",
+            "&:hover": {
+              backgroundColor: "rgba(255, 255, 255, 1)",
+            },
+            width: 32,
+            height: 32,
+          }}
+        >
+          <PdfLink
+            s3Key={document.s3_key || null}
+            fileName={document.document_saved_name}
+            pageNumber={parseInt(document.page_number || "1", 10)}
+            projectId={document.project_id}
+            documentName={document.document_name}
+          >
+            <OpenInNew sx={{ fontSize: 16 }} />
+          </PdfLink>
+        </IconButton>
+      </Tooltip>
+
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
         <DescriptionTwoTone color="primary" sx={{ fontSize: 20 }} />
         <Chip

@@ -37,7 +37,7 @@ from src.path_setup import setup_paths
 setup_paths()
 
 from src.config.settings import get_settings
-from src.config.document_types import get_document_type
+from src.config.document_types import get_document_type, resolve_document_type
 settings = get_settings()
 
 def build_document_embedding(tags, keywords, headings, document_metadata, embedding_fn):
@@ -351,17 +351,44 @@ def extract_document_metadata(api_doc: Dict[str, Any], base_metadata: Dict[str, 
     
     metadata = {}
     
-    # Extract document type with lookup
-    type_id = api_doc.get("type")
-    if type_id:
-        metadata["document_type"] = get_document_type(type_id)
-        metadata["document_type_id"] = type_id
+    # Extract document type with smart resolution - check multiple possible field names
+    type_value = None
+    
+    # Try common field names for document type
+    for field_name in ["type", "document_type", "documentType", "doc_type"]:
+        if field_name in api_doc and api_doc[field_name]:
+            type_value = api_doc[field_name]
+            break
+    
+    document_type, document_type_id = resolve_document_type(type_value)
+    metadata["document_type"] = document_type
+    metadata["document_type_id"] = document_type_id
     
     # Extract other explicit fields as needed
     if "name" in api_doc:
         metadata["document_name"] = api_doc["name"]
     elif base_metadata and "document_name" in base_metadata:
         metadata["document_name"] = base_metadata["document_name"]
+    
+    # Extract display name with fallback to document_name without extension
+    if "displayName" in api_doc and api_doc["displayName"]:
+        metadata["display_name"] = api_doc["displayName"]
+    else:
+        # Fall back to document_name without file extension
+        fallback_name = None
+        if "name" in api_doc and api_doc["name"]:
+            fallback_name = api_doc["name"]
+        elif base_metadata and "document_name" in base_metadata:
+            fallback_name = base_metadata["document_name"]
+        
+        if fallback_name:
+            # Remove common file extensions for cleaner display names
+            if fallback_name.lower().endswith(('.pdf', '.doc', '.docx', '.txt')):
+                # Find the last dot and remove extension
+                last_dot = fallback_name.rfind('.')
+                if last_dot > 0:  # Ensure there's content before the dot
+                    fallback_name = fallback_name[:last_dot]
+            metadata["display_name"] = fallback_name
     
     if "uploadDate" in api_doc:
         metadata["upload_date"] = api_doc["uploadDate"]

@@ -1,8 +1,10 @@
-import { AutoAwesomeTwoTone, CategoryTwoTone } from "@mui/icons-material";
-import { Box, Grid, Typography, CircularProgress } from "@mui/material";
+import { AutoAwesomeTwoTone, CategoryTwoTone, Code } from "@mui/icons-material";
+import { Box, Grid, Typography, CircularProgress, Fab, Tooltip } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import SearchDocumentCard from "./SearchDocumentCard";
+import SearchDocumentGroupHeader from "./SearchDocumentGroupHeader";
 import SimilarSearchResult from "./SimilarSearchResult";
+import RawResponseViewer from "./RawResponseViewer";
 import { SearchResponse, getDocumentsFromResponse, Document } from "@/models/Search";
 import { useSimilarSearch } from "@/hooks/useSimilarSearch";
 import { useState } from "react";
@@ -22,6 +24,9 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
     originalDocumentName: string;
     searchType: "all" | "project";
   } | null>(null);
+  
+  // Raw response viewer state
+  const [showRawResponse, setShowRawResponse] = useState(false);
   
   const similarSearchMutation = useSimilarSearch();
 
@@ -49,6 +54,25 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
   const handleBackToOriginal = () => {
     setSimilarResults(null);
   };
+
+  const handleShowRawResponse = () => {
+    setShowRawResponse(true);
+  };
+
+  const handleBackFromRawResponse = () => {
+    setShowRawResponse(false);
+  };
+
+  // Show raw response if requested
+  if (showRawResponse) {
+    return (
+      <RawResponseViewer
+        searchResponse={searchResults}
+        searchText={searchText}
+        onBack={handleBackFromRawResponse}
+      />
+    );
+  }
 
   // Show similar results if available
   if (similarResults) {
@@ -138,67 +162,179 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
         </Typography>
       </Box>
 
-      {/* Group documents by project_id */}
-      {Object.entries(
-        documents.reduce(
-          (groups: Record<string, { projectName: string; documents: typeof documents }>, document) => {
-            const projectId = document.project_id;
-            if (!groups[projectId]) {
-              groups[projectId] = {
-                projectName: document.project_name,
-                documents: [],
-              };
-            }
-            groups[projectId].documents.push(document);
-            return groups;
-          },
-          {}
-        )
-      ).map(([projectId, group], index) => (
-        <Box
-          key={index}
+      {/* Group documents by project_id, then by document_id for chunks */}
+      {hasDocumentChunks ? (
+        // For document chunks: Project -> Document -> Chunks
+        Object.entries(
+          documents.reduce(
+            (projectGroups: Record<string, { 
+              projectName: string; 
+              documentGroups: Record<string, { 
+                document: Document; 
+                chunks: Document[] 
+              }> 
+            }>, document) => {
+              const projectId = document.project_id;
+              const documentId = document.document_id;
+              
+              if (!projectGroups[projectId]) {
+                projectGroups[projectId] = {
+                  projectName: document.project_name,
+                  documentGroups: {},
+                };
+              }
+              
+              if (!projectGroups[projectId].documentGroups[documentId]) {
+                projectGroups[projectId].documentGroups[documentId] = {
+                  document: document,
+                  chunks: [],
+                };
+              }
+              
+              projectGroups[projectId].documentGroups[documentId].chunks.push(document);
+              return projectGroups;
+            },
+            {}
+          )
+        ).map(([projectId, projectGroup], projectIndex) => (
+          <Box
+            key={projectIndex}
+            sx={{
+              width: "100%",
+              mb: 3,
+              pb: 2,
+              borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
+            }}
+          >
+            <Typography
+              variant="h4"
+              sx={{
+                pb: 1,
+                color: BCDesignTokens.themeBlue80,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+              }}
+              aria-label={`Project ${projectId}`}
+            >
+              <CategoryTwoTone />
+              {projectGroup.projectName}
+            </Typography>
+            
+            {/* Document groups within this project */}
+            {Object.entries(projectGroup.documentGroups).map(([, documentGroup], documentIndex) => (
+              <Box key={documentIndex} sx={{ mb: 3 }}>
+                {/* Document header */}
+                <SearchDocumentGroupHeader document={documentGroup.document} />
+                
+                {/* Chunks for this document */}
+                <Grid container spacing={2} alignItems="stretch">
+                  {documentGroup.chunks.map((chunk, chunkIndex) => (
+                    <Grid
+                      item
+                      xs={12}
+                      md={6}
+                      lg={4}
+                      key={chunkIndex}
+                      sx={{ display: "flex" }}
+                    >
+                      <SearchDocumentCard
+                        document={chunk}
+                        searchText={searchText}
+                        isChunk={true}
+                        showSimilarButtons={false}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+            ))}
+          </Box>
+        ))
+      ) : (
+        // For full documents: Project -> Documents (existing logic)
+        Object.entries(
+          documents.reduce(
+            (groups: Record<string, { projectName: string; documents: typeof documents }>, document) => {
+              const projectId = document.project_id;
+              if (!groups[projectId]) {
+                groups[projectId] = {
+                  projectName: document.project_name,
+                  documents: [],
+                };
+              }
+              groups[projectId].documents.push(document);
+              return groups;
+            },
+            {}
+          )
+        ).map(([projectId, group], index) => (
+          <Box
+            key={index}
+            sx={{
+              width: "100%",
+              mb: 3,
+              pb: 2,
+              borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
+            }}
+          >
+            <Typography
+              variant="h4"
+              sx={{
+                pb: 1,
+                color: BCDesignTokens.themeBlue80,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+              }}
+              aria-label={`Project ${projectId}`}
+            >
+              <CategoryTwoTone />
+              {group.projectName}
+            </Typography>
+            <Grid container spacing={2} alignItems="stretch">
+              {group.documents.map((document, docIndex) => (
+                <Grid
+                  item
+                  xs={12}
+                  md={6}
+                  lg={4}
+                  key={docIndex}
+                  sx={{ display: "flex" }}
+                >
+                  <SearchDocumentCard
+                    document={document}
+                    searchText={searchText}
+                    isChunk={false}
+                    onSimilarSearch={handleSimilarSearch}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          </Box>
+        ))
+      )}
+      
+      {/* Floating Action Button for Raw Response */}
+      <Tooltip title="View raw search response">
+        <Fab
+          color="secondary"
+          size="medium"
+          onClick={handleShowRawResponse}
           sx={{
-            width: "100%",
-            mb: 3,
-            pb: 2,
-            borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            backgroundColor: BCDesignTokens.themeGray70,
+            "&:hover": {
+              backgroundColor: BCDesignTokens.themeGray80,
+            },
+            zIndex: 1000,
           }}
         >
-          <Typography
-            variant="h4"
-            sx={{
-              pb: 1,
-              color: BCDesignTokens.themeBlue80,
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-            }}
-            aria-label={`Project ${projectId}`}
-          >
-            <CategoryTwoTone />
-            {group.projectName}
-          </Typography>
-          <Grid container spacing={2} alignItems="stretch">
-            {group.documents.map((document, docIndex) => (
-              <Grid
-                item
-                xs={12}
-                md={6}
-                lg={4}
-                key={docIndex}
-                sx={{ display: "flex" }}
-              >
-                <SearchDocumentCard
-                  document={document}
-                  searchText={searchText}
-                  isChunk={hasDocumentChunks}
-                  onSimilarSearch={handleSimilarSearch}
-                />
-              </Grid>
-            ))}
-          </Grid>
-        </Box>
-      ))}
+          <Code />
+        </Fab>
+      </Tooltip>
     </>
   );
 };

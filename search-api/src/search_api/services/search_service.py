@@ -24,7 +24,7 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query, project_ids=None, document_type_ids=None, inference=None):
+    def get_documents_by_query(cls, query, project_ids=None, document_type_ids=None, inference=None, ranking=None, search_strategy=None):
         """Process a user query to retrieve and synthesize relevant information.
         
         This method orchestrates the complete search flow:
@@ -42,6 +42,11 @@ class SearchService:
             inference (list, optional): Optional list of inference types to enable 
                                        (e.g., ["PROJECT", "DOCUMENTTYPE"]). If not provided,
                                        uses the vector search API's default inference settings.
+            ranking (dict, optional): Optional ranking configuration with keys like 'minScore' and 'topN'.
+                                     If not provided, uses the vector search API's default ranking settings.
+            search_strategy (str, optional): Optional search strategy to use (e.g., "HYBRID_SEMANTIC_FALLBACK",
+                                            "HYBRID_PARALLEL", "SEMANTIC_ONLY", etc.). If not provided,
+                                            uses the vector search API's default strategy.
             
         Returns:
             dict: A dictionary containing:
@@ -49,6 +54,7 @@ class SearchService:
                 - documents OR document_chunks (list): Relevant documents/chunks used for the answer
                   (key depends on vector search response type)
                 - metrics (dict): Performance metrics for the operation including search metadata
+                  and detailed search_breakdown with timing, filtering, and strategy information
                 
         Note:
             The response will contain either 'documents' (metadata-focused) or 'document_chunks' 
@@ -73,23 +79,33 @@ class SearchService:
  
         # Perform the vector DB search by calling the vector search api
         search_start = time.time()
-        documents_or_chunks, search_metrics, search_quality, project_inference, document_type_inference, additional_metadata = VectorSearchClient.search(
-            query, project_ids, document_type_ids, inference
+        documents_or_chunks, vector_api_response = VectorSearchClient.search(
+            query, project_ids, document_type_ids, inference, ranking, search_strategy
         )
         
-        # Determine the response type from metadata
-        response_type = additional_metadata.get("response_type", "documents")
+        # Extract data from the complete vector API response
+        vector_search_data = vector_api_response.get("vector_search", {})
+        search_metrics = vector_search_data.get("search_metrics", {})
+        search_quality = vector_search_data.get("search_quality", "unknown")
+        project_inference = vector_search_data.get("project_inference", {})
+        document_type_inference = vector_search_data.get("document_type_inference", {})
+        
+        # Extract search_breakdown from metrics if available
+        api_metrics = vector_api_response.get("metrics", {})
+        search_breakdown = api_metrics.get("search_breakdown", {})
+        
+        # Determine the response type
+        response_type = "documents" if "documents" in vector_search_data else "document_chunks"
         documents_key = "documents" if response_type == "documents" else "document_chunks"
         
         if not documents_or_chunks:
             return {"result": {"response": "No relevant information found.", documents_key: [], "metrics": metrics}}  
 
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
-        metrics["search_breakdown"] = search_metrics  # Include detailed metrics
+        metrics["search_breakdown"] = search_breakdown if search_breakdown else search_metrics  # Include detailed search breakdown metrics
         metrics["search_quality"] = search_quality # Add quality metrics from vector search API
         metrics["project_inference"] = project_inference # Add project inference info
         metrics["document_type_inference"] = document_type_inference # Add document type inference info
-        metrics["search_metadata"] = additional_metadata # Add additional search metadata
 
         # Prep and query the LLM
         llm_start = time.time()

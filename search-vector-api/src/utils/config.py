@@ -180,6 +180,37 @@ class SearchSettings:
             bool: Whether to use default inference (default: True)
         """
         return self._config.get("USE_DEFAULT_INFERENCE", "true").lower() in ("true", "1", "yes", "on")
+    
+    @property
+    def default_search_strategy(self) -> str:
+        """Get the default search strategy to use when no strategy is specified.
+        
+        Available strategies:
+        - HYBRID_SEMANTIC_FALLBACK: Document keyword filter → Semantic search → Keyword fallback (default)
+        - HYBRID_KEYWORD_FALLBACK: Document keyword filter → Keyword search → Semantic fallback
+        - SEMANTIC_ONLY: Pure semantic search without keyword filtering or fallbacks
+        - KEYWORD_ONLY: Pure keyword search without semantic components
+        - HYBRID_PARALLEL: Run both semantic and keyword searches in parallel and merge results
+        
+        Returns:
+            str: The default search strategy (default: HYBRID_SEMANTIC_FALLBACK)
+        """
+        strategy = self._config.get("DEFAULT_SEARCH_STRATEGY", "HYBRID_SEMANTIC_FALLBACK")
+        valid_strategies = {
+            "HYBRID_SEMANTIC_FALLBACK", 
+            "HYBRID_KEYWORD_FALLBACK", 
+            "SEMANTIC_ONLY", 
+            "KEYWORD_ONLY", 
+            "HYBRID_PARALLEL"
+        }
+        
+        if strategy not in valid_strategies:
+            # Log warning and fall back to default
+            import logging
+            logging.warning(f"Invalid search strategy '{strategy}'. Using default 'HYBRID_SEMANTIC_FALLBACK'")
+            return "HYBRID_SEMANTIC_FALLBACK"
+        
+        return strategy
 
 
 class ModelSettings:
@@ -269,6 +300,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))
     RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "8"))
     USE_DEFAULT_INFERENCE = os.getenv("USE_DEFAULT_INFERENCE", "true")
+    DEFAULT_SEARCH_STRATEGY = os.getenv("DEFAULT_SEARCH_STRATEGY", "HYBRID_SEMANTIC_FALLBACK")
 
     # ML Model Configuration
     CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")

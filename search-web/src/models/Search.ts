@@ -2,6 +2,7 @@ export interface Document {
   document_id: string;
   document_type: string | null;
   document_name: string;
+  document_display_name: string;
   document_saved_name: string;
   page_number: string | null;
   project_id: string;

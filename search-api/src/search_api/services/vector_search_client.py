@@ -5,8 +5,9 @@ and retrieve relevant documents based on user queries, as well as
 access processing statistics and system metrics.
 
 The search functionality supports optional filtering by project IDs and document types,
-as well as configurable inference settings for enhanced search capabilities.
-All optional parameters maintain backward compatibility with existing API clients.
+configurable inference settings, custom ranking parameters, and multiple search strategies
+for enhanced search capabilities. All optional parameters maintain backward compatibility 
+with existing API clients.
 """
 
 import os
@@ -18,7 +19,7 @@ class VectorSearchClient:
     """Client for communicating with the external vector search API."""
 
     @staticmethod
-    def search(query, project_ids=None, document_type_ids=None, inference=None):
+    def search(query, project_ids=None, document_type_ids=None, inference=None, ranking=None, search_strategy=None):
         """Call the external vector search API to retrieve relevant documents or document chunks.
         
         Args:
@@ -30,18 +31,25 @@ class VectorSearchClient:
             inference (list, optional): Optional list of inference types to enable 
                                        (e.g., ["PROJECT", "DOCUMENTTYPE"]). If not provided,
                                        uses the vector search API's default inference settings.
+            ranking (dict, optional): Optional ranking configuration with keys like 'minScore' and 'topN'.
+                                     If not provided, uses the vector search API's default ranking settings.
+            search_strategy (str, optional): Optional search strategy to use. Available options:
+                                            - "HYBRID_SEMANTIC_FALLBACK" (default)
+                                            - "HYBRID_KEYWORD_FALLBACK" 
+                                            - "SEMANTIC_ONLY"
+                                            - "KEYWORD_ONLY"
+                                            - "HYBRID_PARALLEL"
+                                            If not provided, uses the vector search API's default strategy.
             
         Returns:
             tuple: A tuple containing:
                 - list: Retrieved documents or document chunks matching the query
-                - dict: Search performance metrics
-                - str: Search quality assessment  
-                - dict: Project inference information (if available and enabled)
-                - dict: Document type inference information (if available and enabled)
-                - dict: Additional response metadata (search_mode, inference_settings, etc.)
+                - dict: Complete vector search API response (full JSON response)
                 
         Note:
-            Returns empty results ([], {}, "unknown", {}, {}, {}) if the API call fails.
+            Returns empty results ([], {}) if the API call fails.
+            The second element contains the complete response from the vector search API,
+            including all metrics, metadata, and configuration details.
             All parameters except 'query' are optional and maintain backward compatibility.
         """
         try:
@@ -59,6 +67,10 @@ class VectorSearchClient:
                 payload["documentTypeIds"] = document_type_ids
             if inference:
                 payload["inference"] = inference
+            if ranking:
+                payload["ranking"] = ranking
+            if search_strategy:
+                payload["searchStrategy"] = search_strategy
                 
             current_app.logger.info(
                 f"Calling vector search API at address: {vector_search_url}"
@@ -73,30 +85,13 @@ class VectorSearchClient:
             
             # Handle both response types: documents or document_chunks
             documents_or_chunks = vector_search_data.get("documents") or vector_search_data.get("document_chunks", [])
-            
-            search_metrics = vector_search_data.get("search_metrics", {})
-            search_quality = vector_search_data.get("search_quality", "unknown")
-            
-            # Extract inference information (may not be present in all responses)
-            project_inference = vector_search_data.get("project_inference", {})
-            document_type_inference = vector_search_data.get("document_type_inference", {})
-            
-            # Extract additional metadata
-            additional_metadata = {
-                "original_query": vector_search_data.get("original_query"),
-                "final_semantic_query": vector_search_data.get("final_semantic_query"),
-                "search_mode": vector_search_data.get("search_mode"),
-                "query_processed": vector_search_data.get("query_processed"),
-                "inference_settings": vector_search_data.get("inference_settings", {}),
-                "response_type": "documents" if "documents" in vector_search_data else "document_chunks"
-            }
 
-            return documents_or_chunks, search_metrics, search_quality, project_inference, document_type_inference, additional_metadata
+            return documents_or_chunks, api_response
         except Exception as e:
             # Log the error
             current_app.logger.error(f"Error calling vector search API: {str(e)}")
             # Return empty results
-            return [], {}, "unknown", {}, {}, {}
+            return [], {}
 
     @staticmethod
     def find_similar_documents(document_id, project_ids=None, limit=10):

@@ -84,6 +84,52 @@ The application uses typed configuration classes for different aspects of the sy
 
 > **Note**: The `MIN_RELEVANCE_SCORE` has been optimized to -8.0 to provide better filtering of irrelevant results while preserving relevant documents. Cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative relevance scores for relevant documents, so positive thresholds would filter out good matches. The system also includes intelligent detection of queries that don't match the document content well (all scores below -9.0), providing user feedback for potential query refinement.
 
+#### Search Strategy Configuration
+
+The API supports multiple configurable search strategies to optimize for different use cases:
+
+* `DEFAULT_SEARCH_STRATEGY`: Default search strategy when none specified in requests (default: "HYBRID_SEMANTIC_FALLBACK")
+
+**Available Search Strategies:**
+
+* **HYBRID_SEMANTIC_FALLBACK** (default): Document keyword filter → Semantic search → Keyword fallback
+  * Filters documents using pre-computed keywords/tags, then semantic search within relevant chunks
+  * Falls back to semantic search across all chunks, then keyword search if needed
+  * Optimal balance of efficiency and accuracy for most queries
+
+* **HYBRID_KEYWORD_FALLBACK**: Document keyword filter → Keyword search → Semantic fallback  
+  * Filters documents using keywords/tags, then keyword search within relevant chunks
+  * Falls back to keyword search across all chunks, then semantic search if needed
+  * Better for queries with specific terms or technical vocabulary
+
+* **SEMANTIC_ONLY**: Pure semantic search without keyword filtering or fallbacks
+  * Direct semantic search across all chunks using embeddings
+  * Best for conceptual queries where exact keyword matches aren't important
+
+* **KEYWORD_ONLY**: Pure keyword search without semantic components
+  * Direct keyword search across all chunks using full-text search
+  * Fastest option, best for exact term matching
+
+* **HYBRID_PARALLEL**: Run semantic and keyword searches simultaneously and merge results
+  * Executes both semantic and keyword searches in parallel threads
+  * Merges and deduplicates results, then re-ranks combined set
+  * Comprehensive coverage but higher computational cost
+
+* **DOCUMENT_ONLY**: Direct document-level search without chunk analysis
+  * Returns document-level results based on metadata filtering only
+  * Automatically used for generic document requests (e.g., "show me all letters")
+  * Fastest option for document browsing and type-based filtering
+  * No semantic analysis or relevance scoring applied
+
+The search strategy can be overridden per-request using the `searchStrategy` parameter:
+
+```json
+{
+  "query": "environmental assessment",
+  "searchStrategy": "SEMANTIC_ONLY"
+}
+```
+
 #### Ranking Configuration
 
 * `MIN_RELEVANCE_SCORE`: Global minimum relevance score threshold for filtering results (default: -8.0)

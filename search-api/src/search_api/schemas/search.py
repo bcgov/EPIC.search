@@ -11,6 +11,30 @@ search capabilities while maintaining backward compatibility.
 from marshmallow import EXCLUDE, Schema, fields
 
 
+class RankingSchema(Schema):
+    """Schema for ranking configuration in search requests.
+    
+    Defines the structure for optional ranking parameters that control
+    result filtering and limiting in the vector search operation.
+    """
+    
+    class Meta:
+        unknown = EXCLUDE
+    
+    minScore = fields.Float(
+        data_key="minScore",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Minimum relevance score threshold for filtering results (default: -8.0)"}
+    )
+    topN = fields.Int(
+        data_key="topN", 
+        required=False,
+        allow_none=True,
+        metadata={"description": "Maximum number of results to return after ranking (default: 10)"}
+    )
+
+
 class DocumentSchema(Schema):
     """Schema for document objects returned in search results.
     
@@ -70,6 +94,9 @@ class SearchRequestSchema(Schema):
     Validates incoming search requests, ensuring required fields are present
     and optional parameters are properly formatted for the search operation.
     
+    Supports advanced search options including inference control, custom ranking,
+    and search strategy selection for enhanced search capabilities.
+    
     All parameters except 'question' are optional and maintain backward compatibility
     with existing API clients.
     """
@@ -104,6 +131,19 @@ class SearchRequestSchema(Schema):
         required=False, 
         allow_none=True,
         metadata={"description": "Optional list of inference types to enable (e.g., ['PROJECT', 'DOCUMENTTYPE']). If not provided, uses the vector search API's default inference settings."}
+    )
+    ranking = fields.Nested(
+        RankingSchema,
+        data_key="ranking",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Optional ranking configuration object with keys like 'minScore' and 'topN'. If not provided, uses the vector search API's default ranking settings."}
+    )
+    searchStrategy = fields.Str(
+        data_key="searchStrategy",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Optional search strategy to use. Available options: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'. If not provided, uses the vector search API's default strategy."}
     )
 
 

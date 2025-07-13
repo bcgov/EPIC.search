@@ -39,7 +39,7 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None) -> Dict[str, Any]:
+    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None, search_strategy: str = None) -> Dict[str, Any]:
         """Retrieve relevant documents using an advanced two-stage search strategy with intelligent project inference.
         
         This method implements a modern search approach that leverages document-level
@@ -124,6 +124,10 @@ class SearchService:
                                                   Cross-encoder models can produce negative scores for relevant documents.
             top_n (int, optional): Maximum number of results to return after ranking.
                                   If None, uses the TOP_RECORD_COUNT config value (default: 10).
+            search_strategy (str, optional): The search strategy to use for this query.
+                                           Valid values: 'HYBRID_SEMANTIC_FALLBACK', 'HYBRID_KEYWORD_FALLBACK',
+                                           'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'.
+                                           If None, uses the DEFAULT_SEARCH_STRATEGY config value.
         
         Returns:
             Dict[str, Any]: Search results including documents and detailed metrics
@@ -156,6 +160,23 @@ class SearchService:
         # Determine which inference pipelines to run based on the inference parameter and environment setting
         from flask import current_app
         use_default_inference = current_app.search_settings.use_default_inference
+        
+        # Determine search strategy to use
+        if search_strategy is None:
+            search_strategy = current_app.search_settings.default_search_strategy
+        
+        # Validate search strategy
+        valid_strategies = {
+            "HYBRID_SEMANTIC_FALLBACK", 
+            "HYBRID_KEYWORD_FALLBACK", 
+            "SEMANTIC_ONLY", 
+            "KEYWORD_ONLY", 
+            "HYBRID_PARALLEL"
+        }
+        
+        if search_strategy not in valid_strategies:
+            logging.warning(f"Invalid search strategy '{search_strategy}'. Using default 'HYBRID_SEMANTIC_FALLBACK'")
+            search_strategy = "HYBRID_SEMANTIC_FALLBACK"
         
         # Logic for determining inference behavior:
         # 1. If inference parameter is explicitly provided (even if empty), use it
@@ -213,6 +234,7 @@ class SearchService:
         
         # Debug logging to see what IDs are being passed
         logging.info(f"About to call search with: project_ids={project_ids}, document_type_ids={document_type_ids}, is_generic={is_generic_request}")
+        logging.info(f"Document type inference results: applied={inference_results.get('document_type_inference', {}).get('applied', False)}, ids={inference_results.get('document_type_inference', {}).get('inferred_document_type_ids', [])}")
         
         # Use original query for generic requests, processed query for specific content searches
         final_search_query = query if is_generic_request else search_query
@@ -220,7 +242,7 @@ class SearchService:
         
         # Track search stage timing
         search_start_time = time.time()
-        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n)
+        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n, search_strategy)
         search_time_ms = round((time.time() - search_start_time) * 1000, 2)
         
         # Create comprehensive stage-specific metrics
@@ -228,6 +250,13 @@ class SearchService:
             "inference_ms": inference_time_ms,
             "search_ms": search_time_ms,
             "total_pipeline_ms": round(inference_time_ms + search_time_ms, 2)
+        }
+        
+        # Add strategy metrics
+        strategy_metrics = {
+            "search_strategy": search_strategy,
+            "strategy_applied": search_strategy,
+            "strategy_source": "parameter" if search_strategy != current_app.search_settings.default_search_strategy else "default"
         }
         
         # Add breakdown of inference stage
@@ -241,6 +270,7 @@ class SearchService:
         # Merge with existing search metrics to create comprehensive metrics
         comprehensive_metrics = {**search_metrics, **stage_metrics}
         comprehensive_metrics["inference_breakdown"] = inference_breakdown
+        comprehensive_metrics["strategy_metrics"] = strategy_metrics
 
         # Check if results have low confidence (indicating possible query-document mismatch)
         search_quality = "normal"
@@ -299,17 +329,24 @@ class SearchService:
                 "metadata": inference_results["project_inference"]["metadata"]
             }
         
-        # Add document type inference metadata if inference was attempted  
-        if not original_document_type_ids and inference_results["document_type_inference"]["attempted"]:
+        # Add document type inference metadata if inference was attempted
+        logging.info(f"Document type response check: original_document_type_ids={original_document_type_ids}, attempted={inference_results.get('document_type_inference', {}).get('attempted', False)}")
+        logging.info(f"Document type inference full results: {inference_results.get('document_type_inference', {})}")
+        if (not original_document_type_ids and 
+            inference_results.get("document_type_inference", {}).get("attempted", False)):
+            logging.info("Adding document type inference to response")
             response["vector_search"]["document_type_inference"] = {
                 "attempted": True,
                 "confidence": inference_results["document_type_inference"]["confidence"],
                 "inferred_document_type_ids": inference_results["document_type_inference"]["inferred_document_type_ids"],
                 "applied": inference_results["document_type_inference"]["applied"],
-                "original_query": inference_results["project_inference"]["cleaned_query"] or query,  # Show what query was actually used for doc type inference
+                "original_query": query,  # The original user query
                 "cleaned_query": inference_results["document_type_inference"]["cleaned_query"],
                 "metadata": inference_results["document_type_inference"]["metadata"]
             }
+        else:
+            logging.info(f"Not adding document type inference to response: original_ids_check={not original_document_type_ids}, attempted_check={inference_results.get('document_type_inference', {}).get('attempted', False)}")
+            logging.info(f"Full document_type_inference result: {inference_results.get('document_type_inference', 'NOT_PRESENT')}")
             
         return response
 

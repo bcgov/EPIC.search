@@ -41,6 +41,66 @@ The system implements an efficient hybrid search approach combining keyword and 
 * Optimized for queries like "any correspondence for Project X" or "show me all letters for this project"
 * Bypasses semantic search for faster, more relevant results when content analysis isn't needed
 
+### Configurable Search Strategies
+
+The API supports multiple search strategies that can be configured globally via environment variables or overridden per-request:
+
+#### HYBRID_SEMANTIC_FALLBACK (Default)
+
+The current default behavior implementing document-level filtering followed by semantic search:
+
+1. **Document-Level Keyword Filtering**: Uses pre-computed document metadata (keywords, tags, headings) to identify relevant documents
+2. **Chunk-Level Semantic Search**: Performs semantic vector search within chunks of identified documents
+3. **Semantic Fallback**: If no documents found, searches all chunks semantically
+4. **Keyword Fallback**: Final fallback to keyword search if semantic approaches fail
+
+**Best for**: General-purpose queries, balanced efficiency and accuracy
+
+#### HYBRID_KEYWORD_FALLBACK
+
+Similar to the default but prioritizes keyword matching:
+
+1. **Document-Level Keyword Filtering**: Same as default strategy
+2. **Chunk-Level Keyword Search**: Performs keyword search within chunks of identified documents
+3. **Keyword Fallback**: If no documents found, searches all chunks with keywords
+4. **Semantic Fallback**: Final fallback to semantic search if keyword approaches fail
+
+**Best for**: Queries with specific technical terms, exact phrase matching
+
+#### SEMANTIC_ONLY
+
+Pure semantic search without document-level filtering or keyword fallbacks:
+
+1. **Direct Semantic Search**: Semantic vector search across all chunks
+2. **Cross-Encoder Re-ranking**: Re-ranks all semantic results
+
+**Best for**: Conceptual queries, when exact keyword matches aren't important
+
+#### KEYWORD_ONLY
+
+Pure keyword search without semantic components:
+
+1. **Direct Keyword Search**: Keyword search across all chunks using PostgreSQL full-text search
+2. **Cross-Encoder Re-ranking**: Re-ranks all keyword results
+
+**Best for**: Exact term matching, fastest performance, queries with specific terminology
+
+#### HYBRID_PARALLEL
+
+Comprehensive search running both semantic and keyword approaches simultaneously:
+
+1. **Parallel Execution**: Runs both semantic and keyword searches across all chunks in parallel threads
+2. **Result Merging**: Combines results from both searches, removing duplicates
+3. **Cross-Encoder Re-ranking**: Re-ranks the merged result set
+
+**Best for**: Maximum recall, when computational cost is not a concern
+
+#### Strategy Configuration
+
+* **Environment Variable**: `DEFAULT_SEARCH_STRATEGY` sets the default strategy
+* **Per-Request Override**: Use the `searchStrategy` parameter in API requests
+* **Metrics Tracking**: All strategies include detailed timing metrics and strategy identification in responses
+
 ### Components
 
 1. **Document-Level Keyword Search**: Fast filtering using pre-computed document metadata with PostgreSQL full-text search
@@ -72,6 +132,8 @@ The application uses strongly-typed configuration classes for different aspects 
    * `top_record_count`: Number of top records to return after re-ranking
    * `reranker_batch_size`: Batch size for processing document re-ranking
    * `min_relevance_score`: Minimum relevance score for re-ranked results (default: -10.0)
+   * `use_default_inference`: Whether to enable inference pipelines by default when not specified
+   * `default_search_strategy`: Default search strategy when none specified in requests (default: HYBRID_SEMANTIC_FALLBACK)
 
 > **Note**: The default minimum relevance score is set to -10.0 because cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative scores for relevant documents.
 

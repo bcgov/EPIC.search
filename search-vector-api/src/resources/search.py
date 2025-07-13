@@ -116,6 +116,9 @@ class SearchRequestSchema(Schema):
     inference = fields.List(fields.Str(validate=lambda x: x in ['PROJECT', 'DOCUMENTTYPE']), 
                           data_key="inference", required=False, load_default=None,
                           metadata={"description": "Optional list of inference types to run. Valid values: 'PROJECT', 'DOCUMENTTYPE'. If not provided, uses USE_DEFAULT_INFERENCE environment variable setting."})
+    searchStrategy = fields.Str(data_key="searchStrategy", required=False, 
+                               validate=lambda x: x in ['HYBRID_SEMANTIC_FALLBACK', 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'],
+                               metadata={"description": "Optional search strategy to use. Valid values: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'. If not provided, uses DEFAULT_SEARCH_STRATEGY environment variable setting."})
     ranking = fields.Nested(RankingConfigSchema, data_key="ranking", required=False,
                            metadata={"description": "Optional ranking configuration including minimum score threshold and maximum result count. If not provided, uses environment variable settings."})
 
@@ -187,6 +190,15 @@ class Search(Resource):
         - [] - Disable all inference pipelines
         - Not provided - Uses USE_DEFAULT_INFERENCE environment variable setting
         
+        Search Strategy Control:
+        The optional 'searchStrategy' parameter controls the search approach used:
+        - HYBRID_SEMANTIC_FALLBACK: Document keyword filter → Semantic search → Keyword fallback (default)
+        - HYBRID_KEYWORD_FALLBACK: Document keyword filter → Keyword search → Semantic fallback  
+        - SEMANTIC_ONLY: Pure semantic search without keyword filtering or fallbacks
+        - KEYWORD_ONLY: Pure keyword search without semantic components
+        - HYBRID_PARALLEL: Run both semantic and keyword searches in parallel and merge results
+        - Not provided - Uses DEFAULT_SEARCH_STRATEGY environment variable setting (HYBRID_SEMANTIC_FALLBACK)
+        
         Ranking Configuration:
         The optional 'ranking' object controls result filtering and limiting:
         - minScore: Minimum relevance score threshold (default: MIN_RELEVANCE_SCORE env var, currently -8.0)
@@ -204,13 +216,14 @@ class Search(Resource):
         project_ids = request_data.get("projectIds", None)  # Optional parameter
         document_type_ids = request_data.get("documentTypeIds", None)  # Optional parameter
         inference = request_data.get("inference", None)  # Optional parameter
+        search_strategy = request_data.get("searchStrategy", None)  # Optional parameter
         ranking_config = request_data.get("ranking", {})  # Optional parameter
         
         # Extract ranking parameters with fallback to None (will use env defaults)
         min_relevance_score = ranking_config.get("minScore") if ranking_config else None
         top_n = ranking_config.get("topN") if ranking_config else None
         
-        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, min_relevance_score, top_n)
+        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, min_relevance_score, top_n, search_strategy)
         return Response(
             json.dumps(documents), status=HTTPStatus.OK, mimetype="application/json"
         )

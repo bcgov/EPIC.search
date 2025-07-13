@@ -55,8 +55,10 @@ class Search(Resource):
             project_ids = request_data.get("projectIds", None)
             document_type_ids = request_data.get("documentTypeIds", None)
             inference = request_data.get("inference", None)
+            ranking = request_data.get("ranking", None)
+            search_strategy = request_data.get("searchStrategy", None)
         
-            documents = SearchService.get_documents_by_query(question, project_ids, document_type_ids, inference)
+            documents = SearchService.get_documents_by_query(question, project_ids, document_type_ids, inference, ranking, search_strategy)
             return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:
             # Log the error internally            

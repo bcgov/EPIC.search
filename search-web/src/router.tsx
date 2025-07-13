@@ -1,14 +1,17 @@
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { routeTree } from "@/routeTree.gen";
-import { useAuth } from "react-oidc-context";
 
 // Create a new router instance
 const router = createRouter({
   routeTree,
   context: {
-    // authentication will initially be undefined
-    // We'll be passing down the authentication state from within a React component
-    authentication: undefined!,
+    // Provide a mock authentication context since we're disabling OIDC
+    authentication: {
+      isAuthenticated: false,
+      user: null,
+      signinRedirect: () => console.log('Authentication disabled'),
+      signoutRedirect: () => console.log('Authentication disabled'),
+    } as any,
   },
 });
 
@@ -20,6 +23,13 @@ declare module "@tanstack/react-router" {
 }
 
 export default function RouterProviderWithAuthContext() {
-  const authentication = useAuth();
-  return <RouterProvider router={router} context={{ authentication }} />
+  // Always provide mock auth since OIDC is disabled
+  const mockAuth = {
+    isAuthenticated: false,
+    user: null,
+    signinRedirect: () => console.log('Authentication disabled'),
+    signoutRedirect: () => console.log('Authentication disabled'),
+  } as any;
+  
+  return <RouterProvider router={router} context={{ authentication: mockAuth }} />
 }

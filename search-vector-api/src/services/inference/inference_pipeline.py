@@ -90,9 +90,16 @@ class InferencePipeline:
             project_results = self._process_project_inference(
                 processing_state, is_generic_request
             )
+            # Always save the inference metadata, regardless of whether it's applied
+            processing_state["inferred_project_ids"] = project_results["inferred_project_ids"]
+            processing_state["project_confidence"] = project_results["project_confidence"]
+            processing_state["project_inference_metadata"] = project_results["project_inference_metadata"]
+            
             if project_results["applied"]:
                 project_ids = project_results["inferred_project_ids"]
-                processing_state.update(project_results)
+                # Update other processing state fields only if applied
+                if "project_cleaned_query" in project_results:
+                    processing_state["project_cleaned_query"] = project_results["project_cleaned_query"]
         elif not run_project_inference:
             logging.info("Project inference disabled by inference parameter")
         else:
@@ -104,9 +111,16 @@ class InferencePipeline:
             doc_type_results = self._process_document_type_inference(
                 processing_state, is_generic_request
             )
+            # Always save the inference metadata, regardless of whether it's applied
+            processing_state["inferred_document_type_ids"] = doc_type_results["inferred_document_type_ids"]
+            processing_state["document_type_confidence"] = doc_type_results["document_type_confidence"]
+            processing_state["document_type_inference_metadata"] = doc_type_results["document_type_inference_metadata"]
+            
             if doc_type_results["applied"]:
                 document_type_ids = doc_type_results["inferred_document_type_ids"]
-                processing_state.update(doc_type_results)
+                # Update other processing state fields only if applied
+                if "doc_type_cleaned_query" in doc_type_results:
+                    processing_state["doc_type_cleaned_query"] = doc_type_results["doc_type_cleaned_query"]
         elif not run_document_type_inference:
             logging.info("Document type inference disabled by inference parameter")
         else:
@@ -201,8 +215,8 @@ class InferencePipeline:
         """
         from .document_type_inference import document_type_inference_service
         
-        # Use the current query state (after project cleaning)
-        query_for_inference = processing_state["current_query"]
+        # Use the original query for document type inference (document type terms are in the original query)
+        query_for_inference = processing_state["original_query"]
         
         # Perform document type inference
         inferred_doc_type_ids, doc_type_confidence, doc_type_metadata = document_type_inference_service.infer_document_types_from_query(

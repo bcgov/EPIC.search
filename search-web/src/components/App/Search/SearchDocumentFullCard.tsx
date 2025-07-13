@@ -79,8 +79,23 @@ const SearchDocumentFullCard = ({
             sx={{
               textAlign: "center",
               color: BCDesignTokens.themeGray80,
-              fontWeight: 500,
+              fontWeight: 600,
               px: 1,
+              lineHeight: 1.2,
+            }}
+          >
+            {document.document_display_name}
+          </Typography>
+          <Typography
+            variant="body2"
+            sx={{
+              textAlign: "center",
+              color: BCDesignTokens.themeGray60,
+              fontWeight: 400,
+              px: 1,
+              mt: 0.5,
+              fontSize: "0.85rem",
+              fontStyle: "italic",
             }}
           >
             {document.document_name}
@@ -110,12 +125,11 @@ const SearchDocumentFullCard = ({
         <Box
           sx={{
             position: "absolute",
-            bottom: 8,
-            left: 8,
+            top: 8,
             right: 8,
             display: "flex",
-            gap: 1,
-            flexDirection: "column",
+            gap: 0.5,
+            flexDirection: "row",
           }}
         >
           <Tooltip title="Find similar documents in this project only">
@@ -124,17 +138,17 @@ const SearchDocumentFullCard = ({
               variant="outlined"
               color="secondary"
               onClick={handleSimilarThisProject}
-              startIcon={<Business />}
               sx={{
-                fontSize: "0.7rem",
-                padding: "4px 8px",
-                backgroundColor: "rgba(255, 255, 255, 0.9)",
+                fontSize: "0.6rem",
+                padding: "4px",
+                minWidth: "auto",
+                backgroundColor: "rgba(255, 255, 255, 0.95)",
                 "&:hover": {
                   backgroundColor: "rgba(255, 255, 255, 1)",
                 },
               }}
             >
-              Similar (Project)
+              <Business sx={{ fontSize: 16 }} />
             </Button>
           </Tooltip>
           <Tooltip title="Find similar documents across all projects">
@@ -143,17 +157,17 @@ const SearchDocumentFullCard = ({
               variant="outlined"
               color="primary"
               onClick={handleSimilarAllProjects}
-              startIcon={<FindInPage />}
               sx={{
-                fontSize: "0.7rem",
-                padding: "4px 8px",
-                backgroundColor: "rgba(255, 255, 255, 0.9)",
+                fontSize: "0.6rem",
+                padding: "4px",
+                minWidth: "auto",
+                backgroundColor: "rgba(255, 255, 255, 0.95)",
                 "&:hover": {
                   backgroundColor: "rgba(255, 255, 255, 1)",
                 },
               }}
             >
-              Similar (All)
+              <FindInPage sx={{ fontSize: 16 }} />
             </Button>
           </Tooltip>
         </Box>
