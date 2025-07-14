@@ -461,10 +461,36 @@ def load_data(
     session = Session()
     
     try:
+        # Ensure we have basic document info even for early failures
+        if not metrics.get("document_info"):
+            metrics["document_info"] = {
+                "s3_key": s3_key,
+                "document_name": os.path.basename(s3_key)
+            }
+        
+        # Add document_name and display_name from API if available, even before processing
+        api_derived_names = {}
+        if api_doc:
+            basic_metadata = extract_document_metadata(api_doc, base_metadata)
+            if basic_metadata.get("document_name"):
+                api_derived_names["document_name"] = basic_metadata["document_name"]
+                metrics["document_info"]["document_name"] = basic_metadata["document_name"]
+            if basic_metadata.get("display_name"):
+                api_derived_names["display_name"] = basic_metadata["display_name"]
+                metrics["document_info"]["display_name"] = basic_metadata["display_name"]
+        
         t0 = time.perf_counter()
         temp_path, doc_info = _download_and_validate_pdf(s3_key, temp_dir, metrics)
         metrics["download_and_validate_pdf"] = time.perf_counter() - t0
-        metrics["document_info"] = doc_info  # Always store document info, even on failure
+        
+        # Merge doc_info but preserve API-derived names if they exist
+        if doc_info:
+            metrics["document_info"].update(doc_info)
+            # Restore API-derived names if they were better than the S3 basename
+            if api_derived_names.get("document_name"):
+                metrics["document_info"]["document_name"] = api_derived_names["document_name"]
+            if api_derived_names.get("display_name"):
+                metrics["document_info"]["display_name"] = api_derived_names["display_name"]
         
         if not temp_path:
             # Log failure with document info in metrics
@@ -502,6 +528,11 @@ def load_data(
 
         # Extract explicit metadata from API document early so it can be included in chunk metadata
         document_metadata = extract_document_metadata(api_doc, base_metadata)
+        
+        # Add document_name and display_name to document_info in metrics for processing logs
+        if metrics.get("document_info"):
+            metrics["document_info"]["document_name"] = document_metadata.get("document_name")
+            metrics["document_info"]["display_name"] = document_metadata.get("display_name")
         
         # Add s3_key to document metadata
         document_metadata["s3_key"] = s3_key
@@ -556,6 +587,24 @@ def load_data(
         session.rollback()
         traceback_str = traceback.format_exc()
         print(f"\n[ERROR] Exception processing file:\n  S3 Key: {s3_key}\n  Doc ID: {doc_id}\n  Project ID: {project_id}\n  Error: {e}\nTraceback:\n{traceback_str}\n")
+        
+        # Ensure we have basic document info even for complete failures
+        if not metrics.get("document_info"):
+            metrics["document_info"] = {
+                "s3_key": s3_key,
+                "document_name": os.path.basename(s3_key)
+            }
+        
+        # Add document_name and display_name from API if available
+        if api_doc:
+            try:
+                basic_metadata = extract_document_metadata(api_doc, base_metadata)
+                if basic_metadata.get("document_name"):
+                    metrics["document_info"]["document_name"] = basic_metadata["document_name"]
+                if basic_metadata.get("display_name"):
+                    metrics["document_info"]["display_name"] = basic_metadata["display_name"]
+            except Exception as meta_err:
+                print(f"[WARN] Could not extract basic metadata for failure logging: {meta_err}")
         
         # Log failure with document info and exception details
         metrics["error"] = str(e)

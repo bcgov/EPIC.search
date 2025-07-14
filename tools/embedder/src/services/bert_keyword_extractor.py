@@ -18,6 +18,8 @@ from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
 from concurrent.futures import ThreadPoolExecutor
 
+import multiprocessing
+
 _keymodel = None
 _sentence_model = None
 
@@ -59,7 +61,7 @@ def extract_keywords_from_chunks(chunk_dicts):
         words_to_remove = ["project", "projects"]
         return [word for word, score in keywords if word not in words_to_remove]
     # Parallelize extraction across chunks
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
         keywords_results = list(executor.map(extract_for_text, texts))
     for i, chunk in enumerate(chunk_dicts):
         filtered_keywords = keywords_results[i]
