@@ -111,6 +111,18 @@ class DocumentSearchSettings(BaseModel):
     document_search_url: str = Field(default_factory=lambda: os.getenv("DOCUMENT_SEARCH_URL"))
 
 
+class ApiPaginationSettings(BaseModel):
+    """
+    Configuration for API pagination settings.
+    
+    Attributes:
+        project_page_size (int): Number of projects to fetch per API call
+        documents_page_size (int): Number of documents to fetch per API call
+    """
+    project_page_size: int = Field(default_factory=lambda: int(os.environ.get("GET_PROJECT_PAGE", 1)))
+    documents_page_size: int = Field(default_factory=lambda: int(os.environ.get("GET_DOCS_PAGE", 1000)))
+
+
 class Settings(BaseModel):
     """
     Main settings class that combines all configuration categories.
@@ -147,6 +159,9 @@ class Settings(BaseModel):
     )
     document_search_settings: DocumentSearchSettings = Field(
         default_factory=DocumentSearchSettings
+    )
+    api_pagination_settings: ApiPaginationSettings = Field(
+        default_factory=ApiPaginationSettings
     )
 
 

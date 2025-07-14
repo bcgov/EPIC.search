@@ -149,6 +149,11 @@ All configuration is managed via environment variables and loaded by `get_settin
   | EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"    |
   | KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"    |
   | EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                    |
+  | FILES_CONCURRENCY_SIZE | Number of files to process in parallel | 4                      |
+  | GET_PROJECT_PAGE     | Number of projects to fetch per API call | 1                      |
+  | GET_DOCS_PAGE        | Number of documents to fetch per API call | 1000                   |
+  | CHUNK_SIZE           | Size of text chunks in characters        | 1000                   |
+  | CHUNK_OVERLAP        | Number of characters to overlap between chunks | 200              |
   | AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                   |
 
 ## Tag/Keyword Extraction

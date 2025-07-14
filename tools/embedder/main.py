@@ -109,7 +109,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
     else:
         # Fetch and process all projects
         projects_count = get_projects_count()
-        page_size = 25
+        page_size = settings.api_pagination_settings.project_page_size
         total_pages = (
             projects_count + page_size - 1
         ) // page_size  # Calculate total pages
@@ -140,7 +140,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
         project_start = datetime.now()
 
         files_count = get_files_count_for_project(project_id)
-        page_size = 50
+        page_size = settings.api_pagination_settings.documents_page_size
         file_total_pages = (
             files_count + page_size - 1
         ) // page_size  # Calculate total pages for files
