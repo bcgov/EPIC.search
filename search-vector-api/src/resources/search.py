@@ -117,8 +117,8 @@ class SearchRequestSchema(Schema):
                           data_key="inference", required=False, load_default=None,
                           metadata={"description": "Optional list of inference types to run. Valid values: 'PROJECT', 'DOCUMENTTYPE'. If not provided, uses USE_DEFAULT_INFERENCE environment variable setting."})
     searchStrategy = fields.Str(data_key="searchStrategy", required=False, 
-                               validate=lambda x: x in ['HYBRID_SEMANTIC_FALLBACK', 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'],
-                               metadata={"description": "Optional search strategy to use. Valid values: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'. If not provided, uses DEFAULT_SEARCH_STRATEGY environment variable setting."})
+                               validate=lambda x: x in ['HYBRID_SEMANTIC_FALLBACK', 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL', 'DOCUMENT_ONLY'],
+                               metadata={"description": "Optional search strategy to use. Valid values: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL', 'DOCUMENT_ONLY'. If not provided, uses DEFAULT_SEARCH_STRATEGY environment variable setting."})
     ranking = fields.Nested(RankingConfigSchema, data_key="ranking", required=False,
                            metadata={"description": "Optional ranking configuration including minimum score threshold and maximum result count. If not provided, uses environment variable settings."})
 
@@ -197,6 +197,7 @@ class Search(Resource):
         - SEMANTIC_ONLY: Pure semantic search without keyword filtering or fallbacks
         - KEYWORD_ONLY: Pure keyword search without semantic components
         - HYBRID_PARALLEL: Run both semantic and keyword searches in parallel and merge results
+        - DOCUMENT_ONLY: Direct document-level search without chunk analysis (auto-used for generic requests)
         - Not provided - Uses DEFAULT_SEARCH_STRATEGY environment variable setting (HYBRID_SEMANTIC_FALLBACK)
         
         Ranking Configuration:

@@ -1511,8 +1511,10 @@ def is_generic_document_request(query: str) -> bool:
     """Check if the query is a generic document request (not seeking specific content).
     
     Generic queries are those that ask for documents of a certain type without
-    seeking specific information within those documents. Queries with content-specific
-    terms (like 'complaints', 'concerns', 'issues') should use semantic search.
+    seeking specific information within those documents. This includes:
+    1. Explicit generic patterns like "show me all letters"
+    2. Very short queries after inference cleaning (e.g., "Packages", "Reports")
+    3. Simple document type words without context
     
     Args:
         query (str): The search query text
@@ -1520,6 +1522,28 @@ def is_generic_document_request(query: str) -> bool:
     Returns:
         bool: True if the query is generic, False otherwise
     """
+    if not query or len(query.strip()) < 2:
+        return True
+    
+    query_lower = query.lower().strip()
+    
+    # Very short queries (1-2 words) are likely generic after inference cleaning
+    words = query_lower.split()
+    if len(words) <= 2:
+        # Check if it's a simple document type word or generic term
+        simple_generic_terms = [
+            'packages', 'package', 'documents', 'document', 'files', 'file',
+            'letters', 'letter', 'correspondence', 'reports', 'report',
+            'studies', 'study', 'assessments', 'assessment', 'certificates',
+            'certificate', 'permits', 'permit', 'licenses', 'license',
+            'orders', 'order', 'agreements', 'agreement', 'contracts', 'contract',
+            'submissions', 'submission', 'comments', 'comment', 'responses', 'response'
+        ]
+        
+        # If the entire query is just document type words, it's generic
+        if all(word in simple_generic_terms for word in words):
+            return True
+    
     # First check for content-specific terms that indicate semantic search is needed
     content_specific_terms = [
         r'\b(complaints?|concerns?|issues?|problems?|violations?|incidents?)\b',
@@ -1533,8 +1557,6 @@ def is_generic_document_request(query: str) -> bool:
         r'\bthat\s+(talk|speak|discuss|mention|refer|address|cover)\b',
         r'\b(nation|first nation|indigenous|aboriginal|métis|inuit)\b'
     ]
-    
-    query_lower = query.lower()
     
     # If query contains content-specific terms, it's NOT generic
     for pattern in content_specific_terms:

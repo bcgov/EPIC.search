@@ -237,8 +237,15 @@ class SearchService:
         logging.info(f"Document type inference results: applied={inference_results.get('document_type_inference', {}).get('applied', False)}, ids={inference_results.get('document_type_inference', {}).get('inferred_document_type_ids', [])}")
         
         # Use original query for generic requests, processed query for specific content searches
-        final_search_query = query if is_generic_request else search_query
-        logging.info(f"Using search query: '{final_search_query}' (is_generic: {is_generic_request})")
+        # However, if inference was applied and document types are inferred, we should use the cleaned query
+        # for generic detection to work properly after inference cleaning
+        if is_generic_request and not inference_results.get("document_type_inference", {}).get("applied", False):
+            # Pure generic request without document type inference - use original query
+            final_search_query = query
+        else:
+            # Content search or document type was inferred - use processed query
+            final_search_query = search_query
+        logging.info(f"Using search query: '{final_search_query}' (is_generic: {is_generic_request}, doc_type_applied: {inference_results.get('document_type_inference', {}).get('applied', False)})")
         
         # Track search stage timing
         search_start_time = time.time()
