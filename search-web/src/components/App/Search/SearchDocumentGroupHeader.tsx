@@ -88,6 +88,23 @@ const SearchDocumentGroupHeader = ({ document, onSimilarSearch }: SearchDocument
             >
               {document.document_name}
             </Typography>
+            {document.document_type && (
+              <Typography
+                variant="caption"
+                sx={{
+                  color: BCDesignTokens.themeGray70,
+                  fontWeight: 500,
+                  fontSize: "0.75rem",
+                  mt: 0.25,
+                  backgroundColor: BCDesignTokens.themeGray20,
+                  borderRadius: 1,
+                  padding: "1px 6px",
+                  display: "inline-block",
+                }}
+              >
+                {document.document_type}
+              </Typography>
+            )}
           </Box>
         </Box>
       </PdfLink>

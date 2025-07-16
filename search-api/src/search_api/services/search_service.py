@@ -98,14 +98,23 @@ class SearchService:
         response_type = "documents" if "documents" in vector_search_data else "document_chunks"
         documents_key = "documents" if response_type == "documents" else "document_chunks"
         
-        if not documents_or_chunks:
-            return {"result": {"response": "No relevant information found.", documents_key: [], "metrics": metrics}}  
-
+        # Add all search metrics regardless of whether documents were found
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
         metrics["search_breakdown"] = search_breakdown if search_breakdown else search_metrics  # Include detailed search breakdown metrics
         metrics["search_quality"] = search_quality # Add quality metrics from vector search API
         metrics["project_inference"] = project_inference # Add project inference info
         metrics["document_type_inference"] = document_type_inference # Add document type inference info
+        
+        if not documents_or_chunks:
+            return {
+                "result": {
+                    "response": "No relevant information found.", 
+                    documents_key: [], 
+                    "metrics": metrics,
+                    "search_quality": search_quality,
+                    "project_inference": project_inference
+                }
+            }
 
         # Prep and query the LLM
         llm_start = time.time()

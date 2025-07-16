@@ -100,6 +100,24 @@ const SearchDocumentFullCard = ({
           >
             {document.document_name}
           </Typography>
+          {document.document_type && (
+            <Typography
+              variant="caption"
+              sx={{
+                textAlign: "center",
+                color: BCDesignTokens.themeGray70,
+                fontWeight: 500,
+                px: 1,
+                mt: 0.25,
+                fontSize: "0.75rem",
+                backgroundColor: BCDesignTokens.themeGray20,
+                borderRadius: 1,
+                padding: "1px 6px",
+              }}
+            >
+              {document.document_type}
+            </Typography>
+          )}
           {showProjectName && (
             <Typography
               variant="caption"
