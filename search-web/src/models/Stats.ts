@@ -62,6 +62,7 @@ export interface DocumentInfo {
   };
   page_count: number;
   pdf_version: string | null;
+  display_name: string;
   document_name: string;
   file_size_bytes: number;
   validation_reason: string | null;

@@ -335,9 +335,9 @@ const StatsMetricsInterface = () => {
                                         <TableRow key={log.log_id}>
                                           <TableCell>
                                             <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                                              {log.metrics?.document_info.metadata.title || 
+                                              {log.metrics?.document_info.display_name || 
                                                log.metrics?.document_info.document_name || 
-                                               'Unknown Document'}
+                                               'UNKNOWN'}
                                             </Typography>
                                           </TableCell>
                                           <TableCell align="center">
