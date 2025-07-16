@@ -1,14 +1,27 @@
-import { Box, Typography } from "@mui/material";
+import { Box, Typography, Button, Tooltip } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
-import { DescriptionTwoTone } from "@mui/icons-material";
+import { DescriptionTwoTone, FindInPage, Business } from "@mui/icons-material";
 import PdfLink from "@/components/Shared/PdfLink";
 
 interface SearchDocumentGroupHeaderProps {
   document: Document;
+  onSimilarSearch?: (documentId: string, projectIds?: string[]) => void;
 }
 
-const SearchDocumentGroupHeader = ({ document }: SearchDocumentGroupHeaderProps) => {
+const SearchDocumentGroupHeader = ({ document, onSimilarSearch }: SearchDocumentGroupHeaderProps) => {
+  const handleSimilarAllProjects = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSimilarSearch?.(document.document_id);
+  };
+
+  const handleSimilarThisProject = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSimilarSearch?.(document.document_id, [document.project_id]);
+  };
+
   return (
     <Box
       sx={{
@@ -17,6 +30,7 @@ const SearchDocumentGroupHeader = ({ document }: SearchDocumentGroupHeaderProps)
         padding: 2,
         borderRadius: 2,
         border: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
+        position: "relative",
       }}
     >
       <PdfLink
@@ -77,6 +91,58 @@ const SearchDocumentGroupHeader = ({ document }: SearchDocumentGroupHeaderProps)
           </Box>
         </Box>
       </PdfLink>
+      
+      {onSimilarSearch && (
+        <Box
+          sx={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            display: "flex",
+            gap: 0.5,
+            flexDirection: "row",
+          }}
+        >
+          <Tooltip title="Find similar documents in this project only">
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
+              onClick={handleSimilarThisProject}
+              sx={{
+                fontSize: "0.6rem",
+                padding: "4px",
+                minWidth: "auto",
+                backgroundColor: "rgba(255, 255, 255, 0.95)",
+                "&:hover": {
+                  backgroundColor: "rgba(255, 255, 255, 1)",
+                },
+              }}
+            >
+              <Business sx={{ fontSize: 16 }} />
+            </Button>
+          </Tooltip>
+          <Tooltip title="Find similar documents across all projects">
+            <Button
+              size="small"
+              variant="outlined"
+              color="primary"
+              onClick={handleSimilarAllProjects}
+              sx={{
+                fontSize: "0.6rem",
+                padding: "4px",
+                minWidth: "auto",
+                backgroundColor: "rgba(255, 255, 255, 0.95)",
+                "&:hover": {
+                  backgroundColor: "rgba(255, 255, 255, 1)",
+                },
+              }}
+            >
+              <FindInPage sx={{ fontSize: 16 }} />
+            </Button>
+          </Tooltip>
+        </Box>
+      )}
     </Box>
   );
 };

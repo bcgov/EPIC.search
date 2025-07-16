@@ -225,7 +225,10 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
             {Object.entries(projectGroup.documentGroups).map(([, documentGroup], documentIndex) => (
               <Box key={documentIndex} sx={{ mb: 3 }}>
                 {/* Document header */}
-                <SearchDocumentGroupHeader document={documentGroup.document} />
+                <SearchDocumentGroupHeader 
+                  document={documentGroup.document} 
+                  onSimilarSearch={handleSimilarSearch}
+                />
                 
                 {/* Chunks for this document */}
                 <Grid container spacing={2} alignItems="stretch">
