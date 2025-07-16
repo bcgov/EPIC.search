@@ -53,8 +53,12 @@ class SearchService:
                 - response (str): LLM-generated answer
                 - documents OR document_chunks (list): Relevant documents/chunks used for the answer
                   (key depends on vector search response type)
-                - metrics (dict): Performance metrics for the operation including search metadata
-                  and detailed search_breakdown with timing, filtering, and strategy information
+                - metrics (dict): Performance metrics for the operation including search metadata,
+                  detailed search_breakdown with timing, filtering, and strategy information,
+                  plus query processing details (original_query, final_semantic_query, etc.)
+                - search_quality (str): Quality assessment from vector search API
+                - project_inference (dict): Project inference results and metadata
+                - document_type_inference (dict): Document type inference results and metadata
                 
         Note:
             The response will contain either 'documents' (metadata-focused) or 'document_chunks' 
@@ -90,6 +94,14 @@ class SearchService:
         project_inference = vector_search_data.get("project_inference", {})
         document_type_inference = vector_search_data.get("document_type_inference", {})
         
+        # Extract additional vector search metadata
+        original_query = vector_search_data.get("original_query", "")
+        final_semantic_query = vector_search_data.get("final_semantic_query", "")
+        semantic_cleaning_applied = vector_search_data.get("semantic_cleaning_applied", False)
+        search_mode = vector_search_data.get("search_mode", "unknown")
+        query_processed = vector_search_data.get("query_processed", False)
+        inference_settings = vector_search_data.get("inference_settings", {})
+        
         # Extract search_breakdown from metrics if available
         api_metrics = vector_api_response.get("metrics", {})
         search_breakdown = api_metrics.get("search_breakdown", {})
@@ -102,8 +114,12 @@ class SearchService:
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
         metrics["search_breakdown"] = search_breakdown if search_breakdown else search_metrics  # Include detailed search breakdown metrics
         metrics["search_quality"] = search_quality # Add quality metrics from vector search API
-        metrics["project_inference"] = project_inference # Add project inference info
-        metrics["document_type_inference"] = document_type_inference # Add document type inference info
+        metrics["original_query"] = original_query # Original user query before processing
+        metrics["final_semantic_query"] = final_semantic_query # Final processed query for semantic search
+        metrics["semantic_cleaning_applied"] = semantic_cleaning_applied # Whether query cleaning was applied
+        metrics["search_mode"] = search_mode # Search mode used by vector search
+        metrics["query_processed"] = query_processed # Whether query underwent processing
+        metrics["inference_settings"] = inference_settings # Inference configuration details
         
         if not documents_or_chunks:
             return {
@@ -112,7 +128,8 @@ class SearchService:
                     documents_key: [], 
                     "metrics": metrics,
                     "search_quality": search_quality,
-                    "project_inference": project_inference
+                    "project_inference": project_inference,
+                    "document_type_inference": document_type_inference
                 }
             }
 
@@ -137,7 +154,9 @@ class SearchService:
                     "response": "An error occurred while processing your request with the LLM. Please try again later.",
                     documents_key: documents_or_chunks,
                     "metrics": metrics,
-                    "search_quality": search_quality
+                    "search_quality": search_quality,
+                    "project_inference": project_inference,
+                    "document_type_inference": document_type_inference
                 }
             }
 
@@ -150,7 +169,8 @@ class SearchService:
                 documents_key: response["documents"],
                 "metrics": metrics,
                 "search_quality": search_quality,
-                "project_inference": project_inference
+                "project_inference": project_inference,
+                "document_type_inference": document_type_inference
             }
         }
 
