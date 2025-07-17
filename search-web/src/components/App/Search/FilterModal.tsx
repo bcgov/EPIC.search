@@ -23,7 +23,8 @@ import { useProjects, Project } from "@/hooks/useProjects";
 import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
 import ProjectLoadingScreen from "./ProjectLoadingScreen";
 
-interface ProjectFilterModalProps {
+
+interface FilterModalProps {
   open: boolean;
   onClose: () => void;
   selectedProjectIds: string[];
@@ -31,7 +32,7 @@ interface ProjectFilterModalProps {
   onSave: (projectIds: string[], documentTypeIds: string[]) => void;
 }
 
-const ProjectFilterModal = ({ open, onClose, selectedProjectIds, selectedDocumentTypeIds = [], onSave }: ProjectFilterModalProps) => {
+const FilterModal = ({ open, onClose, selectedProjectIds, selectedDocumentTypeIds = [], onSave }: FilterModalProps) => {
   const { data: projects, isLoading, isError } = useProjects();
   const { data: docTypesData, isLoading: docTypesLoading, isError: docTypesError } = useDocumentTypeMappings();
   const [selectedProjects, setSelectedProjects] = useState<string[]>(selectedProjectIds);
@@ -87,10 +88,12 @@ return (
     <DialogContent sx={{ minHeight: 420, maxHeight: 420, p: 0, overflow: 'hidden' }}>
         <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, p: 3, width: '100%', height: 420, overflow: 'hidden' }}>
           {/* Projects Section */}
-          <Box sx={{ width: '50%', minWidth: 0, height: '100%', maxHeight: 420, overflowY: 'auto', overflowX: 'hidden' }}>
-            <Typography variant="body2" sx={{ mb: 2, color: BCDesignTokens.themeGray70 }}>
-              Projects
-            </Typography>
+          <Box sx={{ width: '50%', minWidth: 0, height: '100%', maxHeight: 420, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
+            <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', pt: 0, pb: 2 }}>
+              <Typography variant="body2" sx={{ color: BCDesignTokens.themeGray70 }}>
+                Projects
+              </Typography>
+            </Box>
             {isLoading && <ProjectLoadingScreen />}
             {isError && (
               <Typography color="error">Failed to load projects. Please try again later.</Typography>
@@ -118,7 +121,6 @@ return (
                       </ListItemIcon>
                       <ListItemText
                         primary={project.project_name}
-                        secondary={project.project_id}
                       />
                       {isSelected && (
                         <IconButton
@@ -141,10 +143,12 @@ return (
             )}
           </Box>
           {/* Document Types Section */}
-          <Box sx={{ width: '50%', minWidth: 0, height: '100%', maxHeight: 420, overflowY: 'auto', overflowX: 'hidden' }}>
-            <Typography variant="body2" sx={{ mb: 2, color: BCDesignTokens.themeGray70 }}>
-              Document Types
-            </Typography>
+          <Box sx={{ width: '50%', minWidth: 0, height: '100%', maxHeight: 420, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
+            <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', pt: 0, pb: 2 }}>
+              <Typography variant="body2" sx={{ color: BCDesignTokens.themeGray70 }}>
+                Document Types
+              </Typography>
+            </Box>
             {docTypesLoading && <Typography>Loading document types...</Typography>}
             {docTypesError && <Typography color="error">Failed to load document types.</Typography>}
             {!docTypesLoading && docTypesData && (
@@ -174,7 +178,6 @@ return (
                             </ListItemIcon>
                             <ListItemText
                               primary={typeName}
-                              secondary={typeId}
                             />
                             {isSelected && (
                               <IconButton
@@ -214,4 +217,4 @@ return (
   );
 };
 
-export default ProjectFilterModal;
+export default FilterModal;

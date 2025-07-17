@@ -11,7 +11,7 @@ import SearchSkelton from "@/components/App/Search/SearchSkelton";
 import SearchResult from "@/components/App/Search/SearchResult";
 import SearchLanding from "@/components/App/Search/SearchLanding";
 import SearchConfigModal from "@/components/App/Search/SearchConfigModal";
-import ProjectFilterModal from "@/components/App/Search/ProjectFilterModal";
+import FilterModal from "@/components/App/Search/FilterModal";
 import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
 import { getStoredSearchStrategy, setStoredSearchStrategy } from "@/utils/searchConfig";
 import { useProjects } from "@/hooks/useProjects";
@@ -218,7 +218,7 @@ function Search() {
         currentStrategy={searchStrategy}
         onSave={handleSaveSearchStrategy}
       />
-      <ProjectFilterModal
+      <FilterModal
         open={filterModalOpen}
         onClose={() => setFilterModalOpen(false)}
         selectedProjectIds={selectedProjectIds}
