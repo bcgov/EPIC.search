@@ -8,13 +8,15 @@ import RawResponseViewer from "./RawResponseViewer";
 import { SearchResponse, getDocumentsFromResponse, Document } from "@/models/Search";
 import { useSimilarSearch } from "@/hooks/useSimilarSearch";
 import { useState } from "react";
+import { SearchStrategy } from "@/hooks/useSearch";
 
 interface SearchResultProps {
   searchResults: SearchResponse;
   searchText: string;
+  searchStrategy?: SearchStrategy;
 }
 
-const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
+const SearchResult = ({ searchResults, searchText, searchStrategy }: SearchResultProps) => {
   const documents = getDocumentsFromResponse(searchResults);
   const hasDocumentChunks = !!searchResults.result.document_chunks;
   
@@ -39,6 +41,7 @@ const SearchResult = ({ searchResults, searchText }: SearchResultProps) => {
         documentId,
         projectIds,
         limit: 5,
+        ...(searchStrategy && { searchStrategy })
       });
 
       setSimilarResults({

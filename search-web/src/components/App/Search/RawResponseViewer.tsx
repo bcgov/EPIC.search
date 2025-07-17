@@ -1,7 +1,8 @@
-import { Box, Typography, Button, Paper } from "@mui/material";
+import { Box, Typography, Button, Paper, IconButton, Tooltip } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
-import { ArrowBack, Code } from "@mui/icons-material";
+import { ArrowBack, Code, ContentCopy } from "@mui/icons-material";
 import { SearchResponse } from "@/models/Search";
+import { useState } from "react";
 
 interface RawResponseViewerProps {
   searchResponse: SearchResponse;
@@ -14,6 +15,18 @@ const RawResponseViewer = ({
   searchText, 
   onBack 
 }: RawResponseViewerProps) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      const jsonString = JSON.stringify(searchResponse, null, 2);
+      await navigator.clipboard.writeText(jsonString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
   return (
     <Box
       sx={{
@@ -87,8 +100,27 @@ const RawResponseViewer = ({
             backgroundColor: "#1e1e1e", // Dark background for code
             borderRadius: 2,
             overflow: "auto",
+            position: "relative",
           }}
         >
+          <Tooltip title={copied ? "Copied!" : "Copy to clipboard"}>
+            <IconButton
+              onClick={handleCopy}
+              sx={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                backgroundColor: "rgba(255, 255, 255, 0.1)",
+                color: "#d4d4d4",
+                "&:hover": {
+                  backgroundColor: "rgba(255, 255, 255, 0.2)",
+                },
+                zIndex: 1,
+              }}
+            >
+              <ContentCopy />
+            </IconButton>
+          </Tooltip>
           <pre
             style={{
               margin: 0,

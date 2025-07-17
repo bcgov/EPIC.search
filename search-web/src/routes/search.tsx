@@ -1,16 +1,17 @@
-import { Cancel, Search as SearchIcon } from "@mui/icons-material";
-import { Box, Container, Typography } from "@mui/material";
+import { Cancel, Search as SearchIcon, Settings } from "@mui/icons-material";
+import { Box, Container, Typography, Tooltip, IconButton } from "@mui/material";
 import { InputBase } from "@mui/material";
-import { IconButton } from "@mui/material";
 import { Paper } from "@mui/material";
 import { createFileRoute } from "@tanstack/react-router";
 import { BCDesignTokens } from "epic.theme";
 import { useEffect, useState } from "react";
-import { useSearchQuery } from "@/hooks/useSearch";
+import { useSearchQuery, SearchStrategy, SearchRequest } from "@/hooks/useSearch";
 import { SearchResponse } from "@/models/Search";
 import SearchSkelton from "@/components/App/Search/SearchSkelton";
 import SearchResult from "@/components/App/Search/SearchResult";
 import SearchLanding from "@/components/App/Search/SearchLanding";
+import SearchConfigModal from "@/components/App/Search/SearchConfigModal";
+import { getStoredSearchStrategy, setStoredSearchStrategy } from "@/utils/searchConfig";
 export const Route = createFileRoute("/search")({
   component: Search,
 });
@@ -19,6 +20,10 @@ function Search() {
   const [searchText, setSearchText] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(
     null
+  );
+  const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [searchStrategy, setSearchStrategy] = useState<SearchStrategy | undefined>(
+    getStoredSearchStrategy()
   );
 
   const onSuccess = (data: SearchResponse) => {
@@ -46,7 +51,16 @@ function Search() {
 
   const onSubmitSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    doSearch(searchText);
+    const searchRequest: SearchRequest = {
+      question: searchText,
+      ...(searchStrategy && { searchStrategy })
+    };
+    doSearch(searchRequest);
+  };
+
+  const handleSaveSearchStrategy = (strategy: SearchStrategy | undefined) => {
+    setStoredSearchStrategy(strategy);
+    setSearchStrategy(strategy);
   };
 
   return (
@@ -98,11 +112,22 @@ function Search() {
             }
           }}
         />
+        <Tooltip title="Search Configuration">
+          <IconButton
+            type="button"
+            sx={{ p: "10px" }}
+            aria-label="search configuration"
+            size="large"
+            onClick={() => setConfigModalOpen(true)}
+          >
+            <Settings sx={{ fontSize: 24, color: BCDesignTokens.themeGray60 }} />
+          </IconButton>
+        </Tooltip>
         {searchText && (
           <IconButton
             type="button"
             sx={{ p: "10px" }}
-            aria-label="search"
+            aria-label="clear search"
             size="large"
             onClick={() => setSearchText("")}
           >
@@ -122,6 +147,13 @@ function Search() {
         )}
       </Paper>
 
+      <SearchConfigModal
+        open={configModalOpen}
+        onClose={() => setConfigModalOpen(false)}
+        currentStrategy={searchStrategy}
+        onSave={handleSaveSearchStrategy}
+      />
+
       <Box
         sx={{
           mt: 2,
@@ -135,7 +167,11 @@ function Search() {
         {isPending && <SearchSkelton />}
         {error && <Typography>Error: {error.message}</Typography>}
         {isSuccess && searchResults?.result && (
-          <SearchResult searchResults={searchResults} searchText={searchText} />
+          <SearchResult 
+            searchResults={searchResults} 
+            searchText={searchText} 
+            searchStrategy={searchStrategy}
+          />
         )}
       </Box>
     </Container>

@@ -105,10 +105,12 @@ The API supports multiple configurable search strategies to optimize for differe
 * **SEMANTIC_ONLY**: Pure semantic search without keyword filtering or fallbacks
   * Direct semantic search across all chunks using embeddings
   * Best for conceptual queries where exact keyword matches aren't important
+  * **Note**: More computationally expensive but finds conceptually similar content
 
 * **KEYWORD_ONLY**: Pure keyword search without semantic components
   * Direct keyword search across all chunks using full-text search
   * Fastest option, best for exact term matching
+  * **Note**: May return no results if query terms don't exactly match document content
 
 * **HYBRID_PARALLEL**: Run semantic and keyword searches simultaneously and merge results
   * Executes both semantic and keyword searches in parallel threads
@@ -120,6 +122,7 @@ The API supports multiple configurable search strategies to optimize for differe
   * Automatically used for generic document requests (e.g., "show me all letters")
   * Fastest option for document browsing and type-based filtering
   * No semantic analysis or relevance scoring applied
+  * **Smart Override**: When explicitly requested but the query requires content search, the system will automatically fall back to appropriate semantic/hybrid strategies for better results
 
 The search strategy can be overridden per-request using the `searchStrategy` parameter:
 
@@ -129,6 +132,85 @@ The search strategy can be overridden per-request using the `searchStrategy` par
   "searchStrategy": "SEMANTIC_ONLY"
 }
 ```
+
+**Important**: The `DOCUMENT_ONLY` strategy includes intelligent behavior that will automatically fall back to semantic search when the query requires content analysis rather than document browsing:
+
+```json
+// ✅ DOCUMENT_ONLY will be used - generic document request
+{
+  "query": "show me all correspondence letters",
+  "searchStrategy": "DOCUMENT_ONLY"
+}
+
+// ❌ DOCUMENT_ONLY will be overridden - content-specific query
+{
+  "query": "What are the projected greenhouse gas emissions?",
+  "searchStrategy": "DOCUMENT_ONLY"
+}
+// → System automatically uses HYBRID_SEMANTIC_FALLBACK instead
+```
+
+This intelligent override ensures optimal results regardless of the specified strategy.
+
+#### Strategy Override Behavior
+
+The search system includes intelligent strategy selection that can override explicitly requested strategies when they would produce suboptimal results:
+
+**DOCUMENT_ONLY Strategy Overrides:**
+
+* **When it works**: Generic document browsing queries ("show me all letters", "find correspondence", "list reports")
+* **When it's overridden**: Content-specific queries ("What are the emissions?", "How does the process work?", "Tell me about safety concerns")
+* **Override behavior**: Automatically falls back to `HYBRID_SEMANTIC_FALLBACK` for content-specific queries
+
+**Why this happens**: `DOCUMENT_ONLY` returns document-level metadata without content analysis. For queries seeking specific information within documents, semantic search provides much better results.
+
+**Response indicators**: Check the `strategy_metrics` in the response to see if your requested strategy was overridden:
+
+```json
+{
+  "strategy_metrics": {
+    "search_strategy": "HYBRID_SEMANTIC_FALLBACK",
+    "strategy_applied": "HYBRID_SEMANTIC_FALLBACK", 
+    "strategy_source": "intelligent_override"  // Instead of "user_requested"
+  }
+}
+```
+
+#### Strategy Selection Guidance
+
+Different search strategies are optimized for different types of queries:
+
+**Use `HYBRID_SEMANTIC_FALLBACK` (default) when:**
+
+* You want the best balance of performance and accuracy
+* Your query might contain both specific terms and conceptual language
+* You're not sure which approach will work best
+
+**Use `SEMANTIC_ONLY` when:**
+
+* Your query is conceptual ("information about emissions")
+* You want to find similar concepts even without exact word matches
+* Keyword search returns no results due to vocabulary mismatch
+
+**Use `KEYWORD_ONLY` when:**
+
+* You're searching for exact terms or phrases
+* Your query uses the same vocabulary as the documents
+* You need the fastest possible search performance
+
+**Use `HYBRID_PARALLEL` when:**
+
+* You need the most comprehensive coverage
+* Performance is less important than completeness
+* You want results from both keyword and semantic approaches
+
+**Common Issues:**
+
+* `KEYWORD_ONLY` may return no results if your query language doesn't match document vocabulary
+* `SEMANTIC_ONLY` is slower but finds conceptually similar content
+* Hybrid strategies provide the best of both worlds with fallback logic
+
+**Recent Fix:** Automatic tag filtering has been disabled in semantic search to prevent overly restrictive results. Previously, SEMANTIC_ONLY could return no results if the system detected tags in the query (like "GHG" from "greenhouse gas emissions") that didn't exist in document metadata, while HYBRID_SEMANTIC_FALLBACK would work because it uses document-level search first.
 
 #### Ranking Configuration
 

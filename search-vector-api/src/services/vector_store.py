@@ -93,12 +93,12 @@ class VectorStore:
         where_conditions = ["TRUE"]
         params = []
         
-        # Handle tags filter
+        # Handle tags filter - disable automatic tag filtering to avoid overly restrictive results
+        # Tags filtering should be explicit, not automatic based on query text
         tags = get_tags(query)
         if tags:
-            where_conditions.append("metadata->'tags' ?| %s")
-            params.append(tags)
-            logging.info(f"Semantic search - Added tags filter: {tags}")
+            # Log the tags that would be used, but don't apply the filter automatically
+            logging.info(f"Semantic search - Detected tags (not filtering): {tags}")
         else:
             logging.info(f"Semantic search - No tags found for query: '{query}'")
         
@@ -233,7 +233,13 @@ class VectorStore:
         tags = get_tags(query)
         keywords = [keyword for keyword in weighted_keywords]
         tsquery_str = " OR ".join(keywords)  
-        tags_condition = "metadata->'tags' ?| %s" if tags else "TRUE"
+        # Disable automatic tag filtering to avoid overly restrictive results
+        tags_condition = "TRUE"  # Always true - no tag filtering
+        
+        if tags:
+            logging.info(f"Keyword search - Detected tags (not filtering): {tags}")
+        else:
+            logging.info(f"Keyword search - No tags found for query: '{query}'")
         # Note: document_metadata only exists on documents table, not on document_chunks
         if table_name == "documents":
             search_sql = f"""
@@ -255,10 +261,7 @@ class VectorStore:
 
         start_time = time.time()
         # Attempt to reconstruct the raw SQL for debugging (not for production use)
-        if tags:
-            param_tuple = (tsquery_str, tags, limit)
-        else:
-            param_tuple = (tsquery_str, limit)
+        param_tuple = (tsquery_str, limit)
         try:
             reconstructed_sql = search_sql.replace('%s', '{}').format(*[repr(p) for p in param_tuple])
             logging.info(f"Keyword search reconstructed SQL: {reconstructed_sql}")
@@ -269,10 +272,7 @@ class VectorStore:
         conn_params = current_app.vector_settings.database_url
         with psycopg.connect(conn_params) as conn:
             with conn.cursor() as cur:
-                if tags:
-                    cur.execute(search_sql, (tsquery_str, tags, limit))
-                else:
-                    cur.execute(search_sql, (tsquery_str, limit))
+                cur.execute(search_sql, (tsquery_str, limit))
                 results = cur.fetchall()
 
         elapsed_time = time.time() - start_time
