@@ -12,6 +12,8 @@ export type SearchStrategy =
 export interface SearchRequest {
   question: string;
   searchStrategy?: SearchStrategy;
+  projectIds?: string[];
+  documentTypeIds?: string[];
 }
 
 const doSearch = async (searchRequest: SearchRequest) => {

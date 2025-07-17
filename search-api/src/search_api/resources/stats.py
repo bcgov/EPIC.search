@@ -66,3 +66,16 @@ class StatsSummary(Resource):
         except Exception as e:
             current_app.logger.error(f"Stats summary GET error: {str(e)}")
             return Response(json.dumps({"error": "Failed to get system summary"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
+        
+@cors_preflight("GET, OPTIONS")
+@API.route("/document-type-mappings", methods=["GET", "OPTIONS"])
+class DocumentTypeMappings(Resource):
+    @staticmethod
+    @ApiHelper.swagger_decorators(API, endpoint_description="Get document type mappings grouped by Act year (2002 and 2018)")
+    def get():
+        try:
+            result = StatsService.get_document_type_mappings()
+            return Response(json.dumps(result), status=HTTPStatus.OK, mimetype='application/json')
+        except Exception as e:
+            current_app.logger.error(f"Document type mappings GET error: {str(e)}")
+            return Response(json.dumps({"error": "Failed to get document type mappings"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
