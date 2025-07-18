@@ -86,7 +86,7 @@ return (
     </DialogTitle>
     <Divider sx={{ my: 2 }} />
     <DialogContent sx={{ minHeight: 420, maxHeight: 420, p: 0, overflow: 'hidden' }}>
-        <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, p: 3, width: '100%', height: 420, overflow: 'hidden' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'row', gap: 3, p: 3, height: 420, overflow: 'hidden' }}>
           {/* Projects Section */}
           <Box sx={{ width: '50%', minWidth: 0, height: '100%', maxHeight: 420, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
             <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', pt: 0, pb: 2 }}>
