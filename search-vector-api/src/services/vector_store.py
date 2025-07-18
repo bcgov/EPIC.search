@@ -210,85 +210,122 @@ class VectorStore:
 
     def keyword_search(
         self, table_name: str, query: str, limit: int = 5, return_dataframe: bool = True, weighted_keywords=None
-    ) -> Union[List[Tuple[str, str, float]], pd.DataFrame]:
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
         """
-        Search for documents using keyword-based full-text search.
-        
-        This method uses PostgreSQL's full-text search capabilities to find documents
-        that match the keywords extracted from the query. The keywords should be provided
-        by the caller (extracted and timed at a higher level).
-        
-        Args:
-            table_name: The table to search in.
-            query: The search query text.
-            limit: Maximum number of results to return (default: 5).
-            return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
-            weighted_keywords: List of (keyword, weight) tuples extracted from the query.
-        
-        Returns:
-            Either a pandas DataFrame or a list of tuples containing search results.
+        Search for documents using only pre-computed metadata columns (document_keywords, document_tags, document_headings).
+        This avoids scanning the raw content field and leverages GIN indexes for fast keyword search.
         """
         if weighted_keywords is None:
             raise ValueError("weighted_keywords must be provided by the caller.")
         tags = get_tags(query)
         keywords = [keyword for keyword in weighted_keywords]
-        tsquery_str = " OR ".join(keywords)  
-        # Disable automatic tag filtering to avoid overly restrictive results
-        tags_condition = "TRUE"  # Always true - no tag filtering
-        
-        if tags:
-            logging.info(f"Keyword search - Detected tags (not filtering): {tags}")
-        else:
-            logging.info(f"Keyword search - No tags found for query: '{query}'")
-        # Note: document_metadata only exists on documents table, not on document_chunks
-        if table_name == "documents":
-            search_sql = f"""
-            SELECT id, content, metadata, document_metadata, ts_rank_cd(to_tsvector('simple', content), query) as rank
-            FROM {table_name}, websearch_to_tsquery('simple', %s) query
-            WHERE to_tsvector('simple', content) @@ query  AND {tags_condition}
-            ORDER BY rank DESC
-            LIMIT %s
-            """
-        else:
-            # For document_chunks table, don't select document_metadata
-            search_sql = f"""
-            SELECT id, content, metadata, ts_rank_cd(to_tsvector('simple', content), query) as rank
-            FROM {table_name}, websearch_to_tsquery('simple', %s) query
-            WHERE to_tsvector('simple', content) @@ query  AND {tags_condition}
-            ORDER BY rank DESC
-            LIMIT %s
-            """
-
         start_time = time.time()
-        # Attempt to reconstruct the raw SQL for debugging (not for production use)
-        param_tuple = (tsquery_str, limit)
-        try:
-            reconstructed_sql = search_sql.replace('%s', '{}').format(*[repr(p) for p in param_tuple])
-            logging.info(f"Keyword search reconstructed SQL: {reconstructed_sql}")
-        except Exception as e:
-            logging.info(f"Could not reconstruct SQL: {e}")
 
-        # Create a new connection using psycopg
+        # Always search documents first for matching keywords/tags/headings
+        doc_where_conditions = ["TRUE"]
+        doc_params = []
+        doc_search_conditions = []
+        if keywords:
+            doc_search_conditions.append("document_keywords ?| %s")
+            doc_params.append(keywords)
+        if tags:
+            doc_search_conditions.append("document_tags ?| %s")
+            doc_params.append(tags)
+        if keywords:
+            doc_search_conditions.append("document_headings ?| %s")
+            doc_params.append(keywords)
+        if doc_search_conditions:
+            doc_where_conditions.append("(" + " OR ".join(doc_search_conditions) + ")")
+        doc_where_clause = " AND ".join(doc_where_conditions)
+        logging.info(f"Keyword search (documents) WHERE clause: {doc_where_clause}")
+        logging.info(f"Keyword search (documents) parameters: {doc_params}")
+        documents_table = current_app.vector_settings.documents_table_name
+        doc_search_sql = f"""
+        SELECT document_id
+        FROM {documents_table}
+        WHERE {doc_where_clause}
+        ORDER BY document_id DESC
+        LIMIT %s
+        """
+        doc_params.append(limit)
         conn_params = current_app.vector_settings.database_url
         with psycopg.connect(conn_params) as conn:
             with conn.cursor() as cur:
-                cur.execute(search_sql, (tsquery_str, limit))
-                results = cur.fetchall()
+                cur.execute(doc_search_sql, doc_params)
+                doc_id_results = cur.fetchall()
+        document_ids = [row[0] for row in doc_id_results]
 
-        elapsed_time = time.time() - start_time
-        self._log_search_time("Keyword", elapsed_time)
-
-        if return_dataframe:
-            # Note: document_metadata only included when querying documents table
-            if table_name == "documents":
-                columns = ["id", "content", "metadata", "document_metadata", "rank"]
+        # If searching documents, return those results
+        if table_name == "documents":
+            # Optionally, fetch full document info for those IDs
+            if not document_ids:
+                results = []
             else:
-                columns = ["id", "content", "metadata", "rank"]
-            df = pd.DataFrame(results, columns=columns)
-            df["id"] = df["id"].astype(str)
-            return df
+                placeholders = ','.join(['%s'] * len(document_ids))
+                fetch_sql = f"""
+                SELECT document_id, content, metadata, document_metadata
+                FROM {documents_table}
+                WHERE document_id IN ({placeholders})
+                ORDER BY document_id DESC
+                """
+                with psycopg.connect(conn_params) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(fetch_sql, document_ids)
+                        results = cur.fetchall()
+            elapsed_time = time.time() - start_time
+            self._log_search_time("Keyword", elapsed_time)
+            if return_dataframe:
+                columns = ["id", "content", "metadata", "document_metadata"]
+                df = pd.DataFrame(results, columns=columns)
+                df["id"] = df["id"].astype(str)
+                return df
+            else:
+                return results
+
+        # If searching document_chunks, filter by document_ids from above
         else:
-            return results
+            if not document_ids:
+                results = []
+            else:
+                chunks_table = current_app.vector_settings.vector_table_name
+                placeholders = ','.join(['%s'] * len(document_ids))
+                chunk_where_conditions = [f"document_id IN ({placeholders})"]
+                chunk_params = document_ids.copy()
+                chunk_search_conditions = []
+                # Filter by chunk metadata: keywords, tags, headings
+                if keywords:
+                    chunk_search_conditions.append("(metadata->'keywords') ?| %s")
+                    chunk_params.append(keywords)
+                if tags:
+                    chunk_search_conditions.append("(metadata->'tags') ?| %s")
+                    chunk_params.append(tags)
+                if keywords:
+                    chunk_search_conditions.append("(metadata->'headings') ?| %s")
+                    chunk_params.append(keywords)
+                if chunk_search_conditions:
+                    chunk_where_conditions.append("(" + " OR ".join(chunk_search_conditions) + ")")
+                chunk_where_clause = " AND ".join(chunk_where_conditions)
+                chunk_sql = f"""
+                SELECT id, content, metadata
+                FROM {chunks_table}
+                WHERE {chunk_where_clause}
+                ORDER BY id DESC
+                LIMIT %s
+                """
+                chunk_params.append(limit)
+                with psycopg.connect(conn_params) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(chunk_sql, chunk_params)
+                        results = cur.fetchall()
+            elapsed_time = time.time() - start_time
+            self._log_search_time("Keyword", elapsed_time)
+            if return_dataframe:
+                columns = ["id", "content", "metadata"]
+                df = pd.DataFrame(results, columns=columns)
+                df["id"] = df["id"].astype(str)
+                return df
+            else:
+                return results
 
     def document_level_search(
         self,
