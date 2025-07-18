@@ -60,12 +60,18 @@ pip install -r requirements.txt
 
 You can run the embedder as a standard Python application:
 
-```bash
+```powershell
 # Process a specific project
 python main.py --project_id <project_id>
 
 # Process all available projects
 python main.py
+
+# Skip creation of HNSW vector indexes (faster startup, less resource usage)
+python main.py --skip-hnsw-indexes
+
+# Combine with other options
+python main.py --project_id <project_id> --skip-hnsw-indexes
 ```
 
 ### Run as a Docker Container

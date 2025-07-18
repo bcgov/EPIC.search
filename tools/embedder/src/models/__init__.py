@@ -14,8 +14,12 @@
 
 """This exports all of the models and schemas used by the application."""
 
-from .pgvector.vector_db_utils import init_vec_db
+
+from .pgvector.vector_db_utils import init_vec_db, SessionLocal
 from .pgvector.vector_store import VectorStore
-from .pgvector.vector_db_utils import get_session
 from .pgvector.vector_models import DocumentChunk, Document, Project, ProcessingLog, Base
 from .pgvector import VectorStore as PgVectorStore
+
+def get_session():
+    """Return a new SQLAlchemy session for database operations."""
+    return SessionLocal()

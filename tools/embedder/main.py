@@ -76,7 +76,7 @@ def get_embedder_temp_dir():
     os.makedirs(temp_dir, exist_ok=True)
     return temp_dir
 
-def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
+def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False):
     """
     Process documents for one or all projects.
     
@@ -100,7 +100,8 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None):
                 - duration_seconds: Time taken to process the project
     """
     
-    init_vec_db()
+    # Pass skip_hnsw_indexes from main
+    init_vec_db(skip_hnsw=skip_hnsw_indexes)
 
     if project_id:
         # Process a single project
@@ -242,6 +243,9 @@ if __name__ == "__main__":
         parser.add_argument(
             "--shallow", "-s", type=int, metavar="LIMIT", help="Enable shallow mode: process up to LIMIT successful documents per project and then move to the next project. Example: --shallow 5"
         )
+        parser.add_argument(
+            "--skip-hnsw-indexes", action="store_true", help="Skip creation of HNSW vector indexes for semantic search (faster startup, less resource usage)."
+        )
         args = parser.parse_args()
 
         # Custom check for missing shallow limit value
@@ -254,12 +258,12 @@ if __name__ == "__main__":
 
         if args.project_id:
             # Run immediately if a project_id is provided
-            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit)
+            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes)
             print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit)
+            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes)
             print(result)
     finally:
         pass
