@@ -136,27 +136,32 @@ def init_vec_db(skip_hnsw=False):
 
     # Add HNSW vector indexes unless skipped
     if not skip_hnsw:
+        print("[DB INIT] Creating HNSW vector indexes (semantic search acceleration)...")
         create_hnsw_indexes()
+    else:
+        print("[DB INIT] Skipping HNSW vector index creation (--skip-hnsw-indexes flag is set or skip_hnsw=True)")
 
 def create_hnsw_indexes():
     """
     Create HNSW vector indexes for semantic search. Can be skipped via flag in init_vec_db.
     """
     with engine.connect() as conn:
-        print("Initializing HNSW indexes for large-scale continuous ingestion...")
-        create_index(conn,
-            """CREATE INDEX IF NOT EXISTS ix_documents_embedding_vector
-            ON documents USING hnsw (embedding vector_cosine_ops)
-            WITH (m = 32, ef_construction = 400);""",
-            "ix_documents_embedding_vector"
-        )
+        print("[DB INIT] Starting HNSW index creation...")
         create_index(conn,
             """CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_vector
             ON document_chunks USING hnsw (embedding vector_cosine_ops)
             WITH (m = 32, ef_construction = 400);""",
             "ix_document_chunks_embedding_vector"
         )
+        print("[DB INIT] Created ix_document_chunks_embedding_vector.")
+        create_index(conn,
+            """CREATE INDEX IF NOT EXISTS ix_documents_embedding_vector
+            ON documents USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 32, ef_construction = 400);""",
+            "ix_documents_embedding_vector"
+        )
+        print("[DB INIT] Created ix_documents_embedding_vector.")
         # Set runtime parameters for large datasets
         conn.execute(text("SET hnsw.ef_search = 200;"))
         conn.commit()
-        print("HNSW indexes initialized for large-scale operations")
+        print("[DB INIT] Finished HNSW index creation.")
