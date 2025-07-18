@@ -13,7 +13,7 @@ Embedding dimensions are dynamically set from the configuration (settings.py), d
 """
 
 import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Index, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.ext.declarative import declarative_base
@@ -38,10 +38,7 @@ class DocumentChunk(Base):
     document_id = Column(String)
     project_id = Column(String)
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
-    __table_args__ = (
-        Index('ix_document_chunks_project_id', 'project_id'),
-        # Removed HNSW index on embedding; now created via raw SQL in init_vec_db
-    )
+    # __table_args__ removed; indexes will be created in vector_db_utils
 
 class Document(Base):
     """
@@ -58,14 +55,7 @@ class Document(Base):
     project_id = Column(String)
     embedding = Column(Vector(EMBEDDING_DIM))  # Configurable dimensions
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
-    __table_args__ = (
-        Index('ix_documents_tags', 'document_tags', postgresql_using='gin'),
-        Index('ix_documents_keywords', 'document_keywords', postgresql_using='gin'),
-        Index('ix_documents_headings', 'document_headings', postgresql_using='gin'),
-        Index('ix_documents_metadata', 'document_metadata', postgresql_using='gin'),
-        Index('ix_documents_project_id', 'project_id'),
-        # Removed HNSW index on document_embedding; now created via raw SQL in init_vec_db
-    )
+    # __table_args__ removed; indexes will be created in vector_db_utils
 
 class Project(Base):
     """
@@ -77,9 +67,7 @@ class Project(Base):
     project_name = Column(String)
     project_metadata = Column(JSONB)  # Stores full project data from API
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
-    __table_args__ = (
-        Index('ix_projects_metadata', 'project_metadata', postgresql_using='gin'),
-    )
+    # __table_args__ removed; indexes will be created in vector_db_utils
 
 class ProcessingLog(Base):
     """
