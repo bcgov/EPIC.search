@@ -115,8 +115,8 @@ class ProjectInferenceService:
     def _extract_project_entities(self, query: str) -> List[str]:
         """Extract potential project names from the query by matching against known project names.
         
-        Uses fuzzy matching against the actual project names in the database rather than
-        trying to guess what might be a project name based on capitalization patterns.
+        Uses a more targeted approach that only extracts entities that could plausibly 
+        match project names in the database, focusing on actual text spans from the query.
         
         Args:
             query (str): The search query text
@@ -124,54 +124,81 @@ class ProjectInferenceService:
         Returns:
             List[str]: List of n-grams from the query that might match project names
         """
-        # Get known project names for matching
+        # Get known project names for pre-filtering
         projects_df = self._get_projects_cached()
         if projects_df.empty:
             return []
         
-        project_names = [name.lower() for name in projects_df['project_name'].tolist()]
+        # Create a set of project name words for quick filtering
+        project_name_words = set()
+        for name in projects_df['project_name'].tolist():
+            project_name_words.update(word.lower() for word in re.findall(r'\b\w+\b', str(name)))
         
-        # Generate n-grams from the query (1-5 words) for fuzzy matching
-        words = re.findall(r'\b\w+\b', query.lower())
+        query_lower = query.lower()
+        words = re.findall(r'\b\w+\b', query_lower)
         candidates = []
         
-        # Generate n-grams of different lengths
+        # Only generate n-grams that contain at least one word that appears in project names
         for n in range(1, min(6, len(words) + 1)):  # 1 to 5 words
             for i in range(len(words) - n + 1):
-                ngram = ' '.join(words[i:i+n])
-                # Skip very short or very common phrases
-                if len(ngram) > 3 and not ngram.startswith(('i am', 'i have', 'looking for')):
+                ngram_words = words[i:i+n]
+                ngram = ' '.join(ngram_words)
+                
+                # Skip very short phrases
+                if len(ngram) <= 3:
+                    continue
+                
+                # Skip common non-project phrases
+                if ngram.startswith(('i am', 'i have', 'looking for', 'please find', 'that refer')):
+                    continue
+                
+                # Skip overly generic single words that appear in many project names
+                if n == 1 and ngram in {'project', 'development', 'pipeline', 'mine', 'dam', 'terminal', 'facility', 'energy', 'gas', 'oil', 'hydro'}:
+                    continue
+                
+                # Only include if at least one word appears in known project names
+                if any(word in project_name_words for word in ngram_words):
                     candidates.append(ngram)
         
-        # Also try phrases around common project keywords
+        # Extract specific patterns around project keywords with better precision
         project_keywords = ['project', 'pipeline', 'development', 'mine', 'dam', 'terminal', 'facility']
         for keyword in project_keywords:
-            # Find text before the keyword
-            pattern = r'(\b\w+(?:\s+\w+){0,3})\s+' + keyword + r'\b'
+            # More precise pattern matching for "[name] project" structures
+            pattern = r'\b([a-zA-Z]+(?:\s+[a-zA-Z]+){0,3})\s+' + keyword + r'\b'
             matches = re.findall(pattern, query, re.IGNORECASE)
             for match in matches:
                 candidate = match.strip().lower()
                 if len(candidate) > 3:
-                    candidates.append(candidate)
+                    # Verify this candidate contains project-related words
+                    candidate_words = candidate.split()
+                    if any(word in project_name_words for word in candidate_words):
+                        candidates.append(candidate)
+                        # Also add the full "[name] project" phrase
+                        full_phrase = f"{candidate} {keyword}".lower()
+                        candidates.append(full_phrase)
         
-        # Simple exclusion for very common non-project terms
+        # Exclusion list for common non-project terms
         excluded_terms = {
             'aboriginal groups', 'indigenous groups', 'first nations', 'environmental assessment',
-            'british columbia', 'environmental protection', 'climate change'
+            'british columbia', 'environmental protection', 'climate change', 'all correspondence',
+            'please find', 'that refer', 'lheidli t enneh'
         }
         
-        # Filter out excluded terms
-        candidates = [c for c in candidates if c not in excluded_terms]
+        # Filter out excluded terms and very generic phrases
+        filtered_candidates = []
+        for candidate in candidates:
+            if candidate not in excluded_terms and not any(excl in candidate for excl in excluded_terms):
+                filtered_candidates.append(candidate)
         
         # Remove duplicates while preserving order
         seen = set()
         entities = []
-        for candidate in candidates:
+        for candidate in filtered_candidates:
             if candidate not in seen:
                 seen.add(candidate)
                 entities.append(candidate)
         
-        logging.debug(f"Generated {len(entities)} candidate entities from query: {entities}")
+        logging.debug(f"Generated {len(entities)} candidate entities from query '{query}': {entities}")
         return entities
     
     def _get_projects_cached(self) -> pd.DataFrame:
@@ -291,6 +318,10 @@ class ProjectInferenceService:
     ) -> Tuple[List[str], float]:
         """Calculate overall confidence and select project IDs.
         
+        Enhanced to better handle multiple project references in a single query.
+        Now selects all projects with individually strong matches rather than 
+        averaging confidence across all matches.
+        
         Args:
             matches (List[Dict[str, Any]]): List of project matches with similarity scores
             confidence_threshold (float): Minimum confidence required
@@ -308,39 +339,55 @@ class ProjectInferenceService:
             if project_id not in project_scores or match["similarity"] > project_scores[project_id]["similarity"]:
                 project_scores[project_id] = match
         
-        # Calculate overall confidence based on top matches
+        # Sort projects by their best similarity score
         top_matches = sorted(project_scores.values(), key=lambda x: x["similarity"], reverse=True)
         
         if not top_matches:
             return [], 0.0
         
-        # Simple confidence calculation: average of top similarities, weighted by number of matches
-        top_similarities = [match["similarity"] for match in top_matches[:3]]  # Top 3 matches
-        confidence = sum(top_similarities) / len(top_similarities)
+        # For multi-project inference, evaluate each project individually
+        # rather than averaging confidence across all matches
+        high_confidence_projects = []
+        individual_confidences = []
         
-        # Apply bonus for very high similarity matches
-        if top_similarities[0] > 0.9:
-            confidence = min(1.0, confidence * 1.1)
-        
-        # Select projects if confidence meets threshold
-        if confidence >= confidence_threshold:
-            # For high confidence, return top project(s)
-            if confidence > 0.9 and len(top_matches) >= 1:
-                # Very confident - return top match only
-                selected_projects = [top_matches[0]["project_id"]]
-            elif confidence > 0.8 and len(top_matches) >= 2:
-                # Moderately confident - return top 2 if both are strong
-                selected_projects = [
-                    match["project_id"] for match in top_matches[:2] 
-                    if match["similarity"] > 0.7
-                ]
-            else:
-                # Lower confidence - return only the best match
-                selected_projects = [top_matches[0]["project_id"]]
+        for match in top_matches:
+            individual_similarity = match["similarity"]
             
-            return selected_projects, confidence
+            # Apply individual project confidence thresholds
+            # Use a lower threshold (0.75) to catch more multi-project scenarios
+            individual_threshold = max(0.75, confidence_threshold - 0.05)
+            
+            if individual_similarity >= individual_threshold:
+                high_confidence_projects.append(match["project_id"])
+                individual_confidences.append(individual_similarity)
+                
+                logging.debug(f"Selected project '{match['project_name']}' with similarity {individual_similarity:.3f}")
+        
+        # Calculate overall confidence based on selected projects
+        if high_confidence_projects:
+            # For multiple projects, use the average of selected confidences
+            # but apply a bonus for having multiple strong matches
+            confidence = sum(individual_confidences) / len(individual_confidences)
+            
+            # Bonus for multiple strong matches (indicates explicit multi-project query)
+            if len(high_confidence_projects) > 1 and all(c >= 0.8 for c in individual_confidences):
+                confidence = min(1.0, confidence * 1.05)
+                logging.debug(f"Applied multi-project bonus: {len(high_confidence_projects)} projects detected")
+            
+            # Ensure we meet the original confidence threshold
+            if confidence >= confidence_threshold:
+                return high_confidence_projects, confidence
+            else:
+                # If averaged confidence is too low, return only the best match
+                best_match = top_matches[0]
+                if best_match["similarity"] >= confidence_threshold:
+                    return [best_match["project_id"]], best_match["similarity"]
+                else:
+                    return [], confidence
         else:
-            return [], confidence
+            # No individual matches met threshold
+            best_similarity = top_matches[0]["similarity"] if top_matches else 0.0
+            return [], best_similarity
         
     def clean_query_after_inference(self, query: str, inference_metadata: Dict[str, Any]) -> str:
         """Remove identified project names from the query to focus on actual search terms.
