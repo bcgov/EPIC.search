@@ -50,18 +50,15 @@ class VectorStoreSettings(BaseModel):
     Configuration for the vector database.
     
     Attributes:
-        doc_tags_name (str): Name of the table storing document chunks that have been tagged
-        doc_chunks_name (str): Name of the table storing untagged document chunks        
         db_url (str): Database connection URL for the vector database
         embedding_dimensions (int): Dimensionality of the embeddings
         auto_create_extension (bool): Whether to automatically create the pgvector extension
+        reset_db (bool): Whether to drop and recreate all tables on startup (dev/test only)
     """
-    doc_tags_name: str = Field(default_factory=lambda:os.environ.get("DOC_TAGS_TABLE_NAME", "document_tags"))
-    doc_chunks_name: str = Field(default_factory=lambda:os.environ.get("DOC_CHUNKS_TABLE_NAME", "document_chunks"))    
     db_url: str = Field(default_factory=lambda: os.getenv("VECTOR_DB_URL"))
     embedding_dimensions: int = os.environ.get("EMBEDDING_DIMENSIONS", 768)
-    auto_create_extension: bool = Field(default_factory=lambda: os.environ.get("AUTO_CREATE_PGVECTOR_EXTENSION", "True").lower() == "true")
-
+    auto_create_extension: bool = Field(default_factory=lambda: os.environ.get("AUTO_CREATE_PGVECTOR_EXTENSION", "True").lower() in ("true", "1", "yes"))
+    reset_db: bool = Field(default_factory=lambda: os.environ.get("RESET_DB", "False").lower() in ("true", "1", "yes"))
 
 class ChunkSettings(BaseModel):
     """
@@ -114,6 +111,18 @@ class DocumentSearchSettings(BaseModel):
     document_search_url: str = Field(default_factory=lambda: os.getenv("DOCUMENT_SEARCH_URL"))
 
 
+class ApiPaginationSettings(BaseModel):
+    """
+    Configuration for API pagination settings.
+    
+    Attributes:
+        project_page_size (int): Number of projects to fetch per API call
+        documents_page_size (int): Number of documents to fetch per API call
+    """
+    project_page_size: int = Field(default_factory=lambda: int(os.environ.get("GET_PROJECT_PAGE", 1)))
+    documents_page_size: int = Field(default_factory=lambda: int(os.environ.get("GET_DOCS_PAGE", 1000)))
+
+
 class Settings(BaseModel):
     """
     Main settings class that combines all configuration categories.
@@ -150,6 +159,9 @@ class Settings(BaseModel):
     )
     document_search_settings: DocumentSearchSettings = Field(
         default_factory=DocumentSearchSettings
+    )
+    api_pagination_settings: ApiPaginationSettings = Field(
+        default_factory=ApiPaginationSettings
     )
 
 

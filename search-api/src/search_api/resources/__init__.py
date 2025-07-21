@@ -26,6 +26,7 @@ from .apihelper import Api
 from .search import API as SEARCH_API
 from .ops import API as OPS_API
 from .document import API as DOCUMENT_API
+from .stats import API as STATS_API
 
 __all__ = ("API_BLUEPRINT",)
 
@@ -61,4 +62,5 @@ HEALTH = Api(
 
 API.add_namespace(SEARCH_API)
 API.add_namespace(DOCUMENT_API)
+API.add_namespace(STATS_API)
 HEALTH.add_namespace(OPS_API)

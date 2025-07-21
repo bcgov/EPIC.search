@@ -31,6 +31,7 @@ from flask import Blueprint
 from .apihelper import Api
 
 from .search import API as SEARCH_VECTOR_API
+from .stats import API as STATS_API
 from .ops import API as OPS_API
 
 __all__ = ("API_BLUEPRINT", "HEALTH_BLUEPRINT")
@@ -61,4 +62,5 @@ HEALTH = Api(
 
 # Register namespaces with their respective API blueprints
 API.add_namespace(SEARCH_VECTOR_API)
+API.add_namespace(STATS_API)
 HEALTH.add_namespace(OPS_API)

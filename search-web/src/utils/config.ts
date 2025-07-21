@@ -12,7 +12,8 @@ declare global {
   }
 }
 const API_URL =
-  window._env_?.VITE_API_URL || import.meta.env.VITE_API_URL || "";
+  window._env_?.VITE_API_URL || import.meta.env.VITE_API_URL || "/api";
+
 const APP_ENVIRONMENT =
   window._env_?.VITE_ENV || import.meta.env.VITE_ENV || "";
 const APP_VERSION =
@@ -37,4 +38,8 @@ export const OidcConfig = {
   post_logout_redirect_uri: `${APP_URL}/`,
   scope: "openid profile email",
   revokeTokensOnSignout: true,
+  automaticSilentRenew: false,
+  loadUserInfo: false,
+  monitorSession: false,
+  checkSessionInterval: 0,
 };

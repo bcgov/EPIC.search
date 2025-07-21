@@ -19,4 +19,13 @@ export default defineConfig({
       "@": "/src",
     },
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.PROXY_API_URL || 'http://127.0.0.1:8081',
+        changeOrigin: true,
+        secure: false
+      }
+    }
+  },
 });

@@ -60,12 +60,18 @@ pip install -r requirements.txt
 
 You can run the embedder as a standard Python application:
 
-```bash
+```powershell
 # Process a specific project
 python main.py --project_id <project_id>
 
 # Process all available projects
 python main.py
+
+# Skip creation of HNSW vector indexes (faster startup, less resource usage)
+python main.py --skip-hnsw-indexes
+
+# Combine with other options
+python main.py --project_id <project_id> --skip-hnsw-indexes
 ```
 
 ### Run as a Docker Container
@@ -107,12 +113,15 @@ The preloaded model approach is recommended for production deployments as it eli
 The Embedder performs the following operations:
 
 - Retrieves documents from S3 storage
-- Converts PDF content to searchable text
+- **Validates PDF content** and intelligently skips scanned/image-based documents
+- Converts PDF content to searchable text  
 - Splits documents into manageable chunks
 - Creates vector embeddings for each chunk
 - Stores embeddings in a vector database with rich metadata (including S3 keys)
-- Extracts and indexes document tags
-- Tracks processing status for each document
+- Extracts and indexes document tags and keywords (5 per chunk for focused results)
+- Stores complete project metadata as JSONB for analytics
+- **Comprehensive failure tracking**: Captures complete document metadata (PDF title, author, creator, creation date, page count, file size) even for failed processing
+- Tracks processing status and detailed metrics for each document
 
 ## Environment Variables
 
@@ -138,6 +147,8 @@ To run this project, you will need to add the following environment variables to
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
 - `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
+- `GET_PROJECT_PAGE` - Number of projects to fetch per API call (default: 1)
+- `GET_DOCS_PAGE` - Number of documents to fetch per API call (default: 1000)
 
 ### Model Configuration
 
@@ -161,9 +172,20 @@ For detailed technical documentation, see [DOCUMENTATION.md](DOCUMENTATION.md).
 
 ## Monitoring
 
-Processing progress is logged to the console during execution. Each document's processing status is also recorded in the database.
+Processing progress is logged to the console during execution. Each document's processing status is also recorded in the database with comprehensive metrics.
 
-For detailed troubleshooting, check the console output for error messages, which include specific document IDs and failure reasons.
+### Enhanced Failure Analysis
+
+The system captures detailed document metadata even for failed processing attempts, including:
+
+- Complete PDF metadata (title, author, creator, creation date, format info)
+- Page count and file size
+- Validation status and specific failure reasons (e.g., scanned PDFs detected by content/producer analysis, corrupted files)
+- Full exception details for runtime errors
+
+This enables detailed analysis of processing patterns and identification of problematic document types.
+
+For detailed troubleshooting, check the console output for error messages, which include specific document IDs and failure reasons. Query the `processing_logs` table for comprehensive failure analytics.
 
 ## Troubleshooting
 

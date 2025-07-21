@@ -36,6 +36,10 @@ export default function SideNavBar() {
       routeName: "Profile",
       path: "/profile",
     },
+    {
+      routeName: "Stats & Metrics",
+      path: "/stats",
+    },
   ];
 
   if(isAuthenticated) {

@@ -13,12 +13,15 @@ import { createFileRoute } from '@tanstack/react-router'
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
+import { Route as TestNoAuthImport } from './routes/test-no-auth'
+import { Route as StatsImport } from './routes/stats'
 import { Route as SearchImport } from './routes/search'
 import { Route as OidcCallbackImport } from './routes/oidc-callback'
 import { Route as AuthenticatedImport } from './routes/_authenticated'
 import { Route as IndexImport } from './routes/index'
 import { Route as EaoPlansIndexImport } from './routes/eao-plans/index'
 import { Route as EaoPlansPlanIdImport } from './routes/eao-plans/$planId'
+import { Route as AuthenticatedStatsImport } from './routes/_authenticated/stats'
 import { Route as AuthenticatedProfileImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedUsersIndexImport } from './routes/_authenticated/users/index'
 
@@ -38,6 +41,16 @@ const AboutLazyRoute = AboutLazyImport.update({
   path: '/about',
   getParentRoute: () => rootRoute,
 } as any).lazy(() => import('./routes/about.lazy').then((d) => d.Route))
+
+const TestNoAuthRoute = TestNoAuthImport.update({
+  path: '/test-no-auth',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const StatsRoute = StatsImport.update({
+  path: '/stats',
+  getParentRoute: () => rootRoute,
+} as any)
 
 const SearchRoute = SearchImport.update({
   path: '/search',
@@ -67,6 +80,11 @@ const EaoPlansIndexRoute = EaoPlansIndexImport.update({
 const EaoPlansPlanIdRoute = EaoPlansPlanIdImport.update({
   path: '/eao-plans/$planId',
   getParentRoute: () => rootRoute,
+} as any)
+
+const AuthenticatedStatsRoute = AuthenticatedStatsImport.update({
+  path: '/stats',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 
 const AuthenticatedProfileRoute = AuthenticatedProfileImport.update({
@@ -111,6 +129,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SearchImport
       parentRoute: typeof rootRoute
     }
+    '/stats': {
+      id: '/stats'
+      path: '/stats'
+      fullPath: '/stats'
+      preLoaderRoute: typeof StatsImport
+      parentRoute: typeof rootRoute
+    }
+    '/test-no-auth': {
+      id: '/test-no-auth'
+      path: '/test-no-auth'
+      fullPath: '/test-no-auth'
+      preLoaderRoute: typeof TestNoAuthImport
+      parentRoute: typeof rootRoute
+    }
     '/about': {
       id: '/about'
       path: '/about'
@@ -130,6 +162,13 @@ declare module '@tanstack/react-router' {
       path: '/profile'
       fullPath: '/profile'
       preLoaderRoute: typeof AuthenticatedProfileImport
+      parentRoute: typeof AuthenticatedImport
+    }
+    '/_authenticated/stats': {
+      id: '/_authenticated/stats'
+      path: '/stats'
+      fullPath: '/stats'
+      preLoaderRoute: typeof AuthenticatedStatsImport
       parentRoute: typeof AuthenticatedImport
     }
     '/eao-plans/$planId': {
@@ -162,10 +201,13 @@ export const routeTree = rootRoute.addChildren({
   IndexRoute,
   AuthenticatedRoute: AuthenticatedRoute.addChildren({
     AuthenticatedProfileRoute,
+    AuthenticatedStatsRoute,
     AuthenticatedUsersIndexRoute,
   }),
   OidcCallbackRoute,
   SearchRoute,
+  StatsRoute,
+  TestNoAuthRoute,
   AboutLazyRoute,
   NewpageLazyRoute,
   EaoPlansPlanIdRoute,
@@ -184,6 +226,8 @@ export const routeTree = rootRoute.addChildren({
         "/_authenticated",
         "/oidc-callback",
         "/search",
+        "/stats",
+        "/test-no-auth",
         "/about",
         "/newpage",
         "/eao-plans/$planId",
@@ -197,6 +241,7 @@ export const routeTree = rootRoute.addChildren({
       "filePath": "_authenticated.tsx",
       "children": [
         "/_authenticated/profile",
+        "/_authenticated/stats",
         "/_authenticated/users/"
       ]
     },
@@ -206,6 +251,12 @@ export const routeTree = rootRoute.addChildren({
     "/search": {
       "filePath": "search.tsx"
     },
+    "/stats": {
+      "filePath": "stats.tsx"
+    },
+    "/test-no-auth": {
+      "filePath": "test-no-auth.tsx"
+    },
     "/about": {
       "filePath": "about.lazy.tsx"
     },
@@ -214,6 +265,10 @@ export const routeTree = rootRoute.addChildren({
     },
     "/_authenticated/profile": {
       "filePath": "_authenticated/profile.tsx",
+      "parent": "/_authenticated"
+    },
+    "/_authenticated/stats": {
+      "filePath": "_authenticated/stats.tsx",
       "parent": "/_authenticated"
     },
     "/eao-plans/$planId": {

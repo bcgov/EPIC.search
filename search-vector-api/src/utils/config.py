@@ -63,9 +63,18 @@ class VectorSettings:
         """Get the name of the database table storing vector embeddings.
         
         Returns:
-            str: The configured vector table name
+            str: The configured vector table name (defaults to 'document_chunks')
         """
-        return self._config.get("VECTOR_TABLE")
+        return self._config.get("VECTOR_TABLE", "document_chunks")
+    
+    @property
+    def documents_table_name(self) -> str:
+        """Get the name of the database table storing document-level metadata.
+        
+        Returns:
+            str: The configured documents table name (defaults to 'documents')
+        """
+        return self._config.get("DOCUMENTS_TABLE", "documents")
     
     @property
     def embedding_dimensions(self) -> int:
@@ -155,9 +164,53 @@ class SearchSettings:
         """Get the minimum relevance score threshold for re-ranked results.
         
         Returns:
-            float: The minimum relevance score (default: 0.0)
+            float: The minimum relevance score (default: -8.0)
         """
-        return float(self._config.get("MIN_RELEVANCE_SCORE", 0.0))
+        return float(self._config.get("MIN_RELEVANCE_SCORE", -8.0))
+    
+    @property
+    def use_default_inference(self) -> bool:
+        """Get whether to use default inference pipelines when inference parameter is not provided.
+        
+        When True (default), all inference pipelines (PROJECT and DOCUMENTTYPE) will run 
+        if the inference parameter is not specified in the request.
+        When False, no inference will run unless explicitly specified in the inference parameter.
+        
+        Returns:
+            bool: Whether to use default inference (default: True)
+        """
+        return self._config.get("USE_DEFAULT_INFERENCE", "true").lower() in ("true", "1", "yes", "on")
+    
+    @property
+    def default_search_strategy(self) -> str:
+        """Get the default search strategy to use when no strategy is specified.
+        
+        Available strategies:
+        - HYBRID_SEMANTIC_FALLBACK: Document keyword filter → Semantic search → Keyword fallback (default)
+        - HYBRID_KEYWORD_FALLBACK: Document keyword filter → Keyword search → Semantic fallback
+        - SEMANTIC_ONLY: Pure semantic search without keyword filtering or fallbacks
+        - KEYWORD_ONLY: Pure keyword search without semantic components
+        - HYBRID_PARALLEL: Run both semantic and keyword searches in parallel and merge results
+        
+        Returns:
+            str: The default search strategy (default: HYBRID_SEMANTIC_FALLBACK)
+        """
+        strategy = self._config.get("DEFAULT_SEARCH_STRATEGY", "HYBRID_SEMANTIC_FALLBACK")
+        valid_strategies = {
+            "HYBRID_SEMANTIC_FALLBACK", 
+            "HYBRID_KEYWORD_FALLBACK", 
+            "SEMANTIC_ONLY", 
+            "KEYWORD_ONLY", 
+            "HYBRID_PARALLEL"
+        }
+        
+        if strategy not in valid_strategies:
+            # Log warning and fall back to default
+            import logging
+            logging.warning(f"Invalid search strategy '{strategy}'. Using default 'HYBRID_SEMANTIC_FALLBACK'")
+            return "HYBRID_SEMANTIC_FALLBACK"
+        
+        return strategy
 
 
 class ModelSettings:
@@ -241,11 +294,13 @@ class _Config:  # pylint: disable=too-few-public-methods
     TIME_PARTITION_INTERVAL = timedelta(days=7)
 
     # Search Configuration
-    VECTOR_TABLE = os.getenv("VECTOR_TABLE", "document_tags")
+    VECTOR_TABLE = os.getenv("VECTOR_TABLE", "document_chunks")
     KEYWORD_FETCH_COUNT = int(os.getenv("KEYWORD_FETCH_COUNT", "100"))
     SEMANTIC_FETCH_COUNT = int(os.getenv("SEMANTIC_FETCH_COUNT", "100"))
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))
     RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "8"))
+    USE_DEFAULT_INFERENCE = os.getenv("USE_DEFAULT_INFERENCE", "true")
+    DEFAULT_SEARCH_STRATEGY = os.getenv("DEFAULT_SEARCH_STRATEGY", "HYBRID_SEMANTIC_FALLBACK")
 
     # ML Model Configuration
     CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")
@@ -253,7 +308,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     KEYWORD_MODEL_NAME = os.getenv("KEYWORD_MODEL_NAME", "all-mpnet-base-v2")
 
     # Minimum relevance score for re-ranked results
-    MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "0.0"))
+    MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "-8.0"))
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods

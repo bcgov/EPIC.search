@@ -141,7 +141,7 @@ def get_files_for_project(project_id, page_number=0, page_size=10):
     """
     url = (
         settings.document_search_url
-        + f"?dataset=Document&project={project_id}&projectLegislation=default&sortBy=-datePosted&sortBy=+displayName&populate=true&pageNum={page_number}&pageSize={page_size}"
+        + f"?dataset=Document&project={project_id}&projectLegislation=default&sortBy=-datePosted&sortBy=+displayName&populate=true&pageNum={page_number}&pageSize={page_size}&fuzzy=false&fileds=[]"
     )
     try:
         resp = requests.get(url, timeout=10)
@@ -151,3 +151,4 @@ def get_files_for_project(project_id, page_number=0, page_size=10):
     except requests.RequestException as e:
         print(f"Error fetching files for project {project_id}: {e}")
         return []
+

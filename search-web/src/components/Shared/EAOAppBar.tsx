@@ -1,11 +1,12 @@
-import { AppBar, Box, Button, Grid, Typography } from "@mui/material";
+import { AppBar, Button, Grid, Typography } from "@mui/material";
+import { BarChart } from "@mui/icons-material";
 import EAO_Logo from "@/assets/images/EAO_Logo.png";
 import { AppConfig } from "@/utils/config";
-import { useAuth } from "react-oidc-context";
 import { BCDesignTokens } from "epic.theme";
+import { Link, useLocation } from "@tanstack/react-router";
 
 export default function EAOAppBar() {
-  const auth = useAuth();
+  const location = useLocation();
   return (
     <>
       <AppBar
@@ -19,6 +20,7 @@ export default function EAOAppBar() {
           padding={"0.5rem"}
           margin={0}
           justifyContent="space-between"
+          alignItems="center"
         >
           <Grid display="flex" justifyContent="start" alignItems="center">
             <img src={EAO_Logo} height={72} />
@@ -32,42 +34,32 @@ export default function EAOAppBar() {
               {AppConfig.appTitle}
             </Typography>
           </Grid>
+
           <Grid
             display="flex"
-            justifyContent="center"
+            justifyContent="flex-end"
             alignItems="center"
+            gap={2}
             paddingRight={"0.75rem"}
           >
-            {auth.isAuthenticated ? (
-              <>
-                <Box
-                  display={"flex"}
-                  flexDirection={"column"}
-                  marginRight={"0.75rem"}
-                >
-                  <Typography variant="body1" color="inherit">
-                    Hi, <b>{auth.user?.profile.name}</b>
-                  </Typography>
-                  <Typography variant="caption" color="inherit">
-                    {auth.user?.profile.email}
-                  </Typography>
-                </Box>
+            {/* Stats & Metrics Button - only show on search route */}
+            {location.pathname === '/search' && (
+              <Link to="/stats">
                 <Button
                   variant="outlined"
-                  color="primary"
-                  onClick={() => auth.signoutRedirect()}
+                  startIcon={<BarChart />}
+                  sx={{ 
+                    borderColor: BCDesignTokens.themePrimaryBlue,
+                    color: BCDesignTokens.themePrimaryBlue,
+                    '&:hover': {
+                      borderColor: BCDesignTokens.themeBlue70,
+                      backgroundColor: BCDesignTokens.themeBlue10,
+                    }
+                  }}
                 >
-                  Sign Out
+                  Stats & Metrics
                 </Button>
-              </>
-            ) : (
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={() => auth.signinRedirect()}
-              >
-                Sign In
-              </Button>
+              </Link>
             )}
           </Grid>
         </Grid>
