@@ -12,18 +12,26 @@ import {
   IconButton,
   Tooltip,
   Divider,
+  Checkbox,
+  FormControl,
+  FormLabel,
 } from "@mui/material";
 import { Close, HelpOutline } from "@mui/icons-material";
 import { BCDesignTokens } from "epic.theme";
 import { useState } from "react";
 import { SearchStrategy } from "@/hooks/useSearch";
-import { searchStrategyOptions } from "@/utils/searchConfig";
+import { 
+  searchStrategyOptions,
+  RankingConfig,
+  getStoredRankingConfig,
+  setStoredRankingConfig
+} from "@/utils/searchConfig";
 
 interface SearchConfigModalProps {
   open: boolean;
   onClose: () => void;
   currentStrategy: SearchStrategy | undefined;
-  onSave: (strategy: SearchStrategy | undefined) => void;
+  onSave: (strategy: SearchStrategy | undefined, rankingConfig: RankingConfig) => void;
 }
 
 const SearchConfigModal = ({ 
@@ -33,15 +41,18 @@ const SearchConfigModal = ({
   onSave 
 }: SearchConfigModalProps) => {
   const [selectedStrategy, setSelectedStrategy] = useState<SearchStrategy | undefined>(currentStrategy);
+  const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [showHelp, setShowHelp] = useState<string | null>(null);
 
   const handleSave = () => {
-    onSave(selectedStrategy);
+    onSave(selectedStrategy, rankingConfig);
+    setStoredRankingConfig(rankingConfig);
     onClose();
   };
 
   const handleCancel = () => {
     setSelectedStrategy(currentStrategy);
+    setRankingConfig(getStoredRankingConfig());
     setShowHelp(null);
     onClose();
   };
@@ -135,6 +146,64 @@ const SearchConfigModal = ({
             </Box>
           ))}
         </RadioGroup>
+
+        <Divider sx={{ my: 3 }} />
+
+        <Typography variant="h6" sx={{ mb: 2, color: BCDesignTokens.themePrimaryBlue }}>
+          Ranking Configuration
+        </Typography>
+
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={rankingConfig.useCustomRanking}
+              onChange={(e) => setRankingConfig(prev => ({ ...prev, useCustomRanking: e.target.checked }))}
+              color="primary"
+            />
+          }
+          label="Use custom ranking settings"
+          sx={{ mb: 2 }}
+        />
+
+        {rankingConfig.useCustomRanking && (
+          <Box sx={{ ml: 4, mb: 3 }}>
+            <FormControl component="fieldset" sx={{ mb: 3, width: '100%' }}>
+              <FormLabel component="legend" sx={{ mb: 1, color: BCDesignTokens.themeGray80, fontWeight: 600 }}>
+                Result Relevance Threshold
+              </FormLabel>
+              <RadioGroup
+                value={rankingConfig.scoreSetting}
+                onChange={(e) => setRankingConfig(prev => ({ 
+                  ...prev, 
+                  scoreSetting: e.target.value as RankingConfig['scoreSetting'] 
+                }))}
+              >
+                <FormControlLabel value="STRICT" control={<Radio />} label="Strict - Only highly relevant results" />
+                <FormControlLabel value="MODERATE" control={<Radio />} label="Moderate - Good balance of relevance" />
+                <FormControlLabel value="FLEXIBLE" control={<Radio />} label="Flexible - Include more diverse results" />
+                <FormControlLabel value="VERY_FLEXIBLE" control={<Radio />} label="Very Flexible - Cast a wide net" />
+              </RadioGroup>
+            </FormControl>
+
+            <FormControl component="fieldset" sx={{ width: '100%' }}>
+              <FormLabel component="legend" sx={{ mb: 1, color: BCDesignTokens.themeGray80, fontWeight: 600 }}>
+                Number of Results
+              </FormLabel>
+              <RadioGroup
+                value={rankingConfig.resultsSetting}
+                onChange={(e) => setRankingConfig(prev => ({ 
+                  ...prev, 
+                  resultsSetting: e.target.value as RankingConfig['resultsSetting'] 
+                }))}
+              >
+                <FormControlLabel value="FEW" control={<Radio />} label="Few - 5 results (fastest)" />
+                <FormControlLabel value="MEDIUM" control={<Radio />} label="Medium - 15 results (balanced)" />
+                <FormControlLabel value="MANY" control={<Radio />} label="Many - 50 results (comprehensive)" />
+                <FormControlLabel value="MAXIMUM" control={<Radio />} label="Maximum - 100 results (exhaustive)" />
+              </RadioGroup>
+            </FormControl>
+          </Box>
+        )}
 
         <Divider sx={{ my: 3 }} />
 

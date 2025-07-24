@@ -195,8 +195,14 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     chunk_limit = current_app.search_settings.semantic_fetch_count  # Number of chunks to return
     
     # Use provided top_n parameter or fall back to config value
+    original_top_n = top_n
     if top_n is None:
         top_n = current_app.search_settings.top_record_count
+    
+    # Use provided min_relevance_score parameter or fall back to config value
+    original_min_relevance_score = min_relevance_score
+    if min_relevance_score is None:
+        min_relevance_score = current_app.search_settings.min_relevance_score
     
     # Set default search strategy if none provided
     if search_strategy is None:
@@ -204,6 +210,19 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     
     # Add search strategy to metrics
     metrics["search_strategy"] = search_strategy
+    
+    # Add ranking configuration to metrics
+    ranking_config = {
+        "minScore": {
+            "value": min_relevance_score,
+            "source": "parameter" if original_min_relevance_score is not None else "environment"
+        },
+        "topN": {
+            "value": top_n,
+            "source": "parameter" if original_top_n is not None else "environment"
+        }
+    }
+    metrics["ranking_config"] = ranking_config
     
     # Instantiate VectorStore
     vec_store = VectorStore()

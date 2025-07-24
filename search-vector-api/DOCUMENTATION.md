@@ -615,6 +615,16 @@ The search response includes ranking information in the metrics:
   "vector_search": {
     "document_chunks": [...],
     "search_metrics": {
+      "ranking_config": {
+        "minScore": {
+          "value": -6.0,
+          "source": "parameter"  // "parameter" if provided by user, "environment" if using defaults
+        },
+        "topN": {
+          "value": 15,
+          "source": "parameter"  // "parameter" if provided by user, "environment" if using defaults
+        }
+      },
       "filtering_total_chunks": 25,
       "filtering_excluded_chunks": 20,
       "filtering_exclusion_percentage": 80.0,
@@ -670,6 +680,16 @@ Performs the two-stage search pipeline with document-level filtering followed by
       }
     ],
     "search_metrics": {
+      "ranking_config": {
+        "minScore": {
+          "value": -8.0,
+          "source": "environment"
+        },
+        "topN": {
+          "value": 10,
+          "source": "environment"
+        }
+      },
       "document_search_ms": 1715.4,     // Stage 1: Document-level search time
       "chunk_search_ms": 126.49,       // Stage 2: Chunk-level search time within found documents
       "semantic_search_ms": 3787.95,   // Semantic search fallback time (when no documents found)
@@ -1211,6 +1231,14 @@ This distinction makes it clear whether you're getting complete documents or spe
 ### Search Metrics
 
 The API returns detailed timing metrics for each stage of the search pipeline:
+
+#### Ranking Configuration
+
+* **`ranking_config`**: Shows the ranking parameters used for the search
+  * `minScore.value`: The minimum relevance score threshold applied
+  * `minScore.source`: Whether the value came from user parameter or environment default
+  * `topN.value`: The maximum number of results returned
+  * `topN.source`: Whether the value came from user parameter or environment default
 
 #### Timing Metrics
 
