@@ -86,10 +86,10 @@ const StatsMetricsInterface = () => {
     return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   };
 
-  const formatProcessingTime = (ms: number) => {
-    if (ms < 1000) return `${ms.toFixed(0)}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${(ms / 60000).toFixed(1)}min`;
+  const formatProcessingTime = (seconds: number) => {
+    if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    return `${(seconds / 60).toFixed(1)}min`;
   };
 
   if (summaryLoading || processingLoading) {
