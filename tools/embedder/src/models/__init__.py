@@ -21,5 +21,33 @@ from .pgvector.vector_models import DocumentChunk, Document, Project, Processing
 from .pgvector import VectorStore as PgVectorStore
 
 def get_session():
-    """Return a new SQLAlchemy session for database operations."""
-    return SessionLocal()
+    """Return a new SQLAlchemy session for database operations with proper error handling."""
+    from sqlalchemy import text
+    
+    session = SessionLocal()
+    try:
+        # Configure session for better error handling
+        session.execute(text("SET statement_timeout = '300s'"))  # 5 minute query timeout
+        session.execute(text("SET lock_timeout = '60s'"))       # 1 minute lock timeout
+        return session
+    except Exception as e:
+        session.close()
+        raise e
+
+def get_db_session():
+    """Context manager for database sessions with automatic cleanup."""
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def _session_context():
+        session = get_session()
+        try:
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    return _session_context()

@@ -284,8 +284,15 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
 def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
     """
     Insert chunk records into the chunk table using SQLAlchemy ORM.
+    Uses batched inserts to prevent connection timeouts with large documents.
     Expects project_id column to exist in the table. If not, fix your DB migration/init logic.
     """
+    import time
+    from sqlalchemy.exc import OperationalError
+    from src.config.settings import get_settings
+    
+    settings = get_settings()
+    
     chunk_objs = []
     for record in chunks_to_upsert:
         record["document_id"] = doc_id
@@ -302,8 +309,39 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
             project_id=project_id
         )
         chunk_objs.append(chunk_obj)
-    session.add_all(chunk_objs)
-    session.commit()
+    
+    # Insert in batches to prevent connection timeouts
+    batch_size = settings.multi_processing_settings.chunk_insert_batch_size
+    total_chunks = len(chunk_objs)
+    print(f"[DB] Inserting {total_chunks} chunks in batches of {batch_size}...")
+    
+    for i in range(0, total_chunks, batch_size):
+        batch = chunk_objs[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total_chunks + batch_size - 1) // batch_size
+        
+        # Retry logic for connection issues
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.add_all(batch)
+                session.commit()
+                print(f"[DB] Inserted batch {batch_num}/{total_batches} ({len(batch)} chunks)")
+                break
+            except OperationalError as e:
+                if "SSL SYSCALL error" in str(e) or "EOF detected" in str(e):
+                    print(f"[DB] Connection error on batch {batch_num}, attempt {attempt + 1}/{max_retries}: {e}")
+                    if attempt < max_retries - 1:
+                        # Rollback and wait before retry
+                        session.rollback()
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    else:
+                        print(f"[DB] Failed to insert batch {batch_num} after {max_retries} attempts")
+                        raise
+                else:
+                    # Non-connection error, re-raise immediately
+                    raise
 
 def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding=None, document_metadata=None):
     """

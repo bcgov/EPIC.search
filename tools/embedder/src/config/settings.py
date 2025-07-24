@@ -78,8 +78,10 @@ class MultiProcessingSettings(BaseModel):
     
     Attributes:
         files_concurrency_size (int): Number of files to process in parallel
+        chunk_insert_batch_size (int): Number of chunks to insert per database batch
     """
     files_concurrency_size: int = Field(default_factory=lambda: os.environ.get("FILES_CONCURRENCY_SIZE", 4))
+    chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 50)))
 
 
 class S3Settings(BaseModel):

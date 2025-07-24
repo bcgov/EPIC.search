@@ -144,6 +144,7 @@ To run this project, you will need to add the following environment variables to
 - `DOC_CHUNKS_TABLE_NAME` - Table name for the untagged document chunks (default: "document_chunks")
 - `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
 - `FILES_CONCURRENCY_SIZE` - Number of files to process in parallel (default: 4)
+- `CHUNK_INSERT_BATCH_SIZE` - Number of chunks to insert per database batch for stability (default: 50)
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
 - `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
@@ -203,6 +204,28 @@ AttributeError: 'NoneType' object has no attribute 'util'
 ```
 
 This is a harmless error related to Python's multiprocessing module during interpreter shutdown and can be safely ignored. This error has been suppressed in the application but may still appear in certain environments.
+
+#### Database Connection Issues on Servers
+
+If you encounter SSL SYSCALL errors or connection timeouts when running on Ubuntu servers:
+
+```text
+(psycopg.OperationalError) consuming input failed: SSL SYSCALL error: EOF detected
+```
+
+This indicates database connection issues during bulk operations. The application now includes:
+
+- **Batched chunk insertions** - Large documents are split into smaller database transactions
+- **Connection retry logic** - Automatic retry with exponential backoff for connection failures  
+- **Improved connection pooling** - Better connection management and timeouts
+- **Configurable batch sizes** - Adjust `CHUNK_INSERT_BATCH_SIZE` environment variable (default: 50)
+
+To resolve persistent connection issues:
+
+1. Reduce batch size: `CHUNK_INSERT_BATCH_SIZE=25`
+2. Check database connection stability
+3. Ensure adequate database connection limits
+4. Verify network connectivity between application and database
 
 ## Development
 
