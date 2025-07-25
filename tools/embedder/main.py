@@ -110,6 +110,16 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, sk
     print(f"[PERF] Keyword threads per document: {keyword_workers}")
     print(f"[PERF] Database batch size: {chunk_batch_size}")
     print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")
+    print(f"[PERF] Database connection pool: {32} base + {64} overflow = {96} max connections")
+    
+    # HC44-32rs specific performance info
+    import multiprocessing
+    cpu_count = multiprocessing.cpu_count()
+    if cpu_count >= 32:
+        print(f"[HC44-32rs] Detected {cpu_count} vCPUs - high-performance server mode enabled")
+        print(f"[HC44-32rs] Theoretical max throughput: {files_concurrency * keyword_workers} concurrent operations")
+    else:
+        print(f"[PERF] Detected {cpu_count} vCPUs - standard mode")
     
     # Pass skip_hnsw_indexes from main
     init_vec_db(skip_hnsw=skip_hnsw_indexes)

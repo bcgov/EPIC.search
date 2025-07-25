@@ -43,18 +43,18 @@ database_url = settings.vector_store_settings.db_url
 if database_url and database_url.startswith('postgresql:'):
     database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
 
-# Configure engine with connection pooling and timeout settings for server stability
+# Configure engine with connection pooling and timeout settings for HC44-32rs server
 engine = create_engine(
     database_url,
-    pool_size=20,           # Increased for high-concurrency server
-    max_overflow=40,        # Additional connections beyond pool_size for burst loads
+    pool_size=32,           # Match core count for HC44-32rs (32 vCPUs)
+    max_overflow=64,        # 2x pool_size for burst loads on high-core server
     pool_timeout=60,        # Seconds to wait for connection from pool
     pool_recycle=1800,      # Recycle connections after 30 minutes
     pool_pre_ping=True,     # Verify connections before use
     connect_args={
         "sslmode": "prefer",  # Use SSL when available but don't require it
         "connect_timeout": 60,  # Connection timeout in seconds
-        "application_name": "epic_embedder_server"  # Identify in database logs
+        "application_name": "epic_embedder_hc44rs"  # Identify HC44-32rs in database logs
     }
 )
 SessionLocal = sessionmaker(bind=engine)
