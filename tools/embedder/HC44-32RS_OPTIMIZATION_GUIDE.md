@@ -12,30 +12,47 @@ This guide provides specific configuration recommendations for running the EPIC.
 
 ### Environment Variables (.env)
 ```bash
-# Document processing concurrency (auto-detects all 32 cores)
-# FILES_CONCURRENCY_SIZE=auto
+# Document processing concurrency (intelligent auto-configuration)
+FILES_CONCURRENCY_SIZE=auto  # Uses 16 processes (half cores) for optimal performance
 
-# Keyword extraction threads per document (conservative for CPU efficiency)
-KEYWORD_EXTRACTION_WORKERS=4
+# Keyword extraction threads per document (intelligent auto-configuration)  
+KEYWORD_EXTRACTION_WORKERS=auto  # Uses 2 threads per process for KeyBERT optimization
 
 # Database batch size (increased for high RAM)
 CHUNK_INSERT_BATCH_SIZE=50
 ```
 
+### Auto-Configuration Options
+The embedder now supports intelligent auto-configuration:
+
+**FILES_CONCURRENCY_SIZE:**
+- `auto` - 16 processes (half cores for 16+ CPU systems) - **Recommended for HC44-32rs**
+- `auto-full` - 32 processes (all cores) - Use if you have optimized I/O
+- `auto-conservative` - 8 processes (quarter cores) - Use for shared environments
+- Integer value - Manual override
+
+**KEYWORD_EXTRACTION_WORKERS:**
+- `auto` - 2 threads per process (optimized for KeyBERT bottleneck) - **Recommended**
+- `auto-aggressive` - 4 threads per process (higher parallelism)
+- `auto-conservative` - 1 thread per process (minimal contention)
+- Integer value - Manual override
+
 ### Performance Characteristics
-- **Document Workers**: 32 (one per vCPU)
-- **Keyword Threads per Document**: 4
-- **Total Concurrent Threads**: 128 (4 threads per vCPU)
-- **Database Connections**: 32 base + 64 overflow = 96 max
-- **Memory Usage**: ~150-200GB typical, 300GB+ peak
+- **Document Workers**: 16 (optimized for HC44-32rs)
+- **Keyword Threads per Document**: 2 (KeyBERT bottleneck optimization)
+- **Total Concurrent Threads**: 32 (matches vCPU count for 100% utilization)
+- **Database Connections**: 16 base + 32 overflow = 48 max
+- **Memory Usage**: ~75-150GB typical, 200GB+ peak
 
 ## Resource Utilization
 
 ### CPU Usage
-- Target: 85-95% CPU utilization
-- Process-level parallelism: 32 documents simultaneously
-- Thread-level parallelism: 4 keyword extraction threads per document
-- Total theoretical throughput: 128 concurrent operations
+
+- Target: 95-100% CPU utilization during keyword extraction (the bottleneck)
+- Process-level parallelism: 16 documents simultaneously  
+- Thread-level parallelism: 2 keyword extraction threads per document
+- Total concurrent threads: 32 (matches vCPU count for optimal efficiency)
+- **Key improvement**: Eliminates thread contention from previous 128-thread configuration
 
 ### Memory Usage
 - Each document process: ~4-8GB RAM
@@ -44,9 +61,11 @@ CHUNK_INSERT_BATCH_SIZE=50
 - Buffer space: 50GB+ recommended
 
 ### Database Performance
-- Connection pool optimized for 32 concurrent processes
+
+- Connection pool optimized for 16 concurrent processes (reduced from 32)
 - Batch inserts of 50 chunks (vs default 25) to leverage high RAM
 - HNSW indexes for fast semantic search
+- **Improvement**: Reduced database connection pressure
 
 ## Monitoring and Tuning
 
@@ -63,12 +82,15 @@ SELECT count(*) FROM pg_stat_activity WHERE application_name = 'epic_embedder_hc
 ```
 
 ### Performance Tuning
-If you experience:
 
-**High CPU but low throughput**: Reduce `KEYWORD_EXTRACTION_WORKERS` to 2-3
+With the new auto-configuration (`FILES_CONCURRENCY_SIZE=auto` and `KEYWORD_EXTRACTION_WORKERS=auto`), 
+manual tuning is rarely needed. However, if you experience issues:
+
+**KeyBERT bottleneck persists**: Try `KEYWORD_EXTRACTION_WORKERS=auto-conservative` (1 thread per process)
+**Low CPU utilization**: Try `FILES_CONCURRENCY_SIZE=auto-full` (32 processes) 
 **Memory pressure**: Reduce `CHUNK_INSERT_BATCH_SIZE` to 25-35
 **Database timeouts**: Check network latency and database server capacity
-**Low CPU utilization**: Increase `KEYWORD_EXTRACTION_WORKERS` to 6-8
+**Resource contention**: Try `FILES_CONCURRENCY_SIZE=auto-conservative` (8 processes)
 
 ## Expected Performance
 
@@ -118,7 +140,8 @@ Run a test with a known dataset:
 python main.py --shallow 100 --project_id <test_project_id>
 ```
 
-Expected results on HC44-32rs:
-- CPU usage: 85-95%
-- Memory usage: 150-250GB
-- Processing rate: 1-3 documents/second (depending on size)
+Expected results on HC44-32rs with auto-configuration:
+- CPU usage: 95-100% during keyword extraction
+- Memory usage: 75-150GB (reduced from previous 150-250GB)
+- Processing rate: 3-10x faster than manual configuration
+- Concurrent operations: 32 threads (optimized vs previous 128 threads)

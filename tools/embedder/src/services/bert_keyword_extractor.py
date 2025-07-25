@@ -17,6 +17,7 @@ BERT Keyword Extractor module for extracting relevant keywords from text using K
 from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 import multiprocessing
 
@@ -41,16 +42,42 @@ def extract_keywords_from_chunks(chunk_dicts):
     Returns:
         tuple: (updated_chunk_dicts_with_keywords, set_of_all_unique_keywords)
     """
+    start_time = time.time()
     global _keymodel, _sentence_model
+    
+    # Time model loading
+    model_load_start = time.time()
     if _keymodel is None or _sentence_model is None:
+        print(f"[KEYWORDS] Loading models...")
         model_name = settings.keyword_extraction_settings.model_name
         _sentence_model = SentenceTransformer(model_name)
         _keymodel = KeyBERT(model=_sentence_model)
+        model_load_time = time.time() - model_load_start
+        print(f"[KEYWORDS] Model loading took {model_load_time:.2f}s")
+    else:
+        model_load_time = 0
+        print(f"[KEYWORDS] Using cached models")
+    
+    # Time text preparation
+    prep_start = time.time()
     texts = [chunk['content'] for chunk in chunk_dicts]
     if not texts:
         return chunk_dicts, set()
+    prep_time = time.time() - prep_start
+    
     all_keywords = set()
+    chunk_count = len(texts)
+    max_workers = min(settings.multi_processing_settings.keyword_extraction_workers, chunk_count)
+    
+    print(f"[KEYWORDS] Processing {chunk_count} chunks with {max_workers} threads")
+    print(f"[KEYWORDS] Text preparation took {prep_time:.3f}s")
+    
     def extract_for_text(text):
+        """Extract keywords for a single text chunk with detailed timing"""
+        chunk_start = time.time()
+        
+        # Time the actual KeyBERT extraction
+        extract_start = time.time()
         keywords = _keymodel.extract_keywords(
             text,
             keyphrase_ngram_range=(1, 3),
@@ -58,17 +85,46 @@ def extract_keywords_from_chunks(chunk_dicts):
             diversity=0.7,
             top_n=5
         )
+        extract_time = time.time() - extract_start
+        
+        # Time the filtering
+        filter_start = time.time()
         words_to_remove = ["project", "projects"]
-        return [word for word, score in keywords if word not in words_to_remove]
-    # Parallelize extraction across chunks using configurable thread count
-    # Use fewer threads per document process to allow multiple document processes across all cores
-    max_workers = min(settings.multi_processing_settings.keyword_extraction_workers, len(texts))
-    print(f"[KEYWORDS] Using {max_workers} threads for {len(texts)} chunks")
+        filtered_keywords = [word for word, score in keywords if word not in words_to_remove]
+        filter_time = time.time() - filter_start
+        
+        chunk_total_time = time.time() - chunk_start
+        
+        # Log timing for every 10th chunk or slow chunks
+        if chunk_total_time > 1.0:  # Log slow chunks
+            print(f"[KEYWORDS] SLOW CHUNK: {chunk_total_time:.3f}s total (extract: {extract_time:.3f}s, filter: {filter_time:.3f}s) - text length: {len(text)}")
+        
+        return filtered_keywords
     
+    # Time the parallel execution
+    execution_start = time.time()
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         keywords_results = list(executor.map(extract_for_text, texts))
+    execution_time = time.time() - execution_start
+    
+    # Time the result aggregation
+    aggregation_start = time.time()
     for i, chunk in enumerate(chunk_dicts):
         filtered_keywords = keywords_results[i]
         chunk['metadata']['keywords'] = filtered_keywords
         all_keywords.update(filtered_keywords)
+    aggregation_time = time.time() - aggregation_start
+    
+    total_time = time.time() - start_time
+    avg_time_per_chunk = execution_time / chunk_count if chunk_count > 0 else 0
+    
+    print(f"[KEYWORDS] TIMING BREAKDOWN:")
+    print(f"[KEYWORDS]   Model loading: {model_load_time:.3f}s")
+    print(f"[KEYWORDS]   Text prep: {prep_time:.3f}s")
+    print(f"[KEYWORDS]   Parallel execution: {execution_time:.3f}s")
+    print(f"[KEYWORDS]   Result aggregation: {aggregation_time:.3f}s")
+    print(f"[KEYWORDS]   Total time: {total_time:.3f}s")
+    print(f"[KEYWORDS]   Average per chunk: {avg_time_per_chunk:.3f}s")
+    print(f"[KEYWORDS]   Extracted {len(all_keywords)} unique keywords")
+    
     return chunk_dicts, all_keywords

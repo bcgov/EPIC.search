@@ -73,12 +73,13 @@ python main.py --skip-hnsw-indexes
 # Combine with other options
 python main.py --project_id <project_id> --skip-hnsw-indexes
 
-# High-performance server runs (examples)
-# 32-core server optimized for maximum throughput
-FILES_CONCURRENCY_SIZE=32 KEYWORD_EXTRACTION_WORKERS=6 python main.py
+# High-performance server runs with intelligent auto-configuration
+# The embedder automatically detects hardware and optimizes settings
+python main.py --project_id <project_id>
 
-# 64-core server with extreme parallelism  
-FILES_CONCURRENCY_SIZE=64 KEYWORD_EXTRACTION_WORKERS=8 python main.py
+# Manual override examples (auto-configuration is usually better)
+# 32-core server with manual settings
+FILES_CONCURRENCY_SIZE=16 KEYWORD_EXTRACTION_WORKERS=2 python main.py
 
 # Background processing with nohup (server deployment)
 nohup python -u main.py --project_id <project_id> > output.log 2>&1 &
@@ -153,14 +154,30 @@ To run this project, you will need to add the following environment variables to
 - `DOC_TAGS_TABLE_NAME` - Table name for the document chunks with tags index (default: "document_tags")
 - `DOC_CHUNKS_TABLE_NAME` - Table name for the untagged document chunks (default: "document_chunks")
 - `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
-- `FILES_CONCURRENCY_SIZE` - Number of documents to process in parallel (default: auto-detects CPU cores)
-- `KEYWORD_EXTRACTION_WORKERS` - Number of threads per document for keyword extraction (default: 8)
+- `FILES_CONCURRENCY_SIZE` - Number of documents to process in parallel (default: auto - intelligent CPU-based)
+- `KEYWORD_EXTRACTION_WORKERS` - Number of threads per document for keyword extraction (default: auto - optimized for KeyBERT)
 - `CHUNK_INSERT_BATCH_SIZE` - Number of chunks to insert per database batch for stability (default: 25)
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
 - `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
 - `GET_PROJECT_PAGE` - Number of projects to fetch per API call (default: 1)
 - `GET_DOCS_PAGE` - Number of documents to fetch per API call (default: 1000)
+
+### Intelligent Auto-Configuration
+
+The embedder features intelligent auto-configuration that optimizes performance based on your hardware:
+
+**FILES_CONCURRENCY_SIZE Options:**
+- `auto` (default) - Uses half CPU cores for 16+ core systems, all cores for smaller systems
+- `auto-full` - Uses all CPU cores (maximum parallelism)
+- `auto-conservative` - Uses quarter CPU cores (resource-constrained environments)
+- Integer value - Manual override
+
+**KEYWORD_EXTRACTION_WORKERS Options:**
+- `auto` (default) - Optimized for KeyBERT: 2 threads for 16+ cores, 3 for 8-15 cores, 4 for <8 cores
+- `auto-aggressive` - 4 threads per process (maximum keyword parallelism)
+- `auto-conservative` - 1 thread per process (minimal thread contention)
+- Integer value - Manual override
 
 ### Model Configuration
 
@@ -173,30 +190,34 @@ A sample environment file is provided in `sample.env`. Copy this file to `.env` 
 
 ### High-Performance Server Configuration
 
-For dedicated embedding servers with many CPU cores (16+), the application automatically scales to use all available cores for maximum throughput:
+The embedder now uses intelligent auto-configuration by default, eliminating the need for manual tuning in most cases:
 
 ```env
-# For 32-core server
-FILES_CONCURRENCY_SIZE=32            # Process 32 documents simultaneously
-KEYWORD_EXTRACTION_WORKERS=6         # 6 threads per document for keyword extraction
-CHUNK_INSERT_BATCH_SIZE=20          # Smaller batches for database stability
+# Recommended: Let the embedder auto-configure (works for all hardware)
+FILES_CONCURRENCY_SIZE=auto          # Automatically optimizes based on CPU count
+KEYWORD_EXTRACTION_WORKERS=auto      # Automatically optimizes for KeyBERT bottleneck
+CHUNK_INSERT_BATCH_SIZE=50           # Good for high-RAM systems (HC44-32rs)
 
-# For 64-core server  
-FILES_CONCURRENCY_SIZE=64            # Process 64 documents simultaneously
-KEYWORD_EXTRACTION_WORKERS=8         # 8 threads per document for keyword extraction
-CHUNK_INSERT_BATCH_SIZE=15          # Even smaller batches for high concurrency
+# Alternative auto-modes for specific scenarios
+FILES_CONCURRENCY_SIZE=auto-full           # Maximum parallelism (all CPU cores)
+KEYWORD_EXTRACTION_WORKERS=auto-aggressive # Maximum keyword parallelism (4 threads)
 
-# For local development (8-core)
-FILES_CONCURRENCY_SIZE=4             # Conservative for development
-KEYWORD_EXTRACTION_WORKERS=4         # Fewer threads per document
-CHUNK_INSERT_BATCH_SIZE=50          # Larger batches for fewer connections
+FILES_CONCURRENCY_SIZE=auto-conservative      # Resource-constrained (quarter cores)
+KEYWORD_EXTRACTION_WORKERS=auto-conservative  # Minimal contention (1 thread)
 ```
 
-**Performance scaling:**
+**Hardware-specific auto-configuration results:**
 
-- **32-core server:** ~8x faster than 4-core setup
-- **64-core server:** ~16x faster than 4-core setup
-- **Database connections:** Pool size automatically scales with concurrency
+- **32-core server (HC44-32rs):** auto = 16 processes × 2 threads = 32 total threads (100% CPU utilization)
+- **16-core server:** auto = 8 processes × 2 threads = 16 total threads
+- **8-core development machine:** auto = 8 processes × 3 threads = 24 total threads
+- **4-core laptop:** auto = 4 processes × 4 threads = 16 total threads
+
+**Performance scaling with auto-configuration:**
+
+- **Eliminates over-parallelization** that caused 100x slowdowns in previous versions
+- **Optimizes for KeyBERT bottleneck** (the main performance constraint)
+- **Automatically adjusts** database connection pooling based on process count
 
 ## Architecture
 

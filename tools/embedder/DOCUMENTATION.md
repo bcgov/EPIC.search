@@ -144,17 +144,50 @@ All configuration is managed via environment variables and loaded by `get_settin
 
 - **Example environment variables:**
 
-  | Variable Name         | Purpose                                 | Default Value           |
-  |----------------------|-----------------------------------------|------------------------|
-  | EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"    |
-  | KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"    |
-  | EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                    |
-  | FILES_CONCURRENCY_SIZE | Number of files to process in parallel | 4                      |
-  | GET_PROJECT_PAGE     | Number of projects to fetch per API call | 1                      |
-  | GET_DOCS_PAGE        | Number of documents to fetch per API call | 1000                   |
-  | CHUNK_SIZE           | Size of text chunks in characters        | 1000                   |
-  | CHUNK_OVERLAP        | Number of characters to overlap between chunks | 200              |
-  | AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                   |
+  | Variable Name         | Purpose                                 | Default/Auto Value           |
+  |----------------------|-----------------------------------------|------------------------------|
+  | EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"          |
+  | KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"          |
+  | EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                          |
+  | FILES_CONCURRENCY_SIZE | Number of files to process in parallel | auto (intelligent CPU-based) |
+  | KEYWORD_EXTRACTION_WORKERS | Threads per document for keywords | auto (optimized for KeyBERT) |
+  | GET_PROJECT_PAGE     | Number of projects to fetch per API call | 1                           |
+  | GET_DOCS_PAGE        | Number of documents to fetch per API call | 1000                        |
+  | CHUNK_SIZE           | Size of text chunks in characters        | 1000                        |
+  | CHUNK_OVERLAP        | Number of characters to overlap between chunks | 200                     |
+  | CHUNK_INSERT_BATCH_SIZE | Number of chunks per database batch   | 25 (50 for high-RAM systems) |
+  | AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                        |
+
+### Intelligent Auto-Configuration
+
+The embedder supports intelligent auto-configuration for optimal performance across different hardware:
+
+**FILES_CONCURRENCY_SIZE Options:**
+- `auto` - Half CPU cores for 16+ core systems (prevents over-parallelization)
+- `auto-full` - All CPU cores (maximum parallelism)
+- `auto-conservative` - Quarter CPU cores (resource-constrained environments)
+- Integer value - Manual override
+
+**KEYWORD_EXTRACTION_WORKERS Options:**
+- `auto` - Optimized for KeyBERT bottleneck (2 threads for 16+ cores, 3 for 8-15 cores, 4 for <8 cores)
+- `auto-aggressive` - 4 threads per process (maximum keyword parallelism)
+- `auto-conservative` - 1 thread per process (minimal thread contention)
+- Integer value - Manual override
+
+**Example configurations:**
+```bash
+# High-performance server (32+ cores)
+FILES_CONCURRENCY_SIZE=auto          # Uses 16 processes
+KEYWORD_EXTRACTION_WORKERS=auto      # Uses 2 threads per process = 32 total threads
+
+# Development machine (4-8 cores)
+FILES_CONCURRENCY_SIZE=auto          # Uses all 4-8 cores
+KEYWORD_EXTRACTION_WORKERS=auto      # Uses 3-4 threads per process
+
+# Resource-constrained environment
+FILES_CONCURRENCY_SIZE=auto-conservative  # Uses quarter of cores
+KEYWORD_EXTRACTION_WORKERS=auto-conservative  # Uses 1 thread per process
+```
 
 ## Tag/Keyword Extraction
 

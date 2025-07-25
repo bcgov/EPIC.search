@@ -31,6 +31,7 @@ from .embedding import get_embedding
 from .pdf_validation import validate_pdf_file
 from .markdown_reader import read_as_pages
 from .bert_keyword_extractor import extract_keywords_from_chunks
+from .fast_keyword_extractor import extract_keywords_from_chunks_fast
 
 # Import and run path setup
 from src.path_setup import setup_paths
@@ -183,9 +184,22 @@ def chunk_and_embed_pages(
                     chunk_id = chunk_dict["id"]
                     tags = chunk_id_to_tags.get(chunk_id, [])
                     chunk_metadatas[i]["tags"] = tags
-            # Batch keyword extraction for all chunks on this page (now refactored)
+            # Batch keyword extraction for all chunks on this page with configurable mode
             t_kw = time.perf_counter() if chunk_metrics is not None else None
-            chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts)
+            
+            # Choose extraction method based on configuration
+            extraction_mode = settings.multi_processing_settings.keyword_extraction_mode
+            if extraction_mode == "fast":
+                chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
+                    chunk_dicts, use_batch_mode=True, simplified_mode=False
+                )
+            elif extraction_mode == "simplified":
+                chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
+                    chunk_dicts, use_batch_mode=True, simplified_mode=True
+                )
+            else:  # extraction_mode == "standard" or any other value
+                chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts)
+            
             if chunk_metrics is not None:
                 chunk_metrics["_get_keywords_times"].append(time.perf_counter() - t_kw)
             all_keywords.update(page_keywords)
@@ -476,24 +490,39 @@ def load_data(
     """
     doc_id = base_metadata.get("document_id") or os.path.basename(s3_key)
     project_id = base_metadata.get("project_id", "")
-    print(f"[Worker] Actually processing: doc_id={doc_id}, file_key={s3_key}, project_id={project_id}")
+    import os
+    process_id = os.getpid()
+    print(f"[Worker PID {process_id}] Processing: doc_id={doc_id}, file_key={s3_key}, project_id={project_id}")
     temp_path = None
+    # Initialize fresh metrics for this document (ensure no cross-document contamination)
     metrics = {
         "document_info": None,  # Will be populated with doc metadata regardless of success/failure
+        "process_id": process_id,  # Track which process handled this document
     }
     
-    # Try to use a shared engine if available, else create locally
-    try:
-        from src.models.pgvector.vector_db_utils import engine as shared_engine
-        engine_to_use = shared_engine
-    except ImportError:
-        from src.config.settings import get_settings
-        settings = get_settings()
-        from sqlalchemy import create_engine
-        database_url = settings.vector_store_settings.db_url
-        if database_url and database_url.startswith('postgresql:'):
-            database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
-        engine_to_use = create_engine(database_url)
+    # Each process needs its own database engine to avoid prepared statement conflicts
+    # Do NOT use shared engine across processes
+    from src.config.settings import get_settings
+    settings = get_settings()
+    from sqlalchemy import create_engine
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    # Create process-specific engine with minimal connection pool
+    engine_to_use = create_engine(
+        database_url,
+        pool_size=1,           # Single connection per process
+        max_overflow=2,        # Minimal overflow for this process
+        pool_timeout=30,       # Shorter timeout
+        pool_recycle=1800,     # Recycle connections after 30 minutes
+        pool_pre_ping=True,    # Verify connections before use
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": 30,
+            "application_name": f"epic_embedder_worker_{process_id}"
+        }
+    )
     
     Session = sessionmaker(bind=engine_to_use)
     session = Session()

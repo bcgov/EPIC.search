@@ -81,26 +81,67 @@ class MultiProcessingSettings(BaseModel):
         files_concurrency_size (int): Number of documents to process in parallel (use all cores for server)
         chunk_insert_batch_size (int): Number of chunks to insert per database batch
         keyword_extraction_workers (int): Number of threads per document for keyword extraction
+        keyword_extraction_mode (str): Mode for keyword extraction (standard, fast, simplified)
     """
     files_concurrency_size: int = Field(default_factory=lambda: _parse_files_concurrency())
     chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 25)))
-    keyword_extraction_workers: int = Field(default_factory=lambda: int(os.environ.get("KEYWORD_EXTRACTION_WORKERS", 8)))
+    keyword_extraction_workers: int = Field(default_factory=lambda: _parse_keyword_workers())
+    keyword_extraction_mode: str = Field(default_factory=lambda: os.environ.get("KEYWORD_EXTRACTION_MODE", "standard"))
+    chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 25)))
+    keyword_extraction_workers: int = Field(default_factory=lambda: _parse_keyword_workers())
 
 def _parse_files_concurrency():
-    """Parse FILES_CONCURRENCY_SIZE with fallback to CPU count"""
+    """Parse FILES_CONCURRENCY_SIZE with intelligent auto-calculation"""
     env_value = os.environ.get("FILES_CONCURRENCY_SIZE", "")
+    cpu_count = multiprocessing.cpu_count()
     
-    # Handle empty or auto values
-    if not env_value or env_value.lower().startswith('auto'):
-        return multiprocessing.cpu_count()
+    # Handle empty or auto values with intelligent defaults
+    if not env_value or env_value.lower() == 'auto':
+        # For high-core systems, use half the cores to avoid over-parallelization
+        if cpu_count >= 16:
+            return cpu_count // 2
+        else:
+            return cpu_count
+    elif env_value.lower() == 'auto-full':
+        return cpu_count
+    elif env_value.lower() == 'auto-conservative':
+        return max(1, cpu_count // 4)
     
     try:
         # Try to parse as integer
         return int(env_value)
     except ValueError:
-        # If parsing fails, fall back to CPU count
-        print(f"[WARNING] Invalid FILES_CONCURRENCY_SIZE value '{env_value}', using CPU count ({multiprocessing.cpu_count()})")
-        return multiprocessing.cpu_count()
+        # If parsing fails, fall back to intelligent auto
+        print(f"[WARNING] Invalid FILES_CONCURRENCY_SIZE value '{env_value}', using auto calculation ({cpu_count // 2 if cpu_count >= 16 else cpu_count})")
+        return cpu_count // 2 if cpu_count >= 16 else cpu_count
+
+def _parse_keyword_workers():
+    """Parse KEYWORD_EXTRACTION_WORKERS with intelligent auto-calculation"""
+    env_value = os.environ.get("KEYWORD_EXTRACTION_WORKERS", "")
+    cpu_count = multiprocessing.cpu_count()
+    
+    # Handle empty or auto values
+    if not env_value or env_value.lower() == 'auto':
+        # Conservative threading for KeyBERT bottleneck: 2 for high-core systems
+        if cpu_count >= 16:
+            return 2
+        elif cpu_count >= 8:
+            return 3
+        else:
+            return 4
+    elif env_value.lower() == 'auto-aggressive':
+        return 4
+    elif env_value.lower() == 'auto-conservative':
+        return 1
+    
+    try:
+        # Try to parse as integer
+        return int(env_value)
+    except ValueError:
+        # If parsing fails, fall back to intelligent auto
+        default_workers = 2 if cpu_count >= 16 else (3 if cpu_count >= 8 else 4)
+        print(f"[WARNING] Invalid KEYWORD_EXTRACTION_WORKERS value '{env_value}', using auto calculation ({default_workers})")
+        return default_workers
 
 
 class S3Settings(BaseModel):
