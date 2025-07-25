@@ -76,9 +76,9 @@ def get_embedder_temp_dir():
     os.makedirs(temp_dir, exist_ok=True)
     return temp_dir
 
-def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False):
+def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False):
     """
-    Process documents for one or all projects.
+    Process documents for one or more specific projects, or all projects.
     
     This function:
     1. Initializes the database connections
@@ -88,7 +88,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, sk
     5. Processes new documents in batches
     
     Args:
-        project_id (str, optional): Process a specific project. If None, all projects are processed.
+        project_ids (list or str, optional): Process specific project(s). Can be a single ID string or list of IDs. If None, all projects are processed.
         shallow_mode (bool, optional): If True, only process up to shallow_limit successful documents per project.
         shallow_limit (int, optional): The maximum number of successful documents to process per project in shallow mode.
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
@@ -124,10 +124,19 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, sk
     # Pass skip_hnsw_indexes from main
     init_vec_db(skip_hnsw=skip_hnsw_indexes)
 
-    if project_id:
-        # Process a single project
+    if project_ids:
+        # Process specific project(s)
+        # Handle both single string and list of strings
+        if isinstance(project_ids, str):
+            project_ids = [project_ids]
+        
         projects = []
-        projects.extend(get_project_by_id(project_id))
+        for project_id in project_ids:
+            project_data = get_project_by_id(project_id)
+            if project_data:
+                projects.extend(project_data)
+            else:
+                print(f"Warning: Project ID '{project_id}' not found")
     else:
         # Fetch and process all projects
         projects_count = get_projects_count()
@@ -257,7 +266,7 @@ if __name__ == "__main__":
             description="Process projects and their documents."
         )
         parser.add_argument(
-            "--project_id", type=str, help="The ID of the project to process"
+            "--project_id", type=str, nargs='+', help="The ID(s) of the project(s) to process. Can specify multiple: --project_id id1 id2 id3"
         )
         parser.add_argument(
             "--shallow", "-s", type=int, metavar="LIMIT", help="Enable shallow mode: process up to LIMIT successful documents per project and then move to the next project. Example: --shallow 5"
@@ -276,7 +285,7 @@ if __name__ == "__main__":
         shallow_limit = args.shallow if shallow_mode else None
 
         if args.project_id:
-            # Run immediately if a project_id is provided
+            # Run immediately if project_id(s) are provided
             result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes)
             print(result)
         else:

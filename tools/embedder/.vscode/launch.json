@@ -6,7 +6,15 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--project_id", "650b5adc5d77c20022fb59fc"],
+            "args": ["--project_id", "588511e1aaecd9001b8272e7"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Main with multiple projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--project_id", "588511e1aaecd9001b8272e7", "another_project_id", "third_project_id"],
             "console": "integratedTerminal"
         },
         {
