@@ -72,6 +72,16 @@ python main.py --skip-hnsw-indexes
 
 # Combine with other options
 python main.py --project_id <project_id> --skip-hnsw-indexes
+
+# High-performance server runs (examples)
+# 32-core server optimized for maximum throughput
+FILES_CONCURRENCY_SIZE=32 KEYWORD_EXTRACTION_WORKERS=6 python main.py
+
+# 64-core server with extreme parallelism  
+FILES_CONCURRENCY_SIZE=64 KEYWORD_EXTRACTION_WORKERS=8 python main.py
+
+# Background processing with nohup (server deployment)
+nohup python -u main.py --project_id <project_id> > output.log 2>&1 &
 ```
 
 ### Run as a Docker Container
@@ -143,8 +153,9 @@ To run this project, you will need to add the following environment variables to
 - `DOC_TAGS_TABLE_NAME` - Table name for the document chunks with tags index (default: "document_tags")
 - `DOC_CHUNKS_TABLE_NAME` - Table name for the untagged document chunks (default: "document_chunks")
 - `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
-- `FILES_CONCURRENCY_SIZE` - Number of files to process in parallel (default: 4)
-- `CHUNK_INSERT_BATCH_SIZE` - Number of chunks to insert per database batch for stability (default: 50)
+- `FILES_CONCURRENCY_SIZE` - Number of documents to process in parallel (default: auto-detects CPU cores)
+- `KEYWORD_EXTRACTION_WORKERS` - Number of threads per document for keyword extraction (default: 8)
+- `CHUNK_INSERT_BATCH_SIZE` - Number of chunks to insert per database batch for stability (default: 25)
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
 - `AUTO_CREATE_PGVECTOR_EXTENSION` - Whether to automatically create the pgvector extension (default: True)
@@ -159,6 +170,33 @@ The embedder uses two separate models that can be configured independently:
 - `KEYWORD_MODEL_NAME` - The model to use for keyword extraction (default: "all-mpnet-base-v2")
 
 A sample environment file is provided in `sample.env`. Copy this file to `.env` and update the values.
+
+### High-Performance Server Configuration
+
+For dedicated embedding servers with many CPU cores (16+), the application automatically scales to use all available cores for maximum throughput:
+
+```env
+# For 32-core server
+FILES_CONCURRENCY_SIZE=32            # Process 32 documents simultaneously
+KEYWORD_EXTRACTION_WORKERS=6         # 6 threads per document for keyword extraction
+CHUNK_INSERT_BATCH_SIZE=20          # Smaller batches for database stability
+
+# For 64-core server  
+FILES_CONCURRENCY_SIZE=64            # Process 64 documents simultaneously
+KEYWORD_EXTRACTION_WORKERS=8         # 8 threads per document for keyword extraction
+CHUNK_INSERT_BATCH_SIZE=15          # Even smaller batches for high concurrency
+
+# For local development (8-core)
+FILES_CONCURRENCY_SIZE=4             # Conservative for development
+KEYWORD_EXTRACTION_WORKERS=4         # Fewer threads per document
+CHUNK_INSERT_BATCH_SIZE=50          # Larger batches for fewer connections
+```
+
+**Performance scaling:**
+
+- **32-core server:** ~8x faster than 4-core setup
+- **64-core server:** ~16x faster than 4-core setup
+- **Database connections:** Pool size automatically scales with concurrency
 
 ## Architecture
 

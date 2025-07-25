@@ -1,4 +1,5 @@
 import os
+import multiprocessing
 
 from functools import lru_cache
 from dotenv import load_dotenv
@@ -77,11 +78,29 @@ class MultiProcessingSettings(BaseModel):
     Configuration for parallel processing.
     
     Attributes:
-        files_concurrency_size (int): Number of files to process in parallel
+        files_concurrency_size (int): Number of documents to process in parallel (use all cores for server)
         chunk_insert_batch_size (int): Number of chunks to insert per database batch
+        keyword_extraction_workers (int): Number of threads per document for keyword extraction
     """
-    files_concurrency_size: int = Field(default_factory=lambda: os.environ.get("FILES_CONCURRENCY_SIZE", 4))
-    chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 50)))
+    files_concurrency_size: int = Field(default_factory=lambda: _parse_files_concurrency())
+    chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 25)))
+    keyword_extraction_workers: int = Field(default_factory=lambda: int(os.environ.get("KEYWORD_EXTRACTION_WORKERS", 8)))
+
+def _parse_files_concurrency():
+    """Parse FILES_CONCURRENCY_SIZE with fallback to CPU count"""
+    env_value = os.environ.get("FILES_CONCURRENCY_SIZE", "")
+    
+    # Handle empty or auto values
+    if not env_value or env_value.lower().startswith('auto'):
+        return multiprocessing.cpu_count()
+    
+    try:
+        # Try to parse as integer
+        return int(env_value)
+    except ValueError:
+        # If parsing fails, fall back to CPU count
+        print(f"[WARNING] Invalid FILES_CONCURRENCY_SIZE value '{env_value}', using CPU count ({multiprocessing.cpu_count()})")
+        return multiprocessing.cpu_count()
 
 
 class S3Settings(BaseModel):

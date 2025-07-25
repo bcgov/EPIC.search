@@ -91,6 +91,7 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, sk
         project_id (str, optional): Process a specific project. If None, all projects are processed.
         shallow_mode (bool, optional): If True, only process up to shallow_limit successful documents per project.
         shallow_limit (int, optional): The maximum number of successful documents to process per project in shallow mode.
+        skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
         
     Returns:
         dict: A dictionary containing the processing results, including:
@@ -99,6 +100,16 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, sk
                 - project_name: Name of the processed project
                 - duration_seconds: Time taken to process the project
     """
+    
+    # Print performance configuration
+    files_concurrency = settings.multi_processing_settings.files_concurrency_size
+    keyword_workers = settings.multi_processing_settings.keyword_extraction_workers
+    chunk_batch_size = settings.multi_processing_settings.chunk_insert_batch_size
+    
+    print(f"[PERF] Document workers: {files_concurrency}")
+    print(f"[PERF] Keyword threads per document: {keyword_workers}")
+    print(f"[PERF] Database batch size: {chunk_batch_size}")
+    print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")
     
     # Pass skip_hnsw_indexes from main
     init_vec_db(skip_hnsw=skip_hnsw_indexes)
@@ -189,11 +200,9 @@ def process_projects(project_id=None, shallow_mode=False, shallow_limit=None, sk
                     break
 
             if s3_file_keys:
+                files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
                 print(
-                    f"Found {len(s3_file_keys)} file(s) for {project_name}. Processing..."
-                )
-                files_concurrency_size = int(
-                    settings.multi_processing_settings.files_concurrency_size
+                    f"Found {len(s3_file_keys)} file(s) for {project_name}. Processing with {files_concurrency_size} workers..."
                 )
                 process_files(
                     project_id,

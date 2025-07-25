@@ -46,15 +46,15 @@ if database_url and database_url.startswith('postgresql:'):
 # Configure engine with connection pooling and timeout settings for server stability
 engine = create_engine(
     database_url,
-    pool_size=10,  # Number of connections to maintain in pool
-    max_overflow=20,  # Additional connections beyond pool_size
-    pool_timeout=30,  # Seconds to wait for connection from pool
-    pool_recycle=3600,  # Recycle connections after 1 hour
-    pool_pre_ping=True,  # Verify connections before use
+    pool_size=20,           # Increased for high-concurrency server
+    max_overflow=40,        # Additional connections beyond pool_size for burst loads
+    pool_timeout=60,        # Seconds to wait for connection from pool
+    pool_recycle=1800,      # Recycle connections after 30 minutes
+    pool_pre_ping=True,     # Verify connections before use
     connect_args={
         "sslmode": "prefer",  # Use SSL when available but don't require it
-        "connect_timeout": 30,  # Connection timeout in seconds
-        "application_name": "epic_embedder"  # Identify in database logs
+        "connect_timeout": 60,  # Connection timeout in seconds
+        "application_name": "epic_embedder_server"  # Identify in database logs
     }
 )
 SessionLocal = sessionmaker(bind=engine)
@@ -77,7 +77,13 @@ def init_vec_db(skip_hnsw=False):
     # Initialize the pgvector extension (raw SQL, required for embedding column)
     vec.create_pgvector_extension()
 
-    # Always create tables and PKs if missing (safe for production)
+    # Drop and recreate tables if reset_db is True (dev/test only!)
+    if settings.vector_store_settings.reset_db:
+        print("[WARNING] RESET_DB=True - Dropping all existing tables and data!")
+        Base.metadata.drop_all(engine, tables=[DocumentChunk.__table__, Document.__table__, Project.__table__, ProcessingLog.__table__])
+        print("[DB RESET] All tables dropped successfully.")
+
+    # Create tables and PKs if missing (safe for production)
     Base.metadata.create_all(engine, tables=[DocumentChunk.__table__, Document.__table__, Project.__table__, ProcessingLog.__table__])
 
     # Add metadata, GIN, and regular indexes for metadata, tags, keywords, headings, project_id, etc.

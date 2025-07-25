@@ -60,8 +60,12 @@ def extract_keywords_from_chunks(chunk_dicts):
         )
         words_to_remove = ["project", "projects"]
         return [word for word, score in keywords if word not in words_to_remove]
-    # Parallelize extraction across chunks
-    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+    # Parallelize extraction across chunks using configurable thread count
+    # Use fewer threads per document process to allow multiple document processes across all cores
+    max_workers = min(settings.multi_processing_settings.keyword_extraction_workers, len(texts))
+    print(f"[KEYWORDS] Using {max_workers} threads for {len(texts)} chunks")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         keywords_results = list(executor.map(extract_for_text, texts))
     for i, chunk in enumerate(chunk_dicts):
         filtered_keywords = keywords_results[i]
