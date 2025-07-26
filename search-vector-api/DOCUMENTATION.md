@@ -943,6 +943,63 @@ The configuration variables are organized into logical groups:
 | CROSS_ENCODER_MODEL | Model for re-ranking results | cross-encoder/ms-marco-MiniLM-L-2-v2 |
 | EMBEDDING_MODEL_NAME | Model for generating embeddings | all-mpnet-base-v2 |
 | KEYWORD_MODEL_NAME | Model for keyword extraction | all-mpnet-base-v2 |
+| DOCUMENT_KEYWORD_EXTRACTION_METHOD | Method used for document keyword extraction | keybert |
+
+#### Keyword Extraction Configuration
+
+The system supports two different keyword extraction methods, which affects the query engine's search strategy:
+
+| Method | Description | Query Strategy | Best For |
+|--------|-------------|---------------|----------|
+| `keybert` (default) | Semantic embeddings-based extraction using KeyBERT | Match query keywords directly with document keywords | High semantic relevance, standard/fast embedding modes |
+| `tfidf` | Statistical frequency-based extraction using TF-IDF | Prioritize tags/headings over keywords, rely more on semantic search | Simplified mode, statistical frequency matching |
+
+**Configuration:**
+
+```bash
+# Set the keyword extraction method to match your document processing pipeline
+DOCUMENT_KEYWORD_EXTRACTION_METHOD=keybert  # or "tfidf"
+```
+
+**Impact on Search Behavior:**
+
+1. **KeyBERT Mode** (default):
+   * Query keywords extracted using KeyBERT with semantic embeddings
+   * Document-level search prioritizes keyword matching since both use semantic extraction
+   * High-quality semantic relevance between query and document keywords
+   * Works with diversity settings (0.6-0.7) from standard and fast modes
+
+2. **TF-IDF Mode**:
+   * Query keywords extracted using TF-IDF statistical methods
+   * Document-level search prioritizes tags and headings over keyword matching
+   * Search strategy relies more heavily on semantic vector search for accuracy
+   * Optimized for documents processed with simplified/fast TF-IDF extraction
+
+**Example Configuration for TF-IDF:**
+
+```bash
+# When your embedding service uses TF-IDF for document keywords
+DOCUMENT_KEYWORD_EXTRACTION_METHOD=tfidf
+```
+
+The search metrics will include the extraction method used:
+
+```json
+{
+  "search_metrics": {
+    "keyword_extraction_method": "tfidf",
+    "document_search_ms": 45.2,
+    // ... other metrics
+  }
+}
+```
+
+**Migration Note**: To switch from KeyBERT to TF-IDF mode, simply update your `.env` file with the new configuration and restart the application. The system is fully backward compatible and defaults to KeyBERT mode if not configured.
+    "document_search_ms": 45.2,
+    // ... other metrics
+  }
+}
+```
 
 ### Configuration Classes
 

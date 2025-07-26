@@ -359,9 +359,12 @@ class VectorStore:
         query_keywords = extract_keywords_for_document_search(query)
         query_tags = get_tags(query)
         
+        # Check extraction method to adjust search strategy
+        extraction_method = current_app.model_settings.document_keyword_extraction_method
+        
         # Debug logging
         import logging
-        logging.info(f"Document-level search for query: '{query}'")
+        logging.info(f"Document-level search for query: '{query}' (extraction method: {extraction_method})")
         logging.info(f"Extracted keywords: {query_keywords}")
         logging.info(f"Extracted tags: {query_tags}")
         
@@ -372,23 +375,52 @@ class VectorStore:
         # Build search conditions using OR logic between different search criteria
         search_conditions = []
         
-        # Search for keyword matches in document_keywords JSONB field
-        if query_keywords:
-            keyword_list = [keyword for keyword, score in query_keywords]
-            # Use JSONB operators to check if any query keywords exist in document keywords
-            search_conditions.append("document_keywords ?| %s")
-            params.append(keyword_list)
-        
-        # Search for tag matches in document_tags JSONB field
-        if query_tags:
-            search_conditions.append("document_tags ?| %s")
-            params.append(query_tags)
-        
-        # Search for keyword matches in document_headings JSONB field (using same keyword list)
-        if query_keywords:
-            keyword_list = [keyword for keyword, score in query_keywords]
-            search_conditions.append("document_headings ?| %s")
-            params.append(keyword_list)  # Add the same keyword list again for headings
+        # Adjust search strategy based on keyword extraction method
+        if extraction_method == "tfidf":
+            # For TF-IDF keywords, prioritize tags and headings over document keywords
+            # since TF-IDF keywords are statistical/frequency-based rather than semantic
+            
+            # Search for tag matches first (highest priority for TF-IDF)
+            if query_tags:
+                search_conditions.append("document_tags ?| %s")
+                params.append(query_tags)
+            
+            # Search for keyword matches in document_headings (medium priority)
+            if query_keywords:
+                keyword_list = [keyword for keyword, score in query_keywords]
+                search_conditions.append("document_headings ?| %s")
+                params.append(keyword_list)
+            
+            # Search for keyword matches in document_keywords (lower priority for TF-IDF)
+            if query_keywords:
+                keyword_list = [keyword for keyword, score in query_keywords]
+                search_conditions.append("document_keywords ?| %s")
+                params.append(keyword_list)
+                
+            logging.info("TF-IDF mode: Prioritizing tags and headings over document keywords")
+            
+        else:
+            # For KeyBERT keywords, use the original strategy (keywords have high semantic relevance)
+            
+            # Search for keyword matches in document_keywords JSONB field (high priority)
+            if query_keywords:
+                keyword_list = [keyword for keyword, score in query_keywords]
+                # Use JSONB operators to check if any query keywords exist in document keywords
+                search_conditions.append("document_keywords ?| %s")
+                params.append(keyword_list)
+            
+            # Search for tag matches in document_tags JSONB field
+            if query_tags:
+                search_conditions.append("document_tags ?| %s")
+                params.append(query_tags)
+            
+            # Search for keyword matches in document_headings JSONB field (using same keyword list)
+            if query_keywords:
+                keyword_list = [keyword for keyword, score in query_keywords]
+                search_conditions.append("document_headings ?| %s")
+                params.append(keyword_list)  # Add the same keyword list again for headings
+                
+            logging.info("KeyBERT mode: Standard keyword-first search strategy")
         
         # Combine search conditions with OR logic
         if search_conditions:

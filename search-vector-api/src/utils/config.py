@@ -258,6 +258,24 @@ class ModelSettings:
             str: The keyword model identifier
         """
         return self._config.get("KEYWORD_MODEL_NAME")
+    
+    @property
+    def document_keyword_extraction_method(self) -> str:
+        """Get the method used for extracting keywords from documents in the database.
+        
+        This indicates which extraction method was used when the document keywords
+        were originally computed and stored. The query keyword extraction should
+        match this method for optimal matching performance.
+        
+        Returns:
+            str: The extraction method ("keybert" or "tfidf")
+        """
+        method = self._config.get("DOCUMENT_KEYWORD_EXTRACTION_METHOD", "keybert").lower()
+        if method not in ["keybert", "tfidf"]:
+            import logging
+            logging.warning(f"Invalid keyword extraction method '{method}'. Using default 'keybert'")
+            return "keybert"
+        return method
 
 
 def get_named_config(config_name: str = "development"):
@@ -306,6 +324,11 @@ class _Config:  # pylint: disable=too-few-public-methods
     CROSS_ENCODER_MODEL = os.getenv("CROSS_ENCODER_MODEL", "cross-encoder/ms-marco-MiniLM-L-2-v2")
     EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-mpnet-base-v2")
     KEYWORD_MODEL_NAME = os.getenv("KEYWORD_MODEL_NAME", "all-mpnet-base-v2")
+
+    # Keyword Extraction Configuration
+    # Indicates the method used to extract keywords in documents stored in the database
+    # Values: "keybert" (default) or "tfidf"
+    DOCUMENT_KEYWORD_EXTRACTION_METHOD = os.getenv("DOCUMENT_KEYWORD_EXTRACTION_METHOD", "keybert")
 
     # Minimum relevance score for re-ranked results
     MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "-8.0"))

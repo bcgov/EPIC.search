@@ -1,9 +1,10 @@
-# Global model instance - loaded only once
+# Global model instances - loaded only once
 from flask import current_app
 
 import logging
 
 _keymodel = None
+_tfidf_vectorizer = None
 
 def get_keywords(text):
     global _keymodel
@@ -97,6 +98,8 @@ def extract_keywords_for_document_search(text, top_n=5):
     
     This function extracts a smaller set of high-quality keywords that are
     more suitable for matching against pre-computed document keywords.
+    The extraction method used depends on the document keyword extraction method
+    configured in the application settings.
     
     Args:
         text (str): The query text to extract keywords from
@@ -106,9 +109,137 @@ def extract_keywords_for_document_search(text, top_n=5):
         list: List of (keyword, score) tuples, limited to top_n results
     """
     try:
-        all_keywords = get_keywords(text)
-        # Return only the top N keywords for document matching
-        return all_keywords[:top_n]
+        # Check which extraction method was used for documents
+        extraction_method = current_app.model_settings.document_keyword_extraction_method
+        
+        if extraction_method == "tfidf":
+            return get_tfidf_keywords(text, top_n=top_n)
+        else:  # default to keybert
+            all_keywords = get_keywords(text)
+            # Return only the top N keywords for document matching
+            return all_keywords[:top_n]
     except Exception as e:
         logging.error(f"Error extracting keywords for document search: {str(e)}")
+        return []
+
+
+def get_tfidf_keywords(text, top_n=10):
+    """
+    Extract keywords using TF-IDF (Term Frequency-Inverse Document Frequency) method.
+    
+    This method uses statistical frequency-based keyword extraction instead of 
+    semantic embeddings. It's suitable for matching against document keywords
+    that were also extracted using TF-IDF methods.
+    
+    Args:
+        text (str): The text to extract keywords from
+        top_n (int): Maximum number of keywords to return (default: 10)
+        
+    Returns:
+        list: List of (keyword, score) tuples, sorted by TF-IDF score
+    """
+    global _tfidf_vectorizer
+    
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import numpy as np
+        import re
+        
+        # Initialize the TF-IDF vectorizer on first call
+        if _tfidf_vectorizer is None:
+            _tfidf_vectorizer = TfidfVectorizer(
+                max_features=1000,  # Limit vocabulary size
+                ngram_range=(1, 3),  # Use 1-3 word phrases like KeyBERT
+                stop_words='english',  # Remove common English stop words
+                lowercase=True,
+                token_pattern=r'\b[a-zA-Z][a-zA-Z0-9]*\b',  # Only alphanumeric tokens starting with letter
+                min_df=1,  # Minimum document frequency
+                max_df=0.95  # Maximum document frequency (remove very common words)
+            )
+        
+        # For a single query, we need to create a small corpus to calculate TF-IDF
+        # We'll split the text into sentences to create multiple "documents"
+        sentences = re.split(r'[.!?]+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        # If we only have one sentence, duplicate it to allow TF-IDF calculation
+        if len(sentences) <= 1:
+            sentences = [text] * 2
+        
+        # Fit TF-IDF on the sentences
+        tfidf_matrix = _tfidf_vectorizer.fit_transform(sentences)
+        feature_names = _tfidf_vectorizer.get_feature_names_out()
+        
+        # Calculate average TF-IDF scores across all sentences
+        mean_scores = np.mean(tfidf_matrix.toarray(), axis=0)
+        
+        # Get indices of top scoring terms
+        top_indices = np.argsort(mean_scores)[::-1][:top_n]
+        
+        # Create list of (keyword, score) tuples
+        keywords = []
+        words_to_remove = {"project", "projects"}  # Same filtering as KeyBERT
+        
+        for idx in top_indices:
+            keyword = feature_names[idx]
+            score = mean_scores[idx]
+            
+            if keyword not in words_to_remove and score > 0:
+                keywords.append((keyword, float(score)))
+        
+        return keywords[:top_n]
+        
+    except Exception as e:
+        logging.error(f"Error extracting TF-IDF keywords: {str(e)}")
+        # Fallback to simple word extraction if TF-IDF fails
+        return extract_simple_keywords(text, top_n)
+
+
+def extract_simple_keywords(text, top_n=10):
+    """
+    Simple fallback keyword extraction when advanced methods fail.
+    
+    Extracts important-looking words from text using basic heuristics.
+    
+    Args:
+        text (str): The text to extract keywords from
+        top_n (int): Maximum number of keywords to return
+        
+    Returns:
+        list: List of (keyword, score) tuples with uniform scores
+    """
+    try:
+        import re
+        from collections import Counter
+        
+        # Basic text processing
+        text = text.lower()
+        # Extract words (alphanumeric, 3+ characters)
+        words = re.findall(r'\b[a-zA-Z][a-zA-Z0-9]{2,}\b', text)
+        
+        # Simple stop words to remove
+        stop_words = {
+            'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one',
+            'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see',
+            'two', 'way', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use', 'that',
+            'with', 'have', 'this', 'will', 'your', 'from', 'they', 'know', 'want', 'been', 'good',
+            'much', 'some', 'time', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make',
+            'many', 'over', 'such', 'take', 'than', 'them', 'well', 'were', 'what', 'project', 'projects'
+        }
+        
+        # Filter out stop words and count frequency
+        filtered_words = [word for word in words if word not in stop_words]
+        word_counts = Counter(filtered_words)
+        
+        # Get most common words
+        most_common = word_counts.most_common(top_n)
+        
+        # Convert to (keyword, score) format with normalized scores
+        max_count = most_common[0][1] if most_common else 1
+        keywords = [(word, count / max_count) for word, count in most_common]
+        
+        return keywords
+        
+    except Exception as e:
+        logging.error(f"Error in simple keyword extraction: {str(e)}")
         return []

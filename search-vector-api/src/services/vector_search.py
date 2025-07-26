@@ -274,6 +274,7 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     metrics["search_strategy"] = search_strategy
     metrics["project_filter_applied"] = project_ids is not None and len(project_ids) > 0
     metrics["document_type_filter_applied"] = document_type_ids is not None and len(document_type_ids) > 0
+    metrics["keyword_extraction_method"] = current_app.model_settings.document_keyword_extraction_method
     
     if search_strategy == "HYBRID_SEMANTIC_FALLBACK":
         return execute_hybrid_semantic_fallback_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time)
@@ -798,7 +799,8 @@ def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None
     """Perform keyword search using vector store with optional project and document type filtering.
     
     Executes a keyword-based search using PostgreSQL's full-text search capabilities
-    through the VectorStore interface. Also times the keyword extraction step separately.
+    through the VectorStore interface. The keyword extraction method used will match
+    the method used for document keywords to ensure optimal matching.
     
     Args:
         vec_store (VectorStore): The vector store instance
@@ -815,8 +817,20 @@ def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None
     """
     # Time the keyword extraction step
     keyword_extract_start = time.time()
-    weighted_keywords = get_keywords(query)
+    
+    # Use the appropriate keyword extraction method based on document configuration
+    extraction_method = current_app.model_settings.document_keyword_extraction_method
+    
+    if extraction_method == "tfidf":
+        from .bert_keyword_extractor import get_tfidf_keywords
+        weighted_keywords = get_tfidf_keywords(query)
+        logging.info(f"Using TF-IDF keyword extraction for query: {query}")
+    else:  # default to keybert
+        weighted_keywords = get_keywords(query)
+        logging.info(f"Using KeyBERT keyword extraction for query: {query}")
+    
     keyword_extract_ms = round((time.time() - keyword_extract_start) * 1000, 2)
+    logging.info(f"Extracted keywords: {weighted_keywords} (method: {extraction_method})")
 
     # Extract just the keywords from the (keyword, score) tuples
     keywords_only = [keyword for keyword, score in weighted_keywords] if weighted_keywords else []
@@ -848,7 +862,8 @@ def perform_keyword_search_within_documents(vec_store, table_name, query, limit,
     """Perform keyword search within specific documents.
     
     Executes a keyword-based search using PostgreSQL's full-text search capabilities
-    within a specific set of documents.
+    within a specific set of documents. The keyword extraction method used will match
+    the method used for document keywords to ensure optimal matching.
     
     Args:
         vec_store (VectorStore): The vector store instance
@@ -864,7 +879,18 @@ def perform_keyword_search_within_documents(vec_store, table_name, query, limit,
     """
     # Time the keyword extraction step
     keyword_extract_start = time.time()
-    weighted_keywords = get_keywords(query)
+    
+    # Use the appropriate keyword extraction method based on document configuration
+    extraction_method = current_app.model_settings.document_keyword_extraction_method
+    
+    if extraction_method == "tfidf":
+        from .bert_keyword_extractor import get_tfidf_keywords
+        weighted_keywords = get_tfidf_keywords(query)
+        logging.info(f"Using TF-IDF keyword extraction for document search: {query}")
+    else:  # default to keybert
+        weighted_keywords = get_keywords(query)
+        logging.info(f"Using KeyBERT keyword extraction for document search: {query}")
+    
     keyword_extract_ms = round((time.time() - keyword_extract_start) * 1000, 2)
 
     # Extract just the keywords from the (keyword, score) tuples
