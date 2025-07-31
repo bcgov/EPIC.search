@@ -61,10 +61,33 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     #    setup_jwt_manager(app, jwt)
 
     @app.before_request
+    def log_request_info():
+        """Log request information for debugging."""
+        current_app.logger.info("=== Incoming Request ===")
+        current_app.logger.info(f"Method: {request.method}")
+        current_app.logger.info(f"URL: {request.url}")
+        current_app.logger.info(f"Path: {request.path}")
+        current_app.logger.info(f"Headers: {dict(request.headers)}")
+        if request.args:
+            current_app.logger.info(f"Query params: {dict(request.args)}")
+        current_app.logger.info("=== End Request Info ===")
+
+    @app.before_request
     def set_origin():
         g.origin_url = request.environ.get("HTTP_ORIGIN", "localhost")
 
     build_cache(app)
+
+    @app.after_request
+    def log_response_info(response):
+        """Log response information for debugging."""
+        current_app.logger.info("=== Outgoing Response ===")
+        current_app.logger.info(f"Status: {response.status}")
+        current_app.logger.info(f"Headers: {dict(response.headers)}")
+        if hasattr(response, 'content_length') and response.content_length:
+            current_app.logger.info(f"Content Length: {response.content_length}")
+        current_app.logger.info("=== End Response Info ===")
+        return response
 
     @app.after_request
     def set_secure_headers(response):
