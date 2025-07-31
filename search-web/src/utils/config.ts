@@ -8,7 +8,6 @@ declare global {
       VITE_APP_URL: string;
       VITE_OIDC_AUTHORITY: string;
       VITE_CLIENT_ID: string;
-      VITE_SYSTEM_NOTE: string;
     };
   }
 }
@@ -24,14 +23,12 @@ const APP_TITLE =
 const APP_URL = window._env_?.VITE_APP_URL || import.meta.env.VITE_APP_URL;
 const OIDC_AUTHORITY = window._env_?.VITE_OIDC_AUTHORITY || import.meta.env.VITE_OIDC_AUTHORITY;
 const CLIENT_ID = window._env_?.VITE_CLIENT_ID || import.meta.env.VITE_CLIENT_ID;
-const SYSTEM_NOTE = window._env_?.VITE_SYSTEM_NOTE || import.meta.env.VITE_SYSTEM_NOTE || "";
 
 export const AppConfig = {
   apiUrl: `${API_URL}`,
   environment: APP_ENVIRONMENT,
   version: APP_VERSION,
   appTitle: APP_TITLE,
-  systemNote: SYSTEM_NOTE,
 };
 
 export const OidcConfig = {

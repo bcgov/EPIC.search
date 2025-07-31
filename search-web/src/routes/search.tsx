@@ -1,5 +1,5 @@
 import { Cancel, Search as SearchIcon, Settings, FilterList } from "@mui/icons-material";
-import { Box, Container, Typography, Tooltip, IconButton, Chip, Alert } from "@mui/material";
+import { Box, Container, Typography, Tooltip, IconButton, Chip } from "@mui/material";
 import { InputBase } from "@mui/material";
 import { Paper } from "@mui/material";
 import { createFileRoute } from "@tanstack/react-router";
@@ -16,7 +16,6 @@ import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
 import { getStoredSearchStrategy, setStoredSearchStrategy, RankingConfig, getStoredRankingConfig, scoreSettings, resultsSettings } from "@/utils/searchConfig";
 import { useProjects } from "@/hooks/useProjects";
 import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
-import { AppConfig } from "@/utils/config";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -92,19 +91,6 @@ function Search() {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 1 }}>
-      {AppConfig.systemNote && (
-        <Alert 
-          severity="info" 
-          sx={{ 
-            mb: 3, 
-            mt: 2,
-            borderRadius: "8px",
-            textAlign: "center"
-          }}
-        >
-          {AppConfig.systemNote}
-        </Alert>
-      )}
       <Typography
         variant="h2"
         sx={{
