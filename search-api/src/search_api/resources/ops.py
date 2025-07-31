@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Endpoints to check and manage the health of the service."""
+from flask import current_app
 from flask_restx import Namespace, Resource
 
 # from api.models import db
@@ -29,6 +30,14 @@ class Healthz(Resource):
     @staticmethod
     def get():
         """Return a JSON object stating the health of the Service and dependencies."""
+        current_app.logger.info("Health check endpoint called")
+        
+        # Could add more detailed health checks here in the future:
+        # - Database connectivity
+        # - External service availability
+        # - Memory/disk usage
+        
+        current_app.logger.info("Health check completed successfully")
         # made it here, so all checks passed
         return {'message': 'api is healthy'}, 200
 
@@ -40,4 +49,12 @@ class Readyz(Resource):
     @staticmethod
     def get():
         """Return a JSON object that identifies if the service is setupAnd ready to work."""
+        current_app.logger.info("Readiness check endpoint called")
+        
+        # Could add more detailed readiness checks here in the future:
+        # - Configuration validation
+        # - Required services connectivity
+        # - Initialization completion
+        
+        current_app.logger.info("Readiness check completed successfully")
         return {'message': 'api is ready'}, 200
