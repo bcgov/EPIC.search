@@ -185,6 +185,38 @@ class ApiPaginationSettings(BaseModel):
     documents_page_size: int = Field(default_factory=lambda: int(os.environ.get("GET_DOCS_PAGE", 1000)))
 
 
+class OCRSettings(BaseModel):
+    """
+    Configuration for OCR (Optical Character Recognition) settings.
+    
+    Attributes:
+        provider (str): OCR provider to use ('tesseract' or 'azure')
+        enabled (bool): Whether OCR processing is enabled for scanned PDFs
+        dpi (int): DPI setting for OCR image conversion (higher = better quality but slower)
+        language (str): Language code for OCR (e.g., 'eng' for English)
+        tesseract_path (str): Path to Tesseract executable (optional, auto-detection used if not set)
+        azure_settings (AzureOCRSettings): Azure Computer Vision specific settings
+    """
+    provider: str = Field(default_factory=lambda: os.environ.get("OCR_PROVIDER", "tesseract"))
+    enabled: bool = Field(default_factory=lambda: os.environ.get("OCR_ENABLED", "true").lower() == "true")
+    dpi: int = Field(default_factory=lambda: int(os.environ.get("OCR_DPI", "300")))
+    language: str = Field(default_factory=lambda: os.environ.get("OCR_LANGUAGE", "eng"))
+    tesseract_path: str = Field(default_factory=lambda: os.environ.get("TESSERACT_PATH", ""))
+    azure_settings: 'AzureOCRSettings' = Field(default_factory=lambda: AzureOCRSettings())
+
+
+class AzureOCRSettings(BaseModel):
+    """
+    Configuration for Azure Document Intelligence OCR settings.
+    
+    Attributes:
+        endpoint (str): Azure Document Intelligence endpoint URL
+        api_key (str): Azure Document Intelligence API key
+    """
+    endpoint: str = Field(default_factory=lambda: os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT", ""))
+    api_key: str = Field(default_factory=lambda: os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_KEY", ""))
+
+
 class Settings(BaseModel):
     """
     Main settings class that combines all configuration categories.
@@ -225,6 +257,7 @@ class Settings(BaseModel):
     api_pagination_settings: ApiPaginationSettings = Field(
         default_factory=ApiPaginationSettings
     )
+    ocr_settings: OCRSettings = Field(default_factory=OCRSettings)
 
 
 @lru_cache()

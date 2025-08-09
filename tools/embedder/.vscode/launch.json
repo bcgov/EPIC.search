@@ -6,7 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--project_id", "650b5adc5d77c20022fb59fc"],
+            "args": ["--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
@@ -22,6 +22,38 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",            
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - Specific Project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - Multiple Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed", "--project_id", "588511e1aaecd9001b8272e7", "another_project_id"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - All Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - Shallow Mode (5 files)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         }
     ]

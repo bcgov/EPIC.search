@@ -10,6 +10,16 @@ The EPIC.search Embedder is a robust, production-grade document processing pipel
 2. **Processor Service (`processor.py`)** - Manages batch processing of files with parallel execution.
 3. **Loader Service (`loader.py`)** - Handles document loading, validation, text extraction, chunking, embedding, and tag extraction.
 4. **Logger Service (`logger.py`)** - Tracks document processing status and metrics in the unified database.
+5. **OCR Module (`src/services/ocr/`)** - Advanced OCR processing for scanned PDF documents with provider abstraction.
+
+### 🆕 OCR Integration
+
+The system now includes sophisticated OCR capabilities for processing scanned PDF documents:
+
+- **Provider Abstraction**: Choose between Tesseract (local) and Azure Document Intelligence (cloud)
+- **Automatic Detection**: Identifies scanned PDFs and routes them to OCR processing
+- **Quality Processing**: High-DPI image conversion and advanced text extraction
+- **Structured Output**: Maintains document metadata and page structure consistency
 
 ### System Flow Diagram
 
@@ -27,6 +37,9 @@ graph TB
         
         subgraph Document Processing
             PDF[PDF Document]
+            VAL{PDF Validation}
+            TXT[Text Extraction]
+            OCR[OCR Processing]
             MD[Markdown Conversion]
             chunks[Text Chunks]
             KW[Keywords/Tags]
@@ -35,6 +48,11 @@ graph TB
         subgraph AI Models
             EM[Embedding Model]
             KM[Keyword Model]
+        end
+        
+        subgraph OCR Providers
+            TESS[Tesseract<br/>Local OCR]
+            AZURE[Azure Document<br/>Intelligence]
         end
     end
 
@@ -48,6 +66,13 @@ graph TB
     MP -->|Batch Process| PS
     PS -->|Process Files| LS
     S3 -->|Download PDFs| LS
+    LS --> VAL
+    VAL -->|Regular PDF| TXT
+    VAL -->|Scanned PDF| OCR
+    OCR --> TESS
+    OCR --> AZURE
+    TXT --> MD
+    OCR --> MD
     LS -->|Convert| PDF
     PDF -->|Transform| MD
     MD -->|Split| chunks
@@ -76,13 +101,214 @@ graph TB
 3. Documents are processed in batches using parallel execution.
 4. Each document is:
    - Downloaded from S3
-   - **Validated for text content** (skips scanned/image-based PDFs that would require OCR)
+   - **Validated for text content** (routes scanned/image-based PDFs to OCR processing)
+   - Processed via standard extraction or OCR (Tesseract/Azure Document Intelligence)
    - Converted from PDF to markdown
    - Chunked into smaller text segments
    - Embedded using a configurable vector model
    - Tagged/keyworded using parallelized KeyBERT extraction
    - Stored in a unified PostgreSQL+pgvector database
    - Metrics and logs are collected and stored as JSONB
+
+## OCR Processing Architecture
+
+The embedder includes a sophisticated OCR (Optical Character Recognition) system for processing scanned PDF documents that lack extractable text.
+
+### Provider Architecture
+
+The OCR system uses a factory pattern for provider abstraction:
+
+```mermaid
+graph TB
+    subgraph "OCR Module Architecture"
+        PP[PDF Processing] --> VLD{PDF Validation}
+        VLD -->|Text Found| STD[Standard Text Extraction]
+        VLD -->|Minimal Text| OCR[OCR Processing]
+        
+        OCR --> FAC[OCR Factory]
+        FAC -->|Provider Selection| TESS[Tesseract OCR Processor]
+        FAC -->|Provider Selection| AZURE[Azure OCR Processor]
+        
+        subgraph "Tesseract Provider"
+            TESS --> CONV[PDF → Images]
+            CONV --> PROC[OCR Processing]
+            PROC --> TXT1[Extracted Text]
+        end
+        
+        subgraph "Azure Provider"
+            AZURE --> UP[Document Upload]
+            UP --> API[Document Intelligence API]
+            API --> TXT2[Extracted Text + Layout]
+        end
+        
+        TXT1 --> MERGE[Text Merging]
+        TXT2 --> MERGE
+        MERGE --> OUT[Final Text Output]
+    end
+    
+    classDef primary fill:#2374ab,stroke:#2374ab,color:#fff
+    classDef provider fill:#ff7e67,stroke:#ff7e67,color:#fff
+    classDef process fill:#78bc61,stroke:#78bc61,color:#fff
+    
+    class PP,VLD,FAC primary
+    class TESS,AZURE provider
+    class CONV,PROC,UP,API,MERGE process
+```
+
+### OCR Provider Interface
+
+All OCR providers implement a common interface defined in `src/services/ocr/ocr_factory.py`:
+
+```python
+class OCRProcessor:
+    def process_document(self, pdf_path: str) -> str:
+        """Process a PDF document and return extracted text."""
+        pass
+```
+
+### Provider Implementations
+
+#### 1. Tesseract OCR Processor (`tesseract_ocr_processor.py`)
+
+**Features:**
+
+- Local processing with complete privacy
+- Multi-language support (100+ languages)
+- Configurable DPI and image preprocessing
+- Page-by-page processing with progress tracking
+- Automatic Tesseract installation detection
+
+**Technical Details:**
+
+- Converts PDF pages to high-DPI images using PyMuPDF
+- Processes images with pytesseract for text extraction
+- Supports custom Tesseract configurations via environment variables
+- Handles large documents with memory-efficient page streaming
+
+**Configuration:**
+
+```env
+TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe  # Auto-detected if in PATH
+OCR_DPI=300                    # Image quality (200-600 recommended)
+OCR_LANGUAGE=eng               # Language code (eng, fra, deu, etc.)
+```
+
+#### 2. Azure Document Intelligence Processor (`azure_ocr_processor.py`)
+
+**Features:**
+
+- Cloud-based processing with superior accuracy
+- Advanced layout understanding and structure preservation
+- Confidence scores and metadata extraction
+- Specialized for document processing (vs general OCR)
+- Handles complex layouts, tables, and forms
+
+**Technical Details:**
+
+- Uses Azure Form Recognizer (Document Intelligence) API
+- Uploads documents to Azure for processing
+- Retrieves structured results with layout information
+- Implements retry logic and error handling
+- Supports various document formats beyond PDF
+
+**Configuration:**
+
+```env
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://yourresource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your_api_key_here
+```
+
+### OCR Factory and Provider Selection
+
+The `OCRFactory` class manages provider instantiation and configuration:
+
+```python
+# Environment-based provider selection
+OCR_PROVIDER=tesseract    # or 'azure'
+
+# Factory creates appropriate provider
+processor = OCRFactory.create_processor(provider_type)
+```
+
+### OCR Processing Flow
+
+1. **Document Validation**: PDF is analyzed for extractable text content and device metadata
+2. **Multi-Level Scanned Detection**:
+   - **Primary**: Documents with no/minimal extractable text (< 1-50 chars)
+   - **Secondary**: Scanning device metadata + minimal text (< 200 chars)
+   - **Tertiary**: **All documents from known scanning devices** (for quality improvement)
+3. **Provider Selection**: Factory creates the configured OCR provider (Tesseract/Azure)
+4. **OCR Processing**:
+   - **Tesseract**: PDF pages converted to high-quality images, then OCR processed
+   - **Azure**: Document uploaded directly to Document Intelligence API
+5. **Quality Assurance**: OCR results validated for meaningful text extraction
+6. **Graceful Fallback**: If OCR fails on scanning device documents, falls back to standard extraction
+7. **Result Integration**: OCR text integrated into standard processing pipeline with proper metadata tagging
+
+### OCR Processing Behavior
+
+#### **Automatic OCR Triggers**
+
+The system automatically triggers OCR processing in these scenarios:
+
+1. **📄 No Extractable Text**: PDF has no readable text content (classic scanned documents)
+2. **🖨️ Scanning Device + Minimal Text**: Documents from devices like RICOH, HP scanners with < 200 characters
+3. **🔧 Quality Enhancement**: **ALL** documents from known scanning devices get OCR for better text quality
+
+#### **Status Outcomes**
+
+- **✅ Success + OCR**: Document processed with OCR-extracted text, marked with `extraction_method: "ocr_tesseract"`
+- **⚠️ Skipped**: Scanned documents when OCR is not available (status: `"skipped"`)
+- **❌ Failed**: OCR was attempted but failed to extract meaningful text (status: `"failure"`)
+
+#### **Known Scanning Device Detection**
+
+Documents from these devices automatically trigger OCR processing:
+
+- HP Digital Sending Device
+- RICOH (IM series, etc.)
+- Xerox devices
+- Canon scanners
+- Epson scanners
+- Any device with "scanner" or "scan" in creator/producer metadata
+
+### Performance Considerations
+
+**Tesseract Optimization:**
+
+- **DPI Settings**: Higher DPI (300-600) improves accuracy but increases processing time
+- **Language Models**: Only load required language models to reduce memory usage
+- **Image Preprocessing**: Automatic contrast and noise reduction improve results
+- **Memory Management**: Page-by-page processing prevents memory exhaustion
+
+**Azure Document Intelligence Optimization:**
+
+- **Batch Processing**: Multiple documents can be processed concurrently
+- **Regional Endpoints**: Use geographically close endpoints for better latency
+- **Rate Limiting**: Built-in retry logic handles API rate limits
+- **Cost Management**: Monitor API usage for cost optimization
+
+### Error Handling and Fallbacks
+
+**Tesseract Error Handling:**
+
+- Graceful degradation when Tesseract is not installed
+- Page-level error recovery (skip corrupted pages, continue processing)
+- Language detection fallbacks
+- Clear error messages for installation issues
+
+**Azure Error Handling:**
+
+- Network connectivity failure handling
+- API authentication error recovery
+- Service limit and quota management
+- Automatic retry with exponential backoff
+
+**Provider Fallback:**
+
+- No automatic fallback between providers (explicit configuration required)
+- Clear error messages guide users to alternative providers
+- Validation ensures provider dependencies are available
 
 ## NLP Model Architecture
 
@@ -117,6 +343,8 @@ All vector data (chunks, documents, projects, logs, metrics) are stored in a sin
   - `projects` (project metadata)
   - `documents` (document metadata)
   - `processing_logs` (status, metrics, JSONB)
+    - **Status values**: `"success"`, `"failure"`, `"skipped"`
+    - **Metrics**: Complete processing details, timings, document info, and validation reasons
 
 - **Embedding Dimensions:**
   - Set via `EMBEDDING_DIMENSIONS` in `settings.py` (default: 768)
@@ -163,18 +391,21 @@ All configuration is managed via environment variables and loaded by `get_settin
 The embedder supports intelligent auto-configuration for optimal performance across different hardware:
 
 **FILES_CONCURRENCY_SIZE Options:**
+
 - `auto` - Half CPU cores for 16+ core systems (prevents over-parallelization)
 - `auto-full` - All CPU cores (maximum parallelism)
 - `auto-conservative` - Quarter CPU cores (resource-constrained environments)
 - Integer value - Manual override
 
 **KEYWORD_EXTRACTION_WORKERS Options:**
+
 - `auto` - Optimized for KeyBERT bottleneck (2 threads for 16+ cores, 3 for 8-15 cores, 4 for <8 cores)
 - `auto-aggressive` - 4 threads per process (maximum keyword parallelism)
 - `auto-conservative` - 1 thread per process (minimal thread contention)
 - Integer value - Manual override
 
 **Example configurations:**
+
 ```bash
 # High-performance server (32+ cores)
 FILES_CONCURRENCY_SIZE=auto          # Uses 16 processes
@@ -198,7 +429,24 @@ KEYWORD_EXTRACTION_WORKERS=auto-conservative  # Uses 1 thread per process
 
 ## Metrics & Logging
 
-The system collects comprehensive metrics and document metadata for all processing attempts, whether successful or failed.
+The system collects comprehensive metrics and document metadata for all processing attempts, whether successful, failed, or skipped.
+
+### Processing Status Classification
+
+The system intelligently classifies processing outcomes into three categories:
+
+- **🟢 Success**: Document was successfully processed, chunked, and embedded
+- **🟡 Skipped**: Document was intentionally not processed (non-PDF files, scanned PDFs without OCR)
+- **🔴 Failure**: Document processing attempted but failed due to errors
+
+#### Status Classification Logic
+
+| **File Type/Issue** | **Validation Reason** | **Status** | **Description** |
+|-------------------|-------------------|----------|-------------|
+| **XLS, JPG, TXT files** | `precheck_failed` | **🟡 skipped** | Not a PDF file - can't be processed by PDF embedder |
+| **Scanned PDF (no OCR)** | `scanned_or_image_pdf` | **🟡 skipped** | Scanned PDF but OCR not available/enabled |
+| **OCR Processing Failed** | `ocr_failed` | **🔴 failure** | OCR was attempted but failed to extract text |
+| **Exception/Error** | Various errors | **🔴 failure** | Actual processing failures, exceptions, or validation errors |
 
 ### Processing Metrics Collection
 
@@ -209,21 +457,33 @@ The system collects comprehensive metrics and document metadata for all processi
   - File size in bytes
   - Complete PDF metadata (title, author, creator, creation date, etc.)
   - Page count
-  - Validation status and failure reasons
+  - Validation status and processing reason
 
-### Enhanced Failure Analysis
+### Enhanced Analysis Queries
 
-The system provides detailed failure insights by capturing document metadata even when processing fails:
+The system provides detailed insights by capturing document metadata for all processing outcomes:
 
 ```sql
+-- Processing status overview
+SELECT status, COUNT(*) as count
+FROM processing_logs 
+GROUP BY status;
+
 -- Find all failed PDFs with their metadata
 SELECT document_id, status, 
        metrics->'document_info'->>'metadata' as pdf_metadata,
        metrics->'document_info'->>'page_count' as page_count,
        metrics->'document_info'->>'file_size_bytes' as file_size,
-       metrics->'document_info'->>'validation_reason' as failure_reason
+       metrics->'document_info'->>'validation_reason' as processing_reason
 FROM processing_logs 
 WHERE status = 'failure';
+
+-- Find skipped files by type
+SELECT document_id, 
+       metrics->'document_info'->>'document_name' as doc_name,
+       metrics->'document_info'->>'validation_reason' as skip_reason
+FROM processing_logs 
+WHERE status = 'skipped';
 
 -- Find documents by PDF creator or title
 SELECT document_id, 
@@ -233,13 +493,14 @@ SELECT document_id,
 FROM processing_logs 
 WHERE metrics->'document_info'->'metadata'->>'creator' IS NOT NULL;
 
--- Find scanned/image PDFs specifically
+-- Find scanned PDFs processed with OCR
 SELECT document_id, 
        metrics->'document_info'->>'document_name' as doc_name,
+       metrics->>'extraction_method' as extraction_method,
        metrics->'document_info'->'metadata' as pdf_metadata
 FROM processing_logs 
-WHERE status = 'failure' 
-AND metrics->'document_info'->>'validation_reason' LIKE '%scanned%';
+WHERE status = 'success' 
+AND metrics->>'extraction_method' = 'ocr_tesseract';
 ```
 
 ### Metrics Structure
@@ -249,6 +510,13 @@ AND metrics->'document_info'->>'validation_reason' LIKE '%scanned%';
 - Complete document metadata
 - Processing timing metrics for each step
 - Chunk and embedding statistics
+- Extraction method (standard_pdf or ocr_tesseract)
+
+**Skipped cases** include:
+
+- Basic document information (name, size, type)
+- Validation reason explaining why processing was skipped
+- File format details for non-PDF files
 
 **Failure cases** include:
 
@@ -270,32 +538,145 @@ The `reset_db` flag allows safe table (re)creation for development or migration.
 - All code is documented with clear docstrings and error handling.
 - See README.md for usage, configuration, and deployment details.
 
-## PDF Validation & Scanned Document Detection
+## PDF Validation & Scanned Document Processing
 
-The system includes intelligent PDF validation to identify and skip scanned/image-based documents that would require OCR processing.
+The system includes intelligent PDF validation and automatic OCR processing for scanned/image-based documents.
 
-### Validation Logic
+### Enhanced Validation & Processing Logic
 
-The validation process uses a two-tier approach:
+The validation process uses a two-tier approach with OCR fallback:
 
 1. **Primary Check - Content Analysis**:
    - Extracts text from the first page
-   - Rejects documents with no extractable text or minimal content patterns (e.g., "-----")
-   - Version-agnostic approach works regardless of PDF format version
+   - If no extractable text or minimal content patterns detected (e.g., "-----")
+   - **NEW**: Automatically attempts OCR processing if Tesseract is available
 
 2. **Secondary Check - Producer/Creator Analysis**:
    - Identifies common scanning device signatures in PDF metadata
    - Supported indicators: HP Digital Sending Device, Scanner, Xerox, Canon, Epson, Ricoh, etc.
-   - If scanning device detected AND minimal text content (< 50 characters), document is rejected
+   - If scanning device detected AND minimal text content (< 200 characters)
+   - **NEW**: Automatically attempts OCR processing if available
+
+3. **Tertiary Check - Known Scanning Devices (Enhanced)**:
+   - **All documents from known scanning devices** are now processed with OCR for better quality
+   - Even if standard PDF text extraction succeeds, OCR may provide superior results
+   - Graceful fallback: If OCR fails, uses standard text extraction instead of failing
+   - This ensures maximum text quality from scanned/printed documents
+
+### OCR Processing Features
+
+The embedder now includes advanced **Optical Character Recognition (OCR)** capabilities with a clean provider abstraction:
+
+#### 🏗️ **OCR Architecture**
+
+**Modular Design:**
+
+```files
+src/services/ocr/
+├── __init__.py              # Public API exports
+├── ocr_factory.py          # Provider abstraction and factory
+├── tesseract_ocr_processor.py  # Local Tesseract implementation
+└── azure_ocr_processor.py     # Azure Document Intelligence implementation
+```
+
+**Factory Pattern:**
+
+- **Provider Selection**: Environment variable `OCR_PROVIDER` controls which implementation to use
+- **Unified Interface**: Same function calls work with any provider
+- **Dynamic Loading**: Providers are loaded on-demand based on configuration
+- **Extensible**: Easy to add new OCR providers (Google Cloud Vision, AWS Textract, etc.)
+
+#### 🎯 **Provider Comparison**
+
+| Feature | Tesseract (Local) | Azure Document Intelligence |
+|---------|-------------------|----------------------------|
+| **Accuracy** | Good for most documents | Excellent for complex documents |
+| **Cost** | Free | Pay-per-use API calls |
+| **Privacy** | Complete privacy (local) | Data sent to Azure cloud |
+| **Speed** | Moderate | Fast (cloud processing) |
+| **Setup** | Install software | Azure account + API key |
+| **Internet** | Not required | Required |
+| **Languages** | 100+ languages | 73 languages |
+| **Layout** | Basic text extraction | Advanced layout understanding |
+| **Dependencies** | pytesseract, Pillow | azure-ai-formrecognizer |
+
+#### 🔧 **Technical Implementation**
+
+**Tesseract Provider:**
+
+- Uses **PyMuPDF** to convert PDF pages to high-DPI images
+- **pytesseract** processes images with configurable OCR settings
+- **Page Segmentation Mode 1**: Automatic page segmentation with OSD (Orientation and Script Detection)
+- **OCR Engine Mode 3**: Default OCR engine for best compatibility
+- **Error Handling**: Graceful per-page failure handling with detailed logging
+
+**Azure Document Intelligence Provider:**
+
+- Uses **Azure Form Recognizer Layout API** for superior document understanding
+- **Batch Processing**: Submits entire PDF files for more efficient processing
+- **Advanced Features**: Layout analysis, confidence scores, table detection
+- **Rate Limiting**: Built-in delays and retry logic for API compliance
+- **Structured Output**: Preserves document structure and formatting
+
+#### 🛠️ **Configuration Options**
+
+**Core Settings:**
+
+```env
+OCR_ENABLED=true              # Enable/disable OCR processing
+OCR_PROVIDER=tesseract        # Provider: 'tesseract' or 'azure'
+OCR_DPI=300                   # Image quality for OCR
+OCR_LANGUAGE=eng              # Language code (eng, fra, deu, etc.)
+```
+
+**Tesseract Settings:**
+
+```env
+# TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe  # Optional
+```
+
+**Azure Document Intelligence Settings:**
+
+```env
+# AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://yourresource.cognitiveservices.azure.com/
+# AZURE_DOCUMENT_INTELLIGENCE_KEY=your_api_key_here
+```
+
+#### 📊 **Processing Workflow**
+
+1. **Document Validation**: PDF validation identifies scanned documents
+2. **Provider Selection**: Factory determines active OCR provider from configuration
+3. **OCR Processing**: Selected provider extracts text using appropriate API/engine
+4. **Metadata Integration**: OCR results integrated with standard document processing pipeline
+5. **Quality Metrics**: Confidence scores and extraction statistics logged
+
+#### 🎯 **Benefits**
+
+- **Comprehensive Coverage**: Processes both standard and scanned PDFs automatically
+- **No Manual Intervention**: Automatic detection and routing to OCR
+- **Provider Flexibility**: Choose optimal provider based on accuracy, cost, and privacy needs
+- **Production Ready**: Robust error handling, logging, and progress tracking
+- **Future-Proof**: Extensible architecture for additional OCR providers
+- **Consistent Interface**: Same API regardless of underlying OCR technology
 
 ### Benefits
 
-- **Efficient processing**: Avoids attempting to process image-heavy documents
-- **Resource optimization**: Prevents time/compute waste on documents requiring OCR
-- **Comprehensive detection**: Catches scanned PDFs regardless of version (1.4, 1.7, 2.0+)
-- **Future-proof**: Content-based validation adapts to new scanning technologies
+- **Comprehensive Processing**: Now processes both standard and scanned PDFs automatically
+- **No Manual Intervention**: Automatic detection and processing of scanned documents
+- **Resource Optimization**: Efficient OCR processing with configurable quality settings
+- **Fallback Capability**: Gracefully skips documents if OCR is unavailable
+- **Detailed Metrics**: Complete processing statistics including OCR success rates
 
-Documents identified as scanned are logged with detailed metadata for potential future OCR processing.
+### OCR Configuration
+
+OCR functionality can be configured via environment variables:
+
+- `OCR_ENABLED=true` - Enable/disable OCR processing
+- `TESSERACT_PATH` - Path to Tesseract executable (auto-detected if not set)
+- `OCR_DPI=300` - Image resolution for OCR (higher = better quality)
+- `OCR_LANGUAGE=eng` - Language code for OCR processing
+
+Documents are now automatically processed regardless of whether they're standard PDFs or scanned images, providing comprehensive text extraction coverage.
 
 ---
 

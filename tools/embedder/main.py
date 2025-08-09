@@ -32,6 +32,7 @@ from src.services.api_utils import (
 from src.services.processor import process_files
 from src.services.data_formatter import format_metadata
 from src.services.project_utils import upsert_project
+from src.services.ocr.ocr_factory import initialize_ocr
 
 # Initialize settings at module level
 settings = get_settings()
@@ -76,7 +77,7 @@ def get_embedder_temp_dir():
     os.makedirs(temp_dir, exist_ok=True)
     return temp_dir
 
-def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False):
+def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False):
     """
     Process documents for one or more specific projects, or all projects.
     
@@ -84,7 +85,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     1. Initializes the database connections
     2. Fetches project information from the API
     3. For each project, retrieves its documents
-    4. Filters out already processed documents
+    4. Filters out already processed documents (or includes only failed ones in retry mode)
     5. Processes new documents in batches
     
     Args:
@@ -92,6 +93,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         shallow_mode (bool, optional): If True, only process up to shallow_limit successful documents per project.
         shallow_limit (int, optional): The maximum number of successful documents to process per project in shallow mode.
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
+        retry_failed_only (bool, optional): If True, only process documents that previously failed processing.
         
     Returns:
         dict: A dictionary containing the processing results, including:
@@ -111,6 +113,12 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     print(f"[PERF] Database batch size: {chunk_batch_size}")
     print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")
     print(f"[PERF] Database connection pool: {32} base + {64} overflow = {96} max connections")
+    
+    # Show processing mode
+    if retry_failed_only:
+        print(f"[MODE] 🔄 RETRY FAILED MODE: Only processing documents that previously failed")
+    else:
+        print(f"[MODE] ✅ NORMAL MODE: Processing new documents (skipping successful ones)")
     
     # HC44-32rs specific performance info
     import multiprocessing
@@ -203,9 +211,19 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                 is_processed, status = is_document_already_processed(
                     doc_id, already_completed, already_incomplete
                 )
-                if is_processed:
-                    print(f"Skipping already processed ({status}) document: {doc_name}")
-                    continue
+                
+                # Handle retry_failed_only mode
+                if retry_failed_only:
+                    # Only process files that previously failed
+                    if not is_processed or status != "failed":
+                        continue
+                    print(f"Retrying failed document: {doc_name}")
+                else:
+                    # Normal mode: skip already processed files
+                    if is_processed:
+                        print(f"Skipping already processed ({status}) document: {doc_name}")
+                        continue
+                        
                 s3_key = doc.get("internalURL")
                 if not s3_key:
                     continue
@@ -220,9 +238,14 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
 
             if s3_file_keys:
                 files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
-                print(
-                    f"Found {len(s3_file_keys)} file(s) for {project_name}. Processing with {files_concurrency_size} workers..."
-                )
+                if retry_failed_only:
+                    print(
+                        f"Found {len(s3_file_keys)} failed file(s) to retry for {project_name}. Processing with {files_concurrency_size} workers..."
+                    )
+                else:
+                    print(
+                        f"Found {len(s3_file_keys)} new file(s) for {project_name}. Processing with {files_concurrency_size} workers..."
+                    )
                 process_files(
                     project_id,
                     s3_file_keys,
@@ -236,6 +259,11 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                     if shallow_success_count >= shallow_limit:
                         print(f"[SHALLOW MODE] Reached {shallow_success_count} processed documents for {project_name} (limit: {shallow_limit}).")
                         break
+            else:
+                if retry_failed_only:
+                    print(f"No failed files found to retry for {project_name}")
+                else:
+                    print(f"No new files to process for {project_name}")
 
         project_end = datetime.now()
         duration = project_end - project_start
@@ -255,11 +283,20 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     except Exception as cleanup_err:
         print(f"[WARN] Could not delete temp directory {embedder_temp_dir}: {cleanup_err}")
 
+    # Summary message
+    if retry_failed_only:
+        print(f"🔄 RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
+    else:
+        print(f"✅ PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
+
     return {"message": "Processing completed", "results": results}
 
 if __name__ == "__main__":   
     # Suppress the process pool error messages that occur during shutdown
     suppress_process_pool_errors()
+    
+    # Initialize OCR processor
+    initialize_ocr()
     
     try:
         parser = argparse.ArgumentParser(
@@ -274,6 +311,9 @@ if __name__ == "__main__":
         parser.add_argument(
             "--skip-hnsw-indexes", action="store_true", help="Skip creation of HNSW vector indexes for semantic search (faster startup, less resource usage)."
         )
+        parser.add_argument(
+            "--retry-failed", action="store_true", help="Only process documents that previously failed processing. Useful for retrying files that had errors."
+        )
         args = parser.parse_args()
 
         # Custom check for missing shallow limit value
@@ -281,17 +321,21 @@ if __name__ == "__main__":
         if any(arg in sys.argv for arg in ["--shallow", "-s"]) and args.shallow is None:
             parser.error("Argument --shallow/-s requires an integer value. Example: --shallow 5")
 
+        # Validate flag combinations
+        if args.retry_failed and args.shallow:
+            print("WARNING: Using --retry-failed with --shallow mode. Shallow limit will apply to failed files being retried.")
+
         shallow_mode = args.shallow is not None
         shallow_limit = args.shallow if shallow_mode else None
 
         if args.project_id:
             # Run immediately if project_id(s) are provided
-            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes)
+            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed)
             print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes)
+            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed)
             print(result)
     finally:
         pass

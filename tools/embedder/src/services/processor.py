@@ -45,8 +45,9 @@ def process_files(project_id, file_keys, metadata_list, api_docs_list, batch_siz
             try:
                 result = future.result()
                 if result is None:
-                    print(f"File {doc_id} was skipped or invalid. Marking as failed.")
-                    log_processing_result(project_id, doc_id, "failure")
+                    # load_data returns None for both skipped and failed files
+                    # The status is already logged correctly inside load_data, so we don't override it
+                    print(f"File {doc_id} processing completed with None result (status already logged internally).")
                 else:
                     print(f"Successfully processed: {result}")
                     log_processing_result(project_id, doc_id, "success")

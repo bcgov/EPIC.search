@@ -137,9 +137,33 @@ def get_tag_embeddings():
     
     Returns:
         list: A list of vector embeddings corresponding to each tag in the tags list
+        
+    Raises:
+        RuntimeError: If embedding generation fails due to memory constraints
     """
-    embeddings = get_embedding(tags)
-    return embeddings
+    try:
+        print(f"[TAG-EXTRACTOR] Generating embeddings for {len(tags)} predefined tags...")
+        embeddings = get_embedding(tags)
+        print(f"[TAG-EXTRACTOR] Successfully generated tag embeddings")
+        return embeddings
+        
+    except RuntimeError as e:
+        if "paging file" in str(e).lower() or "virtual memory" in str(e).lower():
+            error_msg = (
+                f"Windows virtual memory error: {e}\n\n"
+                f"💡 QUICK FIX: Restart your PC\n"
+                f"This usually happens after running the system for a long time.\n"
+                f"A restart will clear memory fragmentation and fix the issue."
+            )
+            print(f"[ERROR] {error_msg}")
+            raise RuntimeError(error_msg) from e
+        else:
+            raise
+            
+    except Exception as e:
+        error_msg = f"Unexpected error generating tag embeddings: {e}"
+        print(f"[ERROR] {error_msg}")
+        raise RuntimeError(error_msg) from e
 
 
 def process_chunk(chunk_dict, tag_embeddings, threshold=0.6):
