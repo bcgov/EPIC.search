@@ -106,6 +106,20 @@ python main.py --skip-hnsw-indexes
 # Combine with other options
 python main.py --project_id <project_id> --skip-hnsw-indexes
 
+# Retry documents that previously failed processing
+python main.py --retry-failed
+
+# Retry documents that were previously skipped (unsupported formats, missing OCR)
+python main.py --retry-skipped
+
+# Retry failed/skipped documents for specific project(s)
+python main.py --retry-failed --project_id <project_id>
+python main.py --retry-skipped --project_id <project_id>
+
+# Shallow mode: process limited number of documents per project
+python main.py --shallow 10 --project_id <project_id>
+python main.py --retry-failed --shallow 5
+
 # High-performance server runs with intelligent auto-configuration
 # The embedder automatically detects hardware and optimizes settings
 python main.py --project_id <project_id>
@@ -476,6 +490,47 @@ To resolve persistent connection issues:
 2. Check database connection stability
 3. Ensure adequate database connection limits
 4. Verify network connectivity between application and database
+
+### Retrying Failed or Skipped Documents
+
+If documents failed processing or were skipped (e.g., due to missing OCR), you can reprocess them using retry flags:
+
+#### Retry Failed Documents
+
+```bash
+# Retry all failed documents across all projects
+python main.py --retry-failed
+
+# Retry failed documents for specific project(s)
+python main.py --retry-failed --project_id <project_id>
+
+# Retry failed documents with limited processing per project
+python main.py --retry-failed --shallow 10
+```
+
+Use `--retry-failed` when:
+
+- OCR processing was failing but is now working
+- Database connection issues have been resolved
+- Model loading or embedding generation was failing
+
+#### Retry Skipped Documents
+
+```bash
+# Retry all skipped documents across all projects
+python main.py --retry-skipped
+
+# Retry skipped documents for specific project(s)
+python main.py --retry-skipped --project_id <project_id>
+```
+
+Use `--retry-skipped` when:
+
+- OCR was not available but is now enabled/configured
+- Previously unsupported document formats are now supported
+- Documents were skipped due to validation issues that have been fixed
+
+> **Note**: You cannot use `--retry-failed` and `--retry-skipped` together. Choose the appropriate retry mode based on the status of documents you want to reprocess.
 
 ## Development
 

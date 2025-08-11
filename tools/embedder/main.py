@@ -1,7 +1,7 @@
 import argparse
 import logging
 from datetime import datetime
-from src.services.logger import load_completed_files, load_incomplete_files
+from src.services.logger import load_completed_files, load_incomplete_files, load_skipped_files
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
@@ -47,14 +47,15 @@ def setup_logging():
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
 
-def is_document_already_processed(doc_id, completed_docs, incomplete_docs):
+def is_document_already_processed(doc_id, completed_docs, incomplete_docs, skipped_docs):
     """
-    Check if a document has been previously processed (successfully or unsuccessfully).
+    Check if a document has been previously processed (successfully, unsuccessfully, or skipped).
     
     Args:
         doc_id: The document ID to check
         completed_docs: List of successfully processed documents
         incomplete_docs: List of unsuccessfully processed documents
+        skipped_docs: List of skipped documents
         
     Returns:
         tuple: (is_processed, status_message) where is_processed is a boolean and 
@@ -67,6 +68,10 @@ def is_document_already_processed(doc_id, completed_docs, incomplete_docs):
     for incomplete in incomplete_docs:
         if incomplete["document_id"] == doc_id:
             return True, "failed"
+    
+    for skipped in skipped_docs:
+        if skipped["document_id"] == doc_id:
+            return True, "skipped"
             
     return False, None
 
@@ -77,7 +82,7 @@ def get_embedder_temp_dir():
     os.makedirs(temp_dir, exist_ok=True)
     return temp_dir
 
-def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False):
+def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False):
     """
     Process documents for one or more specific projects, or all projects.
     
@@ -85,7 +90,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     1. Initializes the database connections
     2. Fetches project information from the API
     3. For each project, retrieves its documents
-    4. Filters out already processed documents (or includes only failed ones in retry mode)
+    4. Filters out already processed documents (or includes only failed/skipped ones in retry mode)
     5. Processes new documents in batches
     
     Args:
@@ -94,6 +99,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         shallow_limit (int, optional): The maximum number of successful documents to process per project in shallow mode.
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
         retry_failed_only (bool, optional): If True, only process documents that previously failed processing.
+        retry_skipped_only (bool, optional): If True, only process documents that were previously skipped.
         
     Returns:
         dict: A dictionary containing the processing results, including:
@@ -117,6 +123,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     # Show processing mode
     if retry_failed_only:
         print(f"[MODE] 🔄 RETRY FAILED MODE: Only processing documents that previously failed")
+    elif retry_skipped_only:
+        print(f"[MODE] 🔄 RETRY SKIPPED MODE: Only processing documents that were previously skipped")
     else:
         print(f"[MODE] ✅ NORMAL MODE: Processing new documents (skipping successful ones)")
     
@@ -186,6 +194,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
 
         already_completed = load_completed_files(project_id)
         already_incomplete = load_incomplete_files(project_id)
+        already_skipped = load_skipped_files(project_id)
 
         # For shallow mode, count how many have been processed successfully
         shallow_success_count = len(already_completed) if shallow_mode else 0
@@ -209,15 +218,20 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                 doc_id = doc["_id"]
                 doc_name = doc.get('name', doc_id)
                 is_processed, status = is_document_already_processed(
-                    doc_id, already_completed, already_incomplete
+                    doc_id, already_completed, already_incomplete, already_skipped
                 )
                 
-                # Handle retry_failed_only mode
+                # Handle retry modes
                 if retry_failed_only:
                     # Only process files that previously failed
                     if not is_processed or status != "failed":
                         continue
                     print(f"Retrying failed document: {doc_name}")
+                elif retry_skipped_only:
+                    # Only process files that were previously skipped
+                    if not is_processed or status != "skipped":
+                        continue
+                    print(f"Retrying skipped document: {doc_name}")
                 else:
                     # Normal mode: skip already processed files
                     if is_processed:
@@ -242,6 +256,10 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                     print(
                         f"Found {len(s3_file_keys)} failed file(s) to retry for {project_name}. Processing with {files_concurrency_size} workers..."
                     )
+                elif retry_skipped_only:
+                    print(
+                        f"Found {len(s3_file_keys)} skipped file(s) to retry for {project_name}. Processing with {files_concurrency_size} workers..."
+                    )
                 else:
                     print(
                         f"Found {len(s3_file_keys)} new file(s) for {project_name}. Processing with {files_concurrency_size} workers..."
@@ -262,6 +280,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
             else:
                 if retry_failed_only:
                     print(f"No failed files found to retry for {project_name}")
+                elif retry_skipped_only:
+                    print(f"No skipped files found to retry for {project_name}")
                 else:
                     print(f"No new files to process for {project_name}")
 
@@ -286,6 +306,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     # Summary message
     if retry_failed_only:
         print(f"🔄 RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
+    elif retry_skipped_only:
+        print(f"🔄 RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
     else:
         print(f"✅ PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
 
@@ -314,6 +336,9 @@ if __name__ == "__main__":
         parser.add_argument(
             "--retry-failed", action="store_true", help="Only process documents that previously failed processing. Useful for retrying files that had errors."
         )
+        parser.add_argument(
+            "--retry-skipped", action="store_true", help="Only process documents that were previously skipped. Useful for retrying files that were skipped due to missing OCR or unsupported formats."
+        )
         args = parser.parse_args()
 
         # Custom check for missing shallow limit value
@@ -322,20 +347,26 @@ if __name__ == "__main__":
             parser.error("Argument --shallow/-s requires an integer value. Example: --shallow 5")
 
         # Validate flag combinations
+        if args.retry_failed and args.retry_skipped:
+            parser.error("Cannot use both --retry-failed and --retry-skipped at the same time. Choose one retry mode.")
+        
         if args.retry_failed and args.shallow:
             print("WARNING: Using --retry-failed with --shallow mode. Shallow limit will apply to failed files being retried.")
+        
+        if args.retry_skipped and args.shallow:
+            print("WARNING: Using --retry-skipped with --shallow mode. Shallow limit will apply to skipped files being retried.")
 
         shallow_mode = args.shallow is not None
         shallow_limit = args.shallow if shallow_mode else None
 
         if args.project_id:
             # Run immediately if project_id(s) are provided
-            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed)
+            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped)
             print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed)
+            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped)
             print(result)
     finally:
         pass

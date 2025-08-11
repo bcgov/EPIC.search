@@ -261,6 +261,8 @@ The system automatically triggers OCR processing in these scenarios:
 - **⚠️ Skipped**: Scanned documents when OCR is not available (status: `"skipped"`)
 - **❌ Failed**: OCR was attempted but failed to extract meaningful text (status: `"failure"`)
 
+> 💡 **Retry Tip**: Use `--retry-skipped` to reprocess documents that were skipped due to missing OCR, and `--retry-failed` to retry documents where OCR processing failed. This is useful when enabling OCR or fixing configuration issues.
+
 #### **Known Scanning Device Detection**
 
 Documents from these devices automatically trigger OCR processing:
@@ -345,6 +347,22 @@ All vector data (chunks, documents, projects, logs, metrics) are stored in a sin
   - `processing_logs` (status, metrics, JSONB)
     - **Status values**: `"success"`, `"failure"`, `"skipped"`
     - **Metrics**: Complete processing details, timings, document info, and validation reasons
+
+### Retry Processing Modes
+
+The embedder supports selective reprocessing of documents based on their status:
+
+- **`--retry-failed`**: Reprocesses documents that previously failed during processing
+  - Targets documents with status `"failure"` (e.g., OCR failures, processing errors)
+  - Useful for fixing documents after resolving configuration or infrastructure issues
+  
+- **`--retry-skipped`**: Reprocesses documents that were previously skipped
+  - Targets documents with status `"skipped"` (e.g., scanned PDFs without OCR, unsupported formats)
+  - Useful when enabling OCR or adding support for new document types
+  
+- **Normal mode**: Only processes new documents (skips any with existing status)
+
+These retry modes can be combined with other flags like `--shallow` for limited reprocessing and `--project_id` for targeted project-specific retries. Only one retry mode can be used at a time.
 
 - **Embedding Dimensions:**
   - Set via `EMBEDDING_DIMENSIONS` in `settings.py` (default: 768)

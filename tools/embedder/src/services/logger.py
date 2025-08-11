@@ -94,3 +94,24 @@ def load_incomplete_files(project_id=None):
 
     schema = ProcessingLogSchema(many=True)
     return schema.dump(results)
+
+def load_skipped_files(project_id=None):
+    """
+    Load information about files that were skipped during processing.
+    
+    Args:
+        project_id (str, optional): Filter by project ID. If None, returns skipped files for all projects.
+        
+    Returns:
+        list: List of dictionaries containing information about files that were skipped processing
+    """
+    session = get_session()
+    query = session.query(ProcessingLog).filter(ProcessingLog.status == 'skipped')
+    if project_id:
+        query = query.filter(ProcessingLog.project_id == project_id)
+    
+    results = query.all()
+    session.close()
+
+    schema = ProcessingLogSchema(many=True)
+    return schema.dump(results)
