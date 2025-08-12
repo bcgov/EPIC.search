@@ -364,6 +364,31 @@ The embedder supports selective reprocessing of documents based on their status:
 
 These retry modes can be combined with other flags like `--shallow` for limited reprocessing and `--project_id` for targeted project-specific retries. Only one retry mode can be used at a time.
 
+### Timed Mode Processing
+
+The embedder supports time-constrained processing for scheduled operations and resource management:
+
+- **`--timed <minutes>`**: Runs processing for a specified time duration then gracefully stops
+  - Time checks occur before starting each project and before processing each page of documents
+  - Graceful shutdown: completes any documents currently being processed
+  - Does not start new work (projects or document batches) after time limit is reached
+  - Provides real-time elapsed and remaining time updates during processing
+  
+**Implementation Details:**
+
+- Time tracking starts immediately after argument parsing and configuration
+- Time checks use `datetime.now()` for accurate elapsed time calculation
+- Processing stops at natural boundaries (project completion, document page completion)
+- Compatible with all other modes (`--shallow`, `--retry-failed`, `--retry-skipped`, etc.)
+- Final summary includes actual runtime vs. time limit for monitoring
+
+**Use Cases:**
+
+- Scheduled processing windows (e.g., overnight batch jobs)
+- Resource-constrained environments with time-based SLAs
+- Development and testing with controlled execution time
+- Batch processing systems with defined maintenance windows
+
 - **Embedding Dimensions:**
   - Set via `EMBEDDING_DIMENSIONS` in `settings.py` (default: 768)
   - All vector columns use this dimension

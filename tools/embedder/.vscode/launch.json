@@ -87,6 +87,54 @@
             "program": "${workspaceFolder}/main.py",
             "args": ["--retry-skipped", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Mode - 5 minutes",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Mode - 30 minutes (All Projects)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "30"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed + Shallow Mode",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "10", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed + Retry Failed (15 min)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "15", "--retry-failed", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed + Retry Skipped (10 min)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "10", "--retry-skipped", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Mode - 1 minute (Quick Test)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "1", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
         }
     ]
 }

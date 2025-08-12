@@ -120,6 +120,14 @@ python main.py --retry-skipped --project_id <project_id>
 python main.py --shallow 10 --project_id <project_id>
 python main.py --retry-failed --shallow 5
 
+# Timed mode: run for a specific time period then gracefully stop
+python main.py --timed 60  # Run for 60 minutes
+python main.py --timed 30 --project_id <project_id>  # 30 minutes for specific project
+
+# Combine timed mode with other options
+python main.py --timed 120 --shallow 10  # 2 hours with shallow limit
+python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
+
 # High-performance server runs with intelligent auto-configuration
 # The embedder automatically detects hardware and optimizes settings
 python main.py --project_id <project_id>
@@ -531,6 +539,37 @@ Use `--retry-skipped` when:
 - Documents were skipped due to validation issues that have been fixed
 
 > **Note**: You cannot use `--retry-failed` and `--retry-skipped` together. Choose the appropriate retry mode based on the status of documents you want to reprocess.
+
+### Timed Mode Processing
+
+For scheduled processing windows or resource-constrained environments, use timed mode to run processing for a specific duration:
+
+```bash
+# Run for 2 hours then gracefully stop
+python main.py --timed 120
+
+# Process specific project for 30 minutes
+python main.py --timed 30 --project_id <project_id>
+
+# Combine with other modes
+python main.py --timed 60 --shallow 10  # 1 hour with shallow processing
+python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
+```
+
+**Timed Mode Behavior:**
+
+- Gracefully stops after the specified time limit
+- Completes any documents currently being processed
+- Does not start new projects or fetch new document batches after time limit
+- Provides elapsed and remaining time updates during processing
+- Perfect for scheduled maintenance windows or batch processing jobs
+
+**Use Cases:**
+
+- Scheduled overnight processing windows
+- Resource-limited environments with time constraints  
+- Batch processing jobs with SLA requirements
+- Testing and development with controlled run times
 
 ## Development
 

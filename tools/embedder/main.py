@@ -82,7 +82,29 @@ def get_embedder_temp_dir():
     os.makedirs(temp_dir, exist_ok=True)
     return temp_dir
 
-def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False):
+def check_time_limit(start_time, time_limit_seconds):
+    """
+    Check if the time limit has been reached for timed mode.
+    
+    Args:
+        start_time (datetime): The start time of processing
+        time_limit_seconds (int): Time limit in seconds
+        
+    Returns:
+        tuple: (time_limit_reached, elapsed_minutes, remaining_minutes)
+    """
+    if time_limit_seconds is None:
+        return False, 0, 0
+    
+    elapsed_time = datetime.now() - start_time
+    elapsed_seconds = elapsed_time.total_seconds()
+    elapsed_minutes = elapsed_seconds / 60
+    remaining_seconds = max(0, time_limit_seconds - elapsed_seconds)
+    remaining_minutes = remaining_seconds / 60
+    
+    return elapsed_seconds >= time_limit_seconds, elapsed_minutes, remaining_minutes
+
+def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, timed_mode=False, time_limit_minutes=None):
     """
     Process documents for one or more specific projects, or all projects.
     
@@ -100,6 +122,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
         retry_failed_only (bool, optional): If True, only process documents that previously failed processing.
         retry_skipped_only (bool, optional): If True, only process documents that were previously skipped.
+        timed_mode (bool, optional): If True, run in timed mode with time limit.
+        time_limit_minutes (int, optional): Time limit in minutes for timed mode processing.
         
     Returns:
         dict: A dictionary containing the processing results, including:
@@ -127,6 +151,17 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         print(f"[MODE] 🔄 RETRY SKIPPED MODE: Only processing documents that were previously skipped")
     else:
         print(f"[MODE] ✅ NORMAL MODE: Processing new documents (skipping successful ones)")
+    
+    # Initialize timing for timed mode
+    start_time = datetime.now()
+    time_limit_reached = False
+    
+    if timed_mode:
+        print(f"[TIMED MODE] ⏱️  Running for {time_limit_minutes} minutes. Will gracefully stop after time limit.")
+        print(f"[TIMED MODE] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        time_limit_seconds = time_limit_minutes * 60
+    else:
+        time_limit_seconds = None
     
     # HC44-32rs specific performance info
     import multiprocessing
@@ -171,6 +206,16 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     results = []
     embedder_temp_dir = get_embedder_temp_dir()
     for project in projects:
+        # Check time limit before starting each project
+        if timed_mode:
+            time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
+            if time_limit_reached:
+                print(f"\n[TIMED MODE] ⏰ Time limit of {time_limit_minutes} minutes reached after {elapsed_minutes:.1f} minutes.")
+                print(f"[TIMED MODE] Gracefully stopping. Completed {len(results)} project(s).")
+                break
+            else:
+                print(f"[TIMED MODE] ⏱️  Elapsed: {elapsed_minutes:.1f}min, Remaining: {remaining_minutes:.1f}min")
+        
         project_id = project["_id"]
         project_name = project["name"]
 
@@ -200,6 +245,13 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         shallow_success_count = len(already_completed) if shallow_mode else 0
 
         for file_page_number in range(file_total_pages):
+            # Check time limit before processing each page of files
+            if timed_mode:
+                time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
+                if time_limit_reached:
+                    print(f"[TIMED MODE] ⏰ Time limit reached during {project_name}. Stopping file processing for this project.")
+                    break
+            
             if shallow_mode and shallow_success_count >= shallow_limit:
                 print(f"[SHALLOW MODE] {shallow_success_count} documents already processed for {project_name}, skipping rest.")
                 break
@@ -215,6 +267,13 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
             api_docs_list = []  # Store API document objects
 
             for doc in files_data:
+                # Check time limit before processing each document
+                if timed_mode:
+                    time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
+                    if time_limit_reached:
+                        print(f"[TIMED MODE] ⏰ Time limit reached during document processing for {project_name}. Stopping at {len(s3_file_keys)} documents queued.")
+                        break
+                
                 doc_id = doc["_id"]
                 doc_name = doc.get('name', doc_id)
                 is_processed, status = is_document_already_processed(
@@ -264,15 +323,59 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                     print(
                         f"Found {len(s3_file_keys)} new file(s) for {project_name}. Processing with {files_concurrency_size} workers..."
                     )
-                process_files(
-                    project_id,
-                    s3_file_keys,
-                    metadata_list,
-                    api_docs_list,  # Pass API document objects
-                    batch_size=files_concurrency_size,
-                    temp_dir=embedder_temp_dir,  # Pass temp dir to process_files
-                )
-                if shallow_mode:
+                
+                # Process files in batches for timed mode, or all at once for normal mode
+                if timed_mode:
+                    # Process in batches using the configured concurrency size for time checks
+                    batch_size = files_concurrency_size  # Use configured concurrency as batch size
+                    total_files = len(s3_file_keys)
+                    files_processed = 0
+                    
+                    for i in range(0, total_files, batch_size):
+                        # Check time limit before each batch
+                        time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
+                        if time_limit_reached:
+                            print(f"[TIMED MODE] ⏰ Time limit reached. Processed {files_processed}/{total_files} files for {project_name}.")
+                            break
+                        
+                        # Get batch of files
+                        end_idx = min(i + batch_size, total_files)
+                        batch_s3_keys = s3_file_keys[i:end_idx]
+                        batch_metadata = metadata_list[i:end_idx]
+                        batch_api_docs = api_docs_list[i:end_idx]
+                        
+                        print(f"[TIMED MODE] Processing batch {i//batch_size + 1}: files {i+1}-{end_idx} of {total_files} (batch size: {batch_size})")
+                        
+                        process_files(
+                            project_id,
+                            batch_s3_keys,
+                            batch_metadata,
+                            batch_api_docs,
+                            batch_size=files_concurrency_size,
+                            temp_dir=embedder_temp_dir,
+                        )
+                        
+                        files_processed = end_idx
+                        
+                        # Update shallow count if in shallow mode
+                        if shallow_mode:
+                            shallow_success_count += len(batch_s3_keys)
+                            if shallow_success_count >= shallow_limit:
+                                print(f"[SHALLOW MODE] Reached {shallow_success_count} processed documents for {project_name} (limit: {shallow_limit}).")
+                                break
+                else:
+                    # Normal mode: process all files at once for maximum efficiency
+                    process_files(
+                        project_id,
+                        s3_file_keys,
+                        metadata_list,
+                        api_docs_list,
+                        batch_size=files_concurrency_size,
+                        temp_dir=embedder_temp_dir,
+                    )
+                    
+                # Update shallow count for normal mode
+                if not timed_mode and shallow_mode:
                     shallow_success_count += len(s3_file_keys)
                     if shallow_success_count >= shallow_limit:
                         print(f"[SHALLOW MODE] Reached {shallow_success_count} processed documents for {project_name} (limit: {shallow_limit}).")
@@ -304,12 +407,28 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         print(f"[WARN] Could not delete temp directory {embedder_temp_dir}: {cleanup_err}")
 
     # Summary message
-    if retry_failed_only:
-        print(f"🔄 RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
-    elif retry_skipped_only:
-        print(f"🔄 RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
+    total_elapsed = datetime.now() - start_time
+    total_elapsed_minutes = total_elapsed.total_seconds() / 60
+    
+    if timed_mode:
+        if time_limit_reached:
+            print(f"⏰ TIMED MODE COMPLETED: Stopped after {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
+        else:
+            print(f"⏰ TIMED MODE COMPLETED: Finished all work in {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
+        
+        if retry_failed_only:
+            print(f"🔄 Processed failed documents for {len(results)} project(s)")
+        elif retry_skipped_only:
+            print(f"🔄 Processed skipped documents for {len(results)} project(s)")
+        else:
+            print(f"✅ Processed new documents for {len(results)} project(s)")
     else:
-        print(f"✅ PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
+        if retry_failed_only:
+            print(f"🔄 RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
+        elif retry_skipped_only:
+            print(f"🔄 RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
+        else:
+            print(f"✅ PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
 
     return {"message": "Processing completed", "results": results}
 
@@ -339,6 +458,9 @@ if __name__ == "__main__":
         parser.add_argument(
             "--retry-skipped", action="store_true", help="Only process documents that were previously skipped. Useful for retrying files that were skipped due to missing OCR or unsupported formats."
         )
+        parser.add_argument(
+            "--timed", type=int, metavar="MINUTES", help="Run in timed mode for the specified number of minutes, then gracefully stop. Example: --timed 60"
+        )
         args = parser.parse_args()
 
         # Custom check for missing shallow limit value
@@ -350,23 +472,32 @@ if __name__ == "__main__":
         if args.retry_failed and args.retry_skipped:
             parser.error("Cannot use both --retry-failed and --retry-skipped at the same time. Choose one retry mode.")
         
+        # Validate timed argument
+        if args.timed is not None and args.timed <= 0:
+            parser.error("Timed mode requires a positive number of minutes. Example: --timed 60")
+        
         if args.retry_failed and args.shallow:
             print("WARNING: Using --retry-failed with --shallow mode. Shallow limit will apply to failed files being retried.")
         
         if args.retry_skipped and args.shallow:
             print("WARNING: Using --retry-skipped with --shallow mode. Shallow limit will apply to skipped files being retried.")
+        
+        if args.timed and args.shallow:
+            print("WARNING: Using --timed with --shallow mode. Both time limit and shallow limit will apply.")
 
         shallow_mode = args.shallow is not None
         shallow_limit = args.shallow if shallow_mode else None
+        timed_mode = args.timed is not None
+        time_limit_minutes = args.timed if timed_mode else None
 
         if args.project_id:
             # Run immediately if project_id(s) are provided
-            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped)
+            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
             print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped)
+            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
             print(result)
     finally:
         pass
