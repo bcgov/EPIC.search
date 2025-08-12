@@ -34,6 +34,16 @@ def get_project_by_id(project_id):
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+        
+        # Check if data is empty or doesn't have the expected structure
+        if not data or len(data) == 0:
+            print(f"No data returned when searching for project {project_id}")
+            return []
+            
+        if "searchResults" not in data[0]:
+            print(f"No searchResults found when searching for project {project_id}")
+            return []
+            
         search_results = data[0]["searchResults"]
         # Filter the search results to return only the items with the matching project_id
         filtered_results = [
@@ -63,10 +73,20 @@ def get_projects_count() -> int:
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+        
+        # Check if data is empty or doesn't have the expected structure
+        if not data or len(data) == 0:
+            print("No data returned when fetching projects count")
+            return 0
+            
+        if "meta" not in data[0] or not data[0]["meta"] or len(data[0]["meta"]) == 0:
+            print("No meta information found when fetching projects count")
+            return 0
+            
         return data[0]["meta"][0]["searchResultsTotal"]
     except requests.RequestException as e:
         print(f"Error fetching projects: {e}")
-        return []
+        return 0
 
 
 def get_projects(page_number=0, page_size=10):
@@ -91,6 +111,16 @@ def get_projects(page_number=0, page_size=10):
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+        
+        # Check if data is empty or doesn't have the expected structure
+        if not data or len(data) == 0:
+            print(f"No data returned when fetching projects (page {page_number})")
+            return []
+            
+        if "searchResults" not in data[0]:
+            print(f"No searchResults found when fetching projects (page {page_number})")
+            return []
+            
         return data[0]["searchResults"]
     except requests.RequestException as e:
         print(f"Error fetching projects: {e}")
@@ -118,10 +148,20 @@ def get_files_count_for_project(project_id):
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+        
+        # Check if data is empty or doesn't have the expected structure
+        if not data or len(data) == 0:
+            print(f"No data returned for project {project_id}")
+            return 0
+            
+        if "meta" not in data[0] or not data[0]["meta"] or len(data[0]["meta"]) == 0:
+            print(f"No meta information found for project {project_id}")
+            return 0
+            
         return data[0]["meta"][0]["searchResultsTotal"]
     except requests.RequestException as e:
         print(f"Error fetching files for project {project_id}: {e}")
-        return []
+        return 0
 
 
 def get_files_for_project(project_id, page_number=0, page_size=10):
@@ -147,6 +187,16 @@ def get_files_for_project(project_id, page_number=0, page_size=10):
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
+        
+        # Check if data is empty or doesn't have the expected structure
+        if not data or len(data) == 0:
+            print(f"No data returned for project {project_id} (page {page_number})")
+            return []
+            
+        if "searchResults" not in data[0]:
+            print(f"No searchResults found for project {project_id} (page {page_number})")
+            return []
+            
         return data[0]["searchResults"]
     except requests.RequestException as e:
         print(f"Error fetching files for project {project_id}: {e}")
