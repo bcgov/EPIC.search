@@ -119,7 +119,8 @@ engine = create_engine(
     connect_args={
         "sslmode": "prefer",        # Use SSL when available but don't require it
         "connect_timeout": DB_CONNECT_TIMEOUT,  # Configurable via DB_CONNECT_TIMEOUT env var
-        "application_name": "epic_embedder"  # Identify embedder in database logs
+        "application_name": "epic_embedder",  # Identify embedder in database logs
+        "options": "-c statement_timeout=300s -c lock_timeout=60s"  # Set timeouts at connection level
     }
 )
 SessionLocal = sessionmaker(bind=engine)

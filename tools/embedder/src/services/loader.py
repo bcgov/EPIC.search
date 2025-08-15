@@ -574,7 +574,8 @@ def load_data(
         connect_args={
             "sslmode": "prefer",
             "connect_timeout": 30,
-            "application_name": f"epic_embedder_worker_{process_id}"
+            "application_name": f"epic_embedder_worker_{process_id}",
+            "options": "-c statement_timeout=300s -c lock_timeout=60s"  # Set timeouts at connection level
         }
     )
     

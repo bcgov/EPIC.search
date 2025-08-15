@@ -22,13 +22,10 @@ from .pgvector import VectorStore as PgVectorStore
 
 def get_session():
     """Return a new SQLAlchemy session for database operations with proper error handling."""
-    from sqlalchemy import text
-    
     session = SessionLocal()
     try:
-        # Configure session for better error handling
-        session.execute(text("SET statement_timeout = '300s'"))  # 5 minute query timeout
-        session.execute(text("SET lock_timeout = '60s'"))       # 1 minute lock timeout
+        # Timeouts are now configured at the connection level in engine creation
+        # No need to set them per session, avoiding prepared statement conflicts
         return session
     except Exception as e:
         session.close()

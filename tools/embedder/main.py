@@ -2,6 +2,7 @@ import argparse
 import logging
 from datetime import datetime
 from src.services.logger import load_completed_files, load_incomplete_files, load_skipped_files
+from src.services.repair_service import get_repair_candidates_for_processing, cleanup_document_data, print_repair_analysis
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
@@ -105,7 +106,7 @@ def check_time_limit(start_time, time_limit_seconds):
     
     return elapsed_seconds >= time_limit_seconds, elapsed_minutes, remaining_minutes
 
-def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, timed_mode=False, time_limit_minutes=None):
+def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=False, time_limit_minutes=None):
     """
     Process documents for one or more specific projects, or all projects.
     
@@ -123,6 +124,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
         retry_failed_only (bool, optional): If True, only process documents that previously failed processing.
         retry_skipped_only (bool, optional): If True, only process documents that were previously skipped.
+        repair_mode (bool, optional): If True, identify and repair documents in inconsistent states.
         timed_mode (bool, optional): If True, run in timed mode with time limit.
         time_limit_minutes (int, optional): Time limit in minutes for timed mode processing.
         
@@ -149,6 +151,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         print(f"[MODE] 🔄 RETRY FAILED MODE: Only processing documents that previously failed")
     elif retry_skipped_only:
         print(f"[MODE] 🔄 RETRY SKIPPED MODE: Only processing documents that were previously skipped")
+    elif repair_mode:
+        print(f"[MODE] 🔧 REPAIR MODE: Identifying and fixing documents in inconsistent states")
     else:
         print(f"[MODE] ✅ NORMAL MODE: Processing new documents (skipping successful ones)")
     
@@ -221,6 +225,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         mode_info = " (RETRY FAILED)"
     elif retry_skipped_only:
         mode_info = " (RETRY SKIPPED)"
+    elif repair_mode:
+        mode_info = " (REPAIR MODE)"
     
     print(f"TIMED MODE: {time_limit_minutes} minutes limit" if timed_mode else "")
     progress_tracker.start(len(projects), total_documents)
@@ -265,6 +271,78 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         already_completed = load_completed_files(project_id)
         already_incomplete = load_incomplete_files(project_id)
         already_skipped = load_skipped_files(project_id)
+
+        # Handle repair mode - analyze and process inconsistent documents
+        if repair_mode:
+            print(f"\n🔧 REPAIR MODE: Analyzing {project_name} for inconsistent document states...")
+            
+            # Get repair candidates for this project
+            repair_candidates = get_repair_candidates_for_processing(project_id)
+            
+            if not repair_candidates:
+                print(f"✅ No documents need repair for {project_name}")
+                continue
+            
+            print(f"🔧 Found {len(repair_candidates)} documents that need repair for {project_name}")
+            
+            # Process repair candidates instead of normal document flow
+            s3_file_keys = []
+            metadata_list = []
+            docs_to_process = []
+            api_docs_list = []
+            
+            # Get the actual document data for repair candidates
+            for candidate in repair_candidates:
+                doc_id = candidate['document_id']
+                
+                # Clean up existing inconsistent data first
+                print(f"🧹 Cleaning up inconsistent data for {candidate['document_name'][:50]}...")
+                cleanup_summary = cleanup_document_data(doc_id, project_id)
+                print(f"   Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
+                
+                # Find the document in the API to reprocess it
+                # We need to search through all file pages to find this specific document
+                doc_found = False
+                for search_page in range(file_total_pages):
+                    search_files = get_files_for_project(project_id, search_page, page_size)
+                    for doc in search_files:
+                        if doc["_id"] == doc_id:
+                            doc_found = True
+                            s3_key = doc.get("internalURL")
+                            if s3_key:
+                                doc_meta = format_metadata(project, doc)
+                                s3_file_keys.append(s3_key)
+                                metadata_list.append(doc_meta)
+                                docs_to_process.append(doc)
+                                api_docs_list.append(doc)
+                                print(f"✅ Queued for reprocessing: {candidate['document_name'][:50]}")
+                            break
+                    if doc_found:
+                        break
+                
+                if not doc_found:
+                    print(f"⚠️  Warning: Could not find document {doc_id} in API - may have been deleted")
+            
+            # Process the repair candidates
+            if s3_file_keys:
+                files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
+                print(f"🔧 Reprocessing {len(s3_file_keys)} repaired documents for {project_name} with {files_concurrency_size} workers...")
+                
+                process_files(
+                    project_id,
+                    s3_file_keys,
+                    metadata_list,
+                    api_docs_list,
+                    files_concurrency_size,
+                    embedder_temp_dir,
+                )
+                
+                print(f"✅ Repair completed for {project_name}")
+            else:
+                print(f"⚠️  No repairable documents found in API for {project_name}")
+            
+            # Skip to next project in repair mode
+            continue
 
         # For shallow mode, count how many have been processed successfully
         shallow_success_count = len(already_completed) if shallow_mode else 0
@@ -499,6 +577,9 @@ if __name__ == "__main__":
             "--retry-skipped", action="store_true", help="Only process documents that were previously skipped. Useful for retrying files that were skipped due to missing OCR or unsupported formats."
         )
         parser.add_argument(
+            "--repair", action="store_true", help="Repair mode: identify and fix documents in inconsistent states (partial processing, orphaned chunks, failed but with data). Cleans up and reprocesses automatically."
+        )
+        parser.add_argument(
             "--timed", type=int, metavar="MINUTES", help="Run in timed mode for the specified number of minutes, then gracefully stop. Example: --timed 60"
         )
         args = parser.parse_args()
@@ -511,6 +592,9 @@ if __name__ == "__main__":
         # Validate flag combinations
         if args.retry_failed and args.retry_skipped:
             parser.error("Cannot use both --retry-failed and --retry-skipped at the same time. Choose one retry mode.")
+        
+        if args.repair and (args.retry_failed or args.retry_skipped):
+            parser.error("Cannot use --repair with --retry-failed or --retry-skipped. Repair mode automatically handles inconsistent states.")
         
         # Validate timed argument
         if args.timed is not None and args.timed <= 0:
