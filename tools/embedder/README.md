@@ -417,7 +417,8 @@ The embedder includes automated progress tracking that provides real-time summar
 - **Project Progress**: Number of projects completed vs. total
 - **Document Progress**: Documents processed, failed, and skipped with percentages
 - **Processing Rate**: Documents per hour throughput
-- **Active Workers**: Currently processing documents with worker IDs
+- **Data Throughput**: Pages per hour and MB per hour processing rates
+- **Active Workers**: Currently processing documents with worker IDs, page counts, and file sizes
 - **Current Project**: Name of the project being processed
 
 #### Sample Progress Output
@@ -434,17 +435,17 @@ PROGRESS SUMMARY - 15:00:30
 Runtime: 0:30:30
 Projects: 8/25 (32.0%)
 Documents: 385/1,250 (30.8%) [Success: 380, Failed: 3, Skipped: 2]
-Rate: 756.0 docs/hour | ETA: 1:08:45
+Rate: 756.0 docs/hour | Pages: 8,547 (17,094/hr) | Data: 234.8 MB (469.6 MB/hr) | ETA: 1:08:45
 Current Project: Highway 97 Expansion Project
 Active Workers (8):
-  [1] Worker-12345-1: Environmental_Impact_Assessment.pdf
-  [2] Worker-12345-2: Traffic_Analysis_Report.pdf
-  [3] Worker-12345-3: Geological_Survey_2024.pdf
-  [4] Worker-12345-4: Public_Consultation_Summary.pdf
-  [5] Worker-12345-5: Engineering_Drawings_Phase1.pdf
-  [6] Worker-12345-6: Cost_Benefit_Analysis.pdf
-  [7] Worker-12345-7: Archaeological_Assessment.pdf
-  [8] Worker-12345-8: Project_Timeline_Updated.pdf
+  [1] Worker-w4: Environmental_Impact_Assessment.pdf (47p, 12.3MB)
+  [2] Worker-w7: Traffic_Analysis_Report.pdf (23p, 5.8MB)
+  [3] Worker-w9: Geological_Survey_2024.pdf (156p, 45.2MB)
+  [4] Worker-w11: Public_Consultation_Summary.pdf (8p, 2.1MB)
+  [5] Worker-w12: Engineering_Drawings_Phase1.pdf (34p, 18.7MB)
+  [6] Worker-w15: Cost_Benefit_Analysis.pdf (19p, 3.4MB)
+  [7] Worker-w18: Archaeological_Assessment.pdf (67p, 23.9MB)
+  [8] Worker-w21: Project_Timeline_Updated.pdf (12p, 2.8MB)
 --------------------------------------------------------------------------------
 
 ================================================================================
@@ -456,6 +457,8 @@ Final Results:
    Successful: 1,240
    Failed: 5
    Skipped: 2
+   Pages Processed: 28,456
+   Data Processed: 1,847.3 MB
 Average Rate: 554.2 documents/hour
 ================================================================================
 ```

@@ -13,7 +13,9 @@ class ProgressTracker:
         self.failed_documents = 0
         self.skipped_documents = 0
         self.current_project_name = ""
-        self.active_documents = {}  # dict of {worker_id: document_name}
+        self.active_documents = {}  # dict of {worker_id: {name, pages, size_mb}}
+        self.total_pages_processed = 0
+        self.total_size_mb_processed = 0.0
         self.last_summary_time = time.time()
         self.lock = threading.Lock()
         self._stop_logging = False
@@ -47,12 +49,16 @@ class ProgressTracker:
         with self.lock:
             self.current_project_name = project_name
     
-    def start_document_processing(self, worker_id, document_name):
+    def start_document_processing(self, worker_id, document_name, pages=None, size_mb=None):
         """Register that a worker started processing a document"""
         with self.lock:
-            self.active_documents[worker_id] = document_name
+            self.active_documents[worker_id] = {
+                'name': document_name,
+                'pages': pages,
+                'size_mb': size_mb
+            }
     
-    def finish_document_processing(self, worker_id, success=True, skipped=False):
+    def finish_document_processing(self, worker_id, success=True, skipped=False, pages=None, size_mb=None):
         """Register that a worker finished processing a document"""
         with self.lock:
             # Remove from active documents
@@ -62,6 +68,11 @@ class ProgressTracker:
             # Update counters
             if success:
                 self.processed_documents += 1
+                # Add to totals if we have the info
+                if pages is not None:
+                    self.total_pages_processed += pages
+                if size_mb is not None:
+                    self.total_size_mb_processed += size_mb
             elif skipped:
                 self.skipped_documents += 1
             else:
@@ -133,17 +144,41 @@ class ProgressTracker:
             print(f"Projects: {self.processed_projects}/{self.total_projects} ({project_pct:.1f}%)")
             print(f"Documents: {total_processed}/{self.total_documents} ({doc_pct:.1f}%) "
                   f"[Success: {self.processed_documents}, Failed: {self.failed_documents}, Skipped: {self.skipped_documents}]")
-            print(f"Rate: {docs_per_hour:.1f} docs/hour | ETA: {eta}")
+            
+            # Add throughput metrics if we have data
+            throughput_info = ""
+            if self.total_pages_processed > 0:
+                pages_per_hour = (self.total_pages_processed / elapsed.total_seconds()) * 3600 if elapsed.total_seconds() > 0 else 0
+                throughput_info += f" | Pages: {self.total_pages_processed:,} ({pages_per_hour:.0f}/hr)"
+            
+            if self.total_size_mb_processed > 0:
+                mb_per_hour = (self.total_size_mb_processed / elapsed.total_seconds()) * 3600 if elapsed.total_seconds() > 0 else 0
+                throughput_info += f" | Data: {self.total_size_mb_processed:.1f} MB ({mb_per_hour:.1f} MB/hr)"
+            
+            print(f"Rate: {docs_per_hour:.1f} docs/hour{throughput_info} | ETA: {eta}")
             if self.current_project_name:
                 print(f"Current Project: {self.current_project_name}")
             
             # Show currently active documents
             if self.active_documents:
                 print(f"Active Workers ({len(self.active_documents)}):")
-                for i, (worker_id, doc_name) in enumerate(self.active_documents.items(), 1):
-                    # Truncate long document names for display
-                    display_name = doc_name if len(doc_name) <= 50 else doc_name[:47] + "..."
-                    print(f"  [{i}] Worker-{worker_id}: {display_name}")
+                for i, (worker_id, doc_info) in enumerate(self.active_documents.items(), 1):
+                    doc_name = doc_info['name']
+                    # Document name is already truncated in processor.py, no need to truncate again
+                    display_name = doc_name
+                    
+                    # Add page count and size info if available
+                    extra_info = ""
+                    if doc_info.get('pages') is not None:
+                        extra_info += f" ({doc_info['pages']}p"
+                        if doc_info.get('size_mb') is not None:
+                            extra_info += f", {doc_info['size_mb']:.1f}MB)"
+                        else:
+                            extra_info += ")"
+                    elif doc_info.get('size_mb') is not None:
+                        extra_info += f" ({doc_info['size_mb']:.1f}MB)"
+                    
+                    print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}")
             else:
                 print("Active Workers: None (between batches)")
             print(f"{'-'*80}")
@@ -163,6 +198,10 @@ class ProgressTracker:
         print(f"   Successful: {self.processed_documents}")
         print(f"   Failed: {self.failed_documents}")
         print(f"   Skipped: {self.skipped_documents}")
+        if self.total_pages_processed > 0:
+            print(f"   Pages Processed: {self.total_pages_processed:,}")
+        if self.total_size_mb_processed > 0:
+            print(f"   Data Processed: {self.total_size_mb_processed:.1f} MB")
         print(f"Average Rate: {docs_per_hour:.1f} documents/hour")
         if reason != "Completed":
             print(f"REASON: {reason}")
