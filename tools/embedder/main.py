@@ -141,8 +141,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     print(f"[PERF] Document workers: {files_concurrency}")
     print(f"[PERF] Keyword threads per document: {keyword_workers}")
     print(f"[PERF] Database batch size: {chunk_batch_size}")
-    print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")
-    print(f"[PERF] Database connection pool: {32} base + {64} overflow = {96} max connections")
+    print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")    
     
     # Show processing mode
     if retry_failed_only:

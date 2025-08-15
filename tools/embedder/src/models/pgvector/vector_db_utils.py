@@ -34,8 +34,73 @@ Vector Database Utilities module for unified pgvector integration and ORM manage
 from src.config.settings import get_settings
 from src.models.pgvector.vector_models import Base, DocumentChunk, Document, Project, ProcessingLog
 from sqlalchemy import create_engine, text
+import os
+import multiprocessing
 
 settings = get_settings()
+
+def _parse_files_concurrency():
+    """Parse FILES_CONCURRENCY_SIZE with intelligent auto-calculation (matches settings.py logic)"""
+    env_value = os.environ.get("FILES_CONCURRENCY_SIZE", "")
+    cpu_count = multiprocessing.cpu_count()
+    
+    # Handle empty or auto values with intelligent defaults
+    if not env_value or env_value.lower() == 'auto':
+        # For high-core systems, use half the cores to avoid over-parallelization
+        if cpu_count >= 16:
+            return cpu_count // 2
+        else:
+            return cpu_count
+    elif env_value.lower() == 'auto-full':
+        return cpu_count
+    elif env_value.lower() == 'auto-conservative':
+        return max(1, cpu_count // 4)
+    
+    try:
+        # Try to parse as integer
+        return int(env_value)
+    except ValueError:
+        # If parsing fails, fall back to intelligent auto
+        return cpu_count // 2 if cpu_count >= 16 else cpu_count
+
+def _calculate_auto_db_pool_config():
+    """Calculate database pool settings based on concurrency"""
+    concurrent_workers = _parse_files_concurrency()
+    
+    # Calculate pool sizes based on concurrent workers
+    # Formula: pool_size = 2x workers (safe ratio), overflow = 4x workers (good capacity)
+    auto_pool_size = max(4, concurrent_workers * 2)
+    auto_max_overflow = max(8, concurrent_workers * 4)
+    
+    return auto_pool_size, auto_max_overflow, concurrent_workers
+
+# Get auto-calculated values
+auto_pool_size, auto_max_overflow, estimated_workers = _calculate_auto_db_pool_config()
+
+# Configurable connection pool settings via environment variables with AUTO support
+DB_POOL_SIZE_RAW = os.getenv('DB_POOL_SIZE', 'auto').lower()
+DB_MAX_OVERFLOW_RAW = os.getenv('DB_MAX_OVERFLOW', 'auto').lower()
+
+if DB_POOL_SIZE_RAW == 'auto':
+    DB_POOL_SIZE = auto_pool_size
+else:
+    DB_POOL_SIZE = int(DB_POOL_SIZE_RAW)
+
+if DB_MAX_OVERFLOW_RAW == 'auto':
+    DB_MAX_OVERFLOW = auto_max_overflow
+else:
+    DB_MAX_OVERFLOW = int(DB_MAX_OVERFLOW_RAW)
+
+DB_POOL_RECYCLE = int(os.getenv('DB_POOL_RECYCLE', '900'))      # Default: 15 minutes
+DB_POOL_TIMEOUT = int(os.getenv('DB_POOL_TIMEOUT', '120'))      # Default: 2 minutes to wait for connection from pool
+DB_CONNECT_TIMEOUT = int(os.getenv('DB_CONNECT_TIMEOUT', '60')) # Default: 1 minute to establish initial connection
+
+print(f"[CONFIG] Database connection pool: size={DB_POOL_SIZE}, max_overflow={DB_MAX_OVERFLOW}, "
+      f"recycle={DB_POOL_RECYCLE}s ({DB_POOL_RECYCLE//60} min), "
+      f"pool_timeout={DB_POOL_TIMEOUT}s, connect_timeout={DB_CONNECT_TIMEOUT}s")
+if DB_POOL_SIZE_RAW == 'auto' or DB_MAX_OVERFLOW_RAW == 'auto':
+    print(f"[CONFIG] Auto-calculated for ~{estimated_workers} concurrent workers "
+          f"(FILES_CONCURRENCY_SIZE={os.getenv('FILES_CONCURRENCY_SIZE', 'auto')})")
 
 # Use SQLAlchemy to drop and create tables    
 database_url = settings.vector_store_settings.db_url
@@ -43,22 +108,22 @@ database_url = settings.vector_store_settings.db_url
 if database_url and database_url.startswith('postgresql:'):
     database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
 
-# Configure engine with connection pooling and timeout settings for HC44-32rs server
+# Configure engine with connection pooling and timeout settings for server
 engine = create_engine(
     database_url,
-    pool_size=32,           # Match core count for HC44-32rs (32 vCPUs)
-    max_overflow=64,        # 2x pool_size for burst loads on high-core server
-    pool_timeout=60,        # Seconds to wait for connection from pool
-    pool_recycle=1800,      # Recycle connections after 30 minutes
-    pool_pre_ping=True,     # Verify connections before use
+    pool_size=DB_POOL_SIZE,         # Configurable via DB_POOL_SIZE env var
+    max_overflow=DB_MAX_OVERFLOW,   # Configurable via DB_MAX_OVERFLOW env var
+    pool_timeout=DB_POOL_TIMEOUT,   # Configurable via DB_POOL_TIMEOUT env var
+    pool_recycle=DB_POOL_RECYCLE,   # Configurable via DB_POOL_RECYCLE env var
+    pool_pre_ping=True,             # Verify connections before use
     connect_args={
-        "sslmode": "prefer",  # Use SSL when available but don't require it
-        "connect_timeout": 60,  # Connection timeout in seconds
-        "application_name": "epic_embedder_hc44rs"  # Identify HC44-32rs in database logs
+        "sslmode": "prefer",        # Use SSL when available but don't require it
+        "connect_timeout": DB_CONNECT_TIMEOUT,  # Configurable via DB_CONNECT_TIMEOUT env var
+        "application_name": "epic_embedder"  # Identify embedder in database logs
     }
 )
 SessionLocal = sessionmaker(bind=engine)
-    
+
 
 def create_index(conn, sql, index_name):
     print(f"Creating index: {index_name} ...")
