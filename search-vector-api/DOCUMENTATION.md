@@ -504,7 +504,7 @@ The search API supports fine-grained control over result filtering and ranking t
 * Override environment defaults on a per-request basis
 * Customize search precision vs recall behavior
 
-### Environment Variables
+### Ranking Environment Variables
 
 Add to your `.env` file:
 
@@ -606,7 +606,7 @@ The ranking system uses a cross-encoder model (`cross-encoder/ms-marco-MiniLM-L-
 }
 ```
 
-### Response Metadata
+### Ranking Response Metadata
 
 The search response includes ranking information in the metrics:
 
@@ -999,7 +999,6 @@ The search metrics will include the extraction method used:
     // ... other metrics
   }
 }
-```
 
 ### Configuration Classes
 
@@ -1116,7 +1115,7 @@ Choosing the appropriate model loading strategy depends on your specific deploym
 
 ### Statistics API
 
-The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
+The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, skipped counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
 
 #### Processing Statistics
 
@@ -1152,7 +1151,8 @@ GET /api/stats/processing
         "project_name": "Site C Clean Energy Project",
         "total_files": 150,
         "successful_files": 140,
-        "failed_files": 10,
+        "failed_files": 8,
+        "skipped_files": 2,
         "success_rate": 93.33
       }
     ],
@@ -1160,7 +1160,8 @@ GET /api/stats/processing
       "total_projects": 5,
       "total_files_across_all_projects": 750,
       "total_successful_files": 720,
-      "total_failed_files": 30,
+      "total_failed_files": 25,
+      "total_skipped_files": 5,
       "overall_success_rate": 96.0
     }
   }
@@ -1196,8 +1197,9 @@ Provides detailed processing logs for a specific project including individual do
     ],
     "summary": {
       "total_files": 50,
-      "successful_files": 48,
+      "successful_files": 46,
       "failed_files": 2,
+      "skipped_files": 2,
       "success_rate": 96.0
     }
   }
@@ -1242,7 +1244,7 @@ The Stats API requires the following database tables:
 * `id` (Integer, Primary Key)
 * `project_id` (String, Foreign Key)
 * `document_id` (VARCHAR)
-* `status` (VARCHAR: "success" or "failure")
+* `status` (VARCHAR: "success", "failure", or "skipped")
 * `processed_at` (TIMESTAMP)
 * `metrics` (JSONB)
 
@@ -1289,7 +1291,7 @@ This distinction makes it clear whether you're getting complete documents or spe
 
 The API returns detailed timing metrics for each stage of the search pipeline:
 
-#### Ranking Configuration
+#### Ranking Configuration Metrics
 
 * **`ranking_config`**: Shows the ranking parameters used for the search
   * `minScore.value`: The minimum relevance score threshold applied

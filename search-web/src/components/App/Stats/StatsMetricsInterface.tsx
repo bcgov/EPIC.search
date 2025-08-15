@@ -365,11 +365,28 @@ const StatsMetricsInterface = () => {
                                       {projectDetailsData.result.project_details.processing_logs.map((log: any) => (
                                         <TableRow key={log.log_id}>
                                           <TableCell sx={{ maxWidth: 300, minWidth: 200 }}>
-                                            <Typography variant="body2" sx={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                                              {log.metrics?.document_info.display_name || 
-                                               log.metrics?.document_info.document_name || 
-                                               'UNKNOWN'}
-                                            </Typography>
+                                            <Box>
+                                              <Typography variant="body2" sx={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                                                {log.metrics?.document_info.display_name || 
+                                                 log.metrics?.document_info.document_name || 
+                                                 'UNKNOWN'}
+                                              </Typography>
+                                              {log.metrics?.document_info.display_name && log.metrics?.document_info.document_name && (
+                                                <Typography 
+                                                  variant="caption" 
+                                                  sx={{ 
+                                                    wordBreak: 'break-word', 
+                                                    whiteSpace: 'pre-wrap',
+                                                    color: 'text.secondary',
+                                                    fontSize: '0.6rem',
+                                                    display: 'block',
+                                                    mt: 0.5
+                                                  }}
+                                                >
+                                                  {log.metrics.document_info.document_name}
+                                                </Typography>
+                                              )}
+                                            </Box>
                                           </TableCell>
                                           <TableCell align="center">
                                             <Chip

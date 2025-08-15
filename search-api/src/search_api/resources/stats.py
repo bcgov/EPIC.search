@@ -23,7 +23,7 @@ search_request_model = ApiHelper.convert_ma_schema_to_restx_model(
 @API.route("/processing", methods=["GET", "POST", "OPTIONS"])
 class StatsProcessing(Resource):
     @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for all or specific projects")
+    @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for all or specific projects including successful, failed, and skipped file counts")
     def get():
         current_app.logger.info("=== Stats processing GET request started ===")
         current_app.logger.info(f"Request URL: {request.url}")
@@ -48,7 +48,7 @@ class StatsProcessing(Resource):
             return Response(json.dumps({"error": "Failed to get processing stats"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
 
     @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for specific projects")
+    @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for specific projects including successful, failed, and skipped file counts")
     def post():
         current_app.logger.info("=== Stats processing POST request started ===")
         current_app.logger.info(f"Request URL: {request.url}")
