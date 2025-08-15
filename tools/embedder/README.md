@@ -409,6 +409,122 @@ For detailed technical documentation, see [DOCUMENTATION.md](DOCUMENTATION.md).
 
 ## Monitoring
 
+### Progress Tracking
+
+The embedder includes automated progress tracking that provides real-time summaries during processing. Progress summaries are automatically printed every 30 seconds, showing:
+
+- **Runtime and ETA**: Current elapsed time and estimated completion time
+- **Project Progress**: Number of projects completed vs. total
+- **Document Progress**: Documents processed, failed, and skipped with percentages
+- **Processing Rate**: Documents per hour throughput
+- **Active Workers**: Currently processing documents with worker IDs
+- **Current Project**: Name of the project being processed
+
+#### Sample Progress Output
+
+```text
+================================================================================
+EMBEDDER STARTED: 2025-01-15 14:30:00
+SCOPE: 25 projects, 1,250 documents
+CONCURRENCY: FILES=auto, DB_POOL=auto/auto
+================================================================================
+
+--------------------------------------------------------------------------------
+PROGRESS SUMMARY - 15:00:30
+Runtime: 0:30:30
+Projects: 8/25 (32.0%)
+Documents: 385/1,250 (30.8%) [Success: 380, Failed: 3, Skipped: 2]
+Rate: 756.0 docs/hour | ETA: 1:08:45
+Current Project: Highway 97 Expansion Project
+Active Workers (8):
+  [1] Worker-12345-1: Environmental_Impact_Assessment.pdf
+  [2] Worker-12345-2: Traffic_Analysis_Report.pdf
+  [3] Worker-12345-3: Geological_Survey_2024.pdf
+  [4] Worker-12345-4: Public_Consultation_Summary.pdf
+  [5] Worker-12345-5: Engineering_Drawings_Phase1.pdf
+  [6] Worker-12345-6: Cost_Benefit_Analysis.pdf
+  [7] Worker-12345-7: Archaeological_Assessment.pdf
+  [8] Worker-12345-8: Project_Timeline_Updated.pdf
+--------------------------------------------------------------------------------
+
+================================================================================
+EMBEDDER COMPLETED: 2025-01-15 16:45:00
+Total Runtime: 2:15:00
+Final Results:
+   Projects: 25/25
+   Documents: 1,247/1,250
+   Successful: 1,240
+   Failed: 5
+   Skipped: 2
+Average Rate: 554.2 documents/hour
+================================================================================
+```
+
+### Log Monitoring
+
+For server deployments using `nohup` and output redirection:
+
+```bash
+# Start embedder with output logging
+nohup python -u main.py --timed 5 > output.log 2>&1 &
+```
+
+#### Monitor All Activity
+
+```bash
+tail -f output.log
+```
+
+#### Monitor Just Progress Summaries
+
+```bash
+tail -f output.log | grep -E "(PROGRESS SUMMARY|Runtime:|Rate:|Active Workers)"
+```
+
+#### Monitor Key Events Only
+
+```bash
+tail -f output.log | grep -E "(EMBEDDER STARTED|EMBEDDER COMPLETED|PROGRESS SUMMARY)"
+```
+
+#### Check Current Active Workers
+
+```bash
+tail -f output.log | grep -A 10 "Active Workers"
+```
+
+#### Quick Status Check
+
+```bash
+# Get latest summary
+grep "PROGRESS SUMMARY" output.log | tail -1 && grep -A 10 "Active Workers" output.log | tail -10
+
+# Check processing rate
+tail -f output.log | grep "Rate:"
+
+# Check if still running
+ps aux | grep "main.py"
+```
+
+#### Split Screen Monitoring
+
+```bash
+# Terminal 1: Full detailed logs
+tail -f output.log
+
+# Terminal 2: Just progress summaries  
+tail -f output.log | grep "PROGRESS SUMMARY" -A 6
+```
+
+### Progress Analysis
+
+The progress tracker provides valuable insights for optimization:
+
+- **Rate Analysis**: Documents/hour helps identify performance bottlenecks
+- **Worker Utilization**: Active worker count shows concurrency effectiveness
+- **ETA Accuracy**: Estimated completion time improves throughout processing
+- **Failure Patterns**: Failed/skipped ratios help identify problematic document types
+
 Processing progress is logged to the console during execution. Each document's processing status is also recorded in the database with comprehensive metrics.
 
 ### Enhanced Failure Analysis

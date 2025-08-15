@@ -33,6 +33,7 @@ from src.services.processor import process_files
 from src.services.data_formatter import format_metadata
 from src.services.project_utils import upsert_project
 from src.services.ocr.ocr_factory import initialize_ocr
+from src.utils.progress_tracker import progress_tracker
 
 # Initialize settings at module level
 settings = get_settings()
@@ -202,6 +203,28 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     if not projects:
         return {"message": "No projects returned by API."}
 
+    # Calculate total documents for progress tracking
+    total_documents = 0
+    for project in projects:
+        try:
+            project_id = project["_id"]
+            files_count = get_files_count_for_project(project_id)
+            total_documents += files_count
+        except Exception as e:
+            print(f"Warning: Could not get file count for project {project.get('name', 'unknown')}: {e}")
+    
+    # Start progress tracking
+    mode_info = ""
+    if timed_mode:
+        mode_info = f" (TIMED: {time_limit_minutes} min)"
+    elif retry_failed_only:
+        mode_info = " (RETRY FAILED)"
+    elif retry_skipped_only:
+        mode_info = " (RETRY SKIPPED)"
+    
+    print(f"TIMED MODE: {time_limit_minutes} minutes limit" if timed_mode else "")
+    progress_tracker.start(len(projects), total_documents)
+
     results = []
     embedder_temp_dir = get_embedder_temp_dir()
     for project in projects:
@@ -217,6 +240,9 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         
         project_id = project["_id"]
         project_name = project["name"]
+
+        # Update progress tracker with current project
+        progress_tracker.update_current_project(project_name)
 
         # Ensure project record exists before processing documents
         upsert_project(project_id, project_name, project)
@@ -393,6 +419,10 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         print(
             f"Project processing completed for {project_name} in {duration_in_s} seconds"
         )
+        
+        # Mark project as completed in progress tracker
+        progress_tracker.finish_project()
+        
         results.append(
             {"project_name": project_name, "duration_seconds": duration_in_s}
         )
@@ -428,6 +458,17 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
             print(f"🔄 RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
         else:
             print(f"✅ PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
+
+    # Stop progress tracking
+    reason = "Completed"
+    if timed_mode and time_limit_reached:
+        reason = f"Time limit reached ({time_limit_minutes} minutes)"
+    elif retry_failed_only:
+        reason = "Retry failed mode completed"
+    elif retry_skipped_only:
+        reason = "Retry skipped mode completed"
+    
+    progress_tracker.stop(reason)
 
     return {"message": "Processing completed", "results": results}
 
