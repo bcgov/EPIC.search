@@ -12,6 +12,9 @@ Tag Extractor module for identifying relevant tags from document content.
 - Parallelized for speed and robust for production use
 """
 
+# Global cache for tag embeddings to avoid recomputation
+_cached_tag_embeddings = None
+
 tags = [
     "AboriginalInterests",
     "AccessRoute",
@@ -130,10 +133,11 @@ tags = [
 
 def get_tag_embeddings():
     """
-    Generate embeddings for the predefined list of tags.
+    Generate embeddings for the predefined list of tags with caching.
     
     Creates vector embeddings for all tags in the predefined tag list,
     which can then be used for semantic similarity comparisons.
+    Uses global caching to avoid expensive recomputation.
     
     Returns:
         list: A list of vector embeddings corresponding to each tag in the tags list
@@ -141,10 +145,19 @@ def get_tag_embeddings():
     Raises:
         RuntimeError: If embedding generation fails due to memory constraints
     """
+    global _cached_tag_embeddings
+    
+    # Return cached embeddings if available
+    if _cached_tag_embeddings is not None:
+        return _cached_tag_embeddings
+    
     try:
         print(f"[TAG-EXTRACTOR] Generating embeddings for {len(tags)} predefined tags...")
         embeddings = get_embedding(tags)
         print(f"[TAG-EXTRACTOR] Successfully generated tag embeddings")
+        
+        # Cache the embeddings globally
+        _cached_tag_embeddings = embeddings
         return embeddings
         
     except RuntimeError as e:
@@ -307,7 +320,7 @@ def get_tags(query: str, threshold=0.6):
     Returns:
         list: A list of unique tags relevant to the query
     """
-    tag_embeddings = get_embedding(tags)
+    tag_embeddings = get_tag_embeddings()  # Use cached embeddings
     query_embedding = get_embedding([query])
     text_lower = query.lower()
     explicit_matches = [tag for tag in tags if tag.lower() in text_lower]
