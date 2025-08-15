@@ -33,7 +33,9 @@ Vector Database Utilities module for unified pgvector integration and ORM manage
 
 from src.config.settings import get_settings
 from src.models.pgvector.vector_models import Base, DocumentChunk, Document, Project, ProcessingLog
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import Engine
 import os
 import multiprocessing
 
@@ -119,10 +121,18 @@ engine = create_engine(
     connect_args={
         "sslmode": "prefer",        # Use SSL when available but don't require it
         "connect_timeout": DB_CONNECT_TIMEOUT,  # Configurable via DB_CONNECT_TIMEOUT env var
-        "application_name": "epic_embedder",  # Identify embedder in database logs
-        "options": "-c statement_timeout=300s -c lock_timeout=60s"  # Set timeouts at connection level
+        "application_name": "epic_embedder"  # Identify embedder in database logs
     }
 )
+
+# Set timeouts after connection establishment to avoid Azure PostgreSQL startup parameter issues
+@event.listens_for(engine, "connect")
+def set_timeouts(dbapi_connection, connection_record):
+    """Set statement and lock timeouts after connection establishment."""
+    with dbapi_connection.cursor() as cursor:
+        cursor.execute("SET statement_timeout = '300s'")  # 5 minute query timeout
+        cursor.execute("SET lock_timeout = '60s'")        # 1 minute lock timeout
+
 SessionLocal = sessionmaker(bind=engine)
 
 

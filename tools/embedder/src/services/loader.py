@@ -558,7 +558,7 @@ def load_data(
     # Do NOT use shared engine across processes
     from src.config.settings import get_settings
     settings = get_settings()
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, event
     database_url = settings.vector_store_settings.db_url
     if database_url and database_url.startswith('postgresql:'):
         database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
@@ -574,10 +574,17 @@ def load_data(
         connect_args={
             "sslmode": "prefer",
             "connect_timeout": 30,
-            "application_name": f"epic_embedder_worker_{process_id}",
-            "options": "-c statement_timeout=300s -c lock_timeout=60s"  # Set timeouts at connection level
+            "application_name": f"epic_embedder_worker_{process_id}"
         }
     )
+    
+    # Set timeouts after connection establishment for this worker's engine
+    @event.listens_for(engine_to_use, "connect")
+    def set_worker_timeouts(dbapi_connection, connection_record):
+        """Set statement and lock timeouts for worker connections."""
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '300s'")  # 5 minute query timeout
+            cursor.execute("SET lock_timeout = '60s'")        # 1 minute lock timeout
     
     Session = sessionmaker(bind=engine_to_use)
     session = Session()
