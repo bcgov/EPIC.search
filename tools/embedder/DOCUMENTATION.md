@@ -101,14 +101,58 @@ graph TB
 3. Documents are processed in batches using parallel execution.
 4. Each document is:
    - Downloaded from S3
-   - **Validated for text content** (routes scanned/image-based PDFs to OCR processing)
-   - Processed via standard extraction or OCR (Tesseract/Azure Document Intelligence)
-   - Converted from PDF to markdown
+   - **Validated for format and content** (routes files to appropriate processing pipeline)
+   - Processed via format-specific extraction (PDF text, OCR, or Word document processing)
+   - Converted to markdown format
    - Chunked into smaller text segments
    - Embedded using a configurable vector model
    - Tagged/keyworded using parallelized KeyBERT extraction
    - Stored in a unified PostgreSQL+pgvector database
    - Metrics and logs are collected and stored as JSONB
+
+## Supported Document Types
+
+The EPIC.search Embedder supports multiple document formats for text extraction and embedding:
+
+### PDF Documents
+
+- **Native Text PDFs**: Direct text extraction with high accuracy
+- **Scanned/Image PDFs**: OCR processing using Tesseract or Azure Document Intelligence
+- **Mixed Content PDFs**: Automatic detection and routing to appropriate processing pipeline
+- **Format Support**: All standard PDF versions and encodings
+
+### Microsoft Word Documents
+
+- **DOCX Files**: Modern Word format with rich text and formatting support
+- **DOC Files**: Legacy Word format support via docx2txt
+- **Text Extraction**: Preserves document structure while extracting clean text
+- **Chunk Processing**: Simulates page-based chunking for consistent processing pipeline
+
+### Configuration Options
+
+Word document processing can be customized via environment variables:
+
+```bash
+# Enable/disable Word document processing
+WORD_PROCESSING_ENABLED=true
+
+# Size of text chunks (simulates pages for consistency with PDF processing)
+WORD_CHUNK_SIZE=2000
+
+# Preserve formatting in text extraction (experimental)
+WORD_PRESERVE_FORMATTING=false
+```
+
+### Processing Pipeline Consistency
+
+Both PDF and Word documents follow the same processing pipeline:
+
+1. **File Validation**: Format detection and content verification
+2. **Text Extraction**: Format-specific extraction methods
+3. **Chunking**: Division into manageable text segments
+4. **Embedding**: Vector generation using sentence transformers
+5. **Metadata Extraction**: Keywords and tags using BERT-based models
+6. **Storage**: Unified PostgreSQL+pgvector database storage
 
 ## OCR Processing Architecture
 

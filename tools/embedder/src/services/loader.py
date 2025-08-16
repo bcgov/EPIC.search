@@ -30,6 +30,7 @@ from .tag_extractor import extract_tags_from_chunks
 from .embedding import get_embedding
 from .file_validation import validate_file
 from .markdown_reader import read_as_pages
+from .word_reader import read_word_as_pages, is_word_supported
 from .bert_keyword_extractor import extract_keywords_from_chunks
 from .fast_keyword_extractor import extract_keywords_from_chunks_fast
 from .ocr.ocr_factory import initialize_ocr, is_ocr_available
@@ -697,18 +698,40 @@ def load_data(
 
         t1 = time.perf_counter()
         
+        # Determine file type for appropriate processing
+        file_ext = s3_key.lower().split('.')[-1] if '.' in s3_key else ''
+        is_word = file_ext in ['docx', 'doc']
+        
         # Check if we have OCR data from validation, otherwise read normally
         if doc_info and doc_info.get("ocr_pages"):
             print(f"[OCR] Using OCR-extracted pages for {s3_key}")
             pages = doc_info["ocr_pages"]
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "ocr_tesseract"
+        elif is_word:
+            print(f"[WORD] Processing Word document: {s3_key}")
+            pages = read_word_as_pages(temp_path)
+            metrics["read_as_pages"] = time.perf_counter() - t1
+            metrics["extraction_method"] = "word_document"
         else:
             pages = read_as_pages(temp_path)
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "standard_pdf"
         
-        if not any(page.get("text", "").strip() for page in pages):
+        # Normalize page format - ensure all pages have 'text' field for consistency
+        for page in pages:
+            if 'content' in page and 'text' not in page:
+                page['text'] = page['content']
+        
+        # Check for readable text content (handle both PDF 'text' field and Word 'content' field)
+        has_text = False
+        for page in pages:
+            text_content = page.get("text", "") or page.get("content", "")
+            if text_content.strip():
+                has_text = True
+                break
+        
+        if not has_text:
             print(f"[WARN] No readable text found in any page of file {s3_key}. Skipping file.")
             try:
                 os.remove(temp_path)

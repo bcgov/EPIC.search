@@ -1,6 +1,7 @@
 import fitz
 
 from .ocr.ocr_factory import extract_text_with_ocr, is_ocr_available
+from .word_reader import is_word_supported, get_word_document_metadata
 from PIL import Image
 
 def validate_file(temp_path, s3_key):
@@ -29,13 +30,16 @@ def validate_file(temp_path, s3_key):
     file_ext = s3_key.lower().split('.')[-1] if '.' in s3_key else ''
     is_pdf = file_ext == 'pdf'
     is_image = file_ext in ['jpg', 'jpeg', 'png', 'bmp', 'tiff', 'tif', 'gif']
+    is_word = file_ext in ['docx', 'doc']
     
     if is_pdf:
         return _validate_pdf_file(temp_path, s3_key, ocr_info)
     elif is_image:
         return _validate_image_file(temp_path, s3_key, ocr_info)
+    elif is_word:
+        return _validate_word_file(temp_path, s3_key, ocr_info)
     else:
-        print(f"[WARN] File {s3_key} is not a supported file type (PDF or image)")
+        print(f"[WARN] File {s3_key} is not a supported file type (PDF, image, or Word document)")
         return False, "precheck_failed", None, ocr_info
 
 
@@ -259,6 +263,62 @@ def _validate_image_file(temp_path, s3_key, ocr_info):
     else:
         print(f"[SKIP] Image file {s3_key} requires OCR but OCR is not available")
         return False, "scanned_or_image_pdf", None, ocr_info
+
+
+def _validate_word_file(temp_path, s3_key, ocr_info):
+    """
+    Validate Word documents (DOCX/DOC) for text extraction.
+    
+    Args:
+        temp_path: Path to the downloaded Word file
+        s3_key: S3 key for identification
+        ocr_info: OCR information dictionary (updated in place)
+        
+    Returns:
+        Tuple of (is_valid, reason, pages_data, ocr_info)
+    """
+    print(f"[INFO] Validating Word document: {s3_key}")
+    
+    # Check if Word processing is available
+    if not is_word_supported():
+        print(f"[SKIP] Word document {s3_key} requires Word processing libraries (python-docx or docx2txt) but none are available")
+        return False, "word_processing_unavailable", None, ocr_info
+    
+    try:
+        # Get document metadata for validation
+        metadata = get_word_document_metadata(temp_path)
+        
+        # Import here to avoid import errors if libraries aren't installed
+        from .word_reader import read_word_as_pages
+        
+        # Try to extract text content
+        pages_data = read_word_as_pages(temp_path)
+        
+        if not pages_data:
+            print(f"[SKIP] Word document {s3_key} has no extractable content")
+            return False, "no_extractable_content", None, ocr_info
+        
+        # Check if we have meaningful text content
+        total_text = ""
+        for page in pages_data:
+            total_text += page.get('content', '')
+        
+        if len(total_text.strip()) < 10:  # Minimum meaningful content
+            print(f"[SKIP] Word document {s3_key} has insufficient text content ({len(total_text)} characters)")
+            return False, "insufficient_text_content", None, ocr_info
+        
+        # Update pages_data with metadata
+        for page in pages_data:
+            page['metadata'] = metadata
+            page['validation_method'] = 'word_document'
+        
+        print(f"[SUCCESS] Word document {s3_key} validated successfully - {len(pages_data)} pages, {len(total_text)} characters")
+        return True, "success", pages_data, ocr_info
+        
+    except Exception as e:
+        error_msg = f"Word document validation failed: {str(e)}"
+        print(f"[ERROR] {error_msg} for {s3_key}")
+        return False, "word_validation_failed", None, ocr_info
 
 
 # Keep the original function name for backward compatibility
