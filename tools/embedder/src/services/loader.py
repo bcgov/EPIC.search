@@ -608,7 +608,8 @@ def load_data(
         connect_args={
             "sslmode": "prefer",
             "connect_timeout": WORKER_CONNECT_TIMEOUT,
-            "application_name": f"epic_embedder_worker_{process_id}"
+            "application_name": f"epic_embedder_worker_{process_id}",
+            "prepare_threshold": None   # Disable prepared statements to avoid P03 errors
         }
     )
     

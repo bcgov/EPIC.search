@@ -148,20 +148,20 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     
     # Show processing mode
     if retry_failed_only:
-        print(f"[MODE] 🔄 RETRY FAILED MODE: Only processing documents that previously failed")
+        print(f"[MODE] RETRY FAILED MODE: Only processing documents that previously failed")
     elif retry_skipped_only:
-        print(f"[MODE] 🔄 RETRY SKIPPED MODE: Only processing documents that were previously skipped")
+        print(f"[MODE] RETRY SKIPPED MODE: Only processing documents that were previously skipped")
     elif repair_mode:
-        print(f"[MODE] 🔧 REPAIR MODE: Identifying and fixing documents in inconsistent states")
+        print(f"[MODE] REPAIR MODE: Identifying and fixing documents in inconsistent states")
     else:
-        print(f"[MODE] ✅ NORMAL MODE: Processing new documents (skipping successful ones)")
+        print(f"[MODE] NORMAL MODE: Processing new documents (skipping successful ones)")
     
     # Initialize timing for timed mode
     start_time = datetime.now()
     time_limit_reached = False
     
     if timed_mode:
-        print(f"[TIMED MODE] ⏱️  Running for {time_limit_minutes} minutes. Will gracefully stop after time limit.")
+        print(f"[TIMED MODE] Running for {time_limit_minutes} minutes. Will gracefully stop after time limit.")
         print(f"[TIMED MODE] Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         time_limit_seconds = time_limit_minutes * 60
     else:
@@ -228,7 +228,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         if timed_mode:
             time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
             if time_limit_reached:
-                print(f"\n[TIMED MODE] ⏰ Time limit of {time_limit_minutes} minutes reached after {elapsed_minutes:.1f} minutes.")
+                print(f"\n[TIMED MODE] Time limit of {time_limit_minutes} minutes reached after {elapsed_minutes:.1f} minutes.")
                 print(f"[TIMED MODE] Gracefully stopping. Completed {len(results)} project(s).")
                 break
             else:
@@ -264,17 +264,17 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
 
         # Handle repair mode - analyze and process inconsistent documents
         if repair_mode:
-            print(f"\n🔧 REPAIR MODE: Analyzing {project_name} for inconsistent document states...")
-            print(f"🔧 REPAIR MODE: Skipping normal document processing flow")
+            print(f"\n REPAIR MODE: Analyzing {project_name} for inconsistent document states...")
+            print(f"REPAIR MODE: Skipping normal document processing flow")
             
             # Get repair candidates for this project
             repair_candidates = get_repair_candidates_for_processing(project_id)
             
             if not repair_candidates:
-                print(f"✅ No documents need repair for {project_name} - database may be empty or all documents are consistent")
+                print(f"No documents need repair for {project_name} - database may be empty or all documents are consistent")
                 continue
             
-            print(f"🔧 Found {len(repair_candidates)} documents that need repair for {project_name}")
+            print(f"Found {len(repair_candidates)} documents that need repair for {project_name}")
             
             # Process repair candidates instead of normal document flow
             s3_file_keys = []
@@ -287,9 +287,9 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                 doc_id = candidate['document_id']
                 
                 # Clean up existing inconsistent data first
-                print(f"🧹 Cleaning up inconsistent data for {candidate['document_name'][:50]}...")
+                print(f"Cleaning up inconsistent data for {candidate['document_name'][:50]}...")
                 cleanup_summary = cleanup_document_data(doc_id, project_id)
-                print(f"   Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
+                print(f"Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
                 
                 # Find the document in the API to reprocess it
                 # We need to search through all file pages to find this specific document
@@ -306,18 +306,18 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                                 metadata_list.append(doc_meta)
                                 docs_to_process.append(doc)
                                 api_docs_list.append(doc)
-                                print(f"✅ Queued for reprocessing: {candidate['document_name'][:50]}")
+                                print(f" Queued for reprocessing: {candidate['document_name'][:50]}")
                             break
                     if doc_found:
                         break
                 
                 if not doc_found:
-                    print(f"⚠️  Warning: Could not find document {doc_id} in API - may have been deleted")
+                    print(f"Warning: Could not find document {doc_id} in API - may have been deleted")
             
             # Process the repair candidates
             if s3_file_keys:
                 files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
-                print(f"🔧 Reprocessing {len(s3_file_keys)} repaired documents for {project_name} with {files_concurrency_size} workers...")
+                print(f"Reprocessing {len(s3_file_keys)} repaired documents for {project_name} with {files_concurrency_size} workers...")
                 
                 process_files(
                     project_id,
@@ -328,9 +328,9 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                     embedder_temp_dir,
                 )
                 
-                print(f"✅ Repair completed for {project_name}")
+                print(f" Repair completed for {project_name}")
             else:
-                print(f"⚠️  No repairable documents found in API for {project_name}")
+                print(f" No repairable documents found in API for {project_name}")
             
             # Skip to next project in repair mode
             continue
@@ -343,7 +343,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
             if timed_mode:
                 time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
                 if time_limit_reached:
-                    print(f"[TIMED MODE] ⏰ Time limit reached during {project_name}. Stopping file processing for this project.")
+                    print(f"[TIMED MODE] Time limit reached during {project_name}. Stopping file processing for this project.")
                     break
             
             if shallow_mode and shallow_success_count >= shallow_limit:
@@ -365,7 +365,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                 if timed_mode:
                     time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
                     if time_limit_reached:
-                        print(f"[TIMED MODE] ⏰ Time limit reached during document processing for {project_name}. Stopping at {len(s3_file_keys)} documents queued.")
+                        print(f"[TIMED MODE] Time limit reached during document processing for {project_name}. Stopping at {len(s3_file_keys)} documents queued.")
                         break
                 
                 doc_id = doc["_id"]
@@ -380,11 +380,23 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                     if not is_processed or status != "failed":
                         continue
                     print(f"Retrying failed document: {doc_name}")
+                    
+                    # Clean up existing inconsistent data before retry
+                    print(f" Cleaning up partial data for {doc_name[:50]}...")
+                    cleanup_summary = cleanup_document_data(doc_id, project_id)
+                    print(f"   Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
+                    
                 elif retry_skipped_only:
                     # Only process files that were previously skipped
                     if not is_processed or status != "skipped":
                         continue
                     print(f"Retrying skipped document: {doc_name}")
+                    
+                    # Clean up existing data before retry (skipped files might have partial data)
+                    print(f"Cleaning up any existing data for {doc_name[:50]}...")
+                    cleanup_summary = cleanup_document_data(doc_id, project_id)
+                    print(f"   Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
+                    
                 else:
                     # Normal mode: skip already processed files
                     if is_processed:
@@ -429,7 +441,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                         # Check time limit before each batch
                         time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
                         if time_limit_reached:
-                            print(f"[TIMED MODE] ⏰ Time limit reached. Processed {files_processed}/{total_files} files for {project_name}.")
+                            print(f"[TIMED MODE] Time limit reached. Processed {files_processed}/{total_files} files for {project_name}.")
                             break
                         
                         # Get batch of files
@@ -510,23 +522,23 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     
     if timed_mode:
         if time_limit_reached:
-            print(f"⏰ TIMED MODE COMPLETED: Stopped after {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
+            print(f"TIMED MODE COMPLETED: Stopped after {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
         else:
-            print(f"⏰ TIMED MODE COMPLETED: Finished all work in {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
+            print(f"TIMED MODE COMPLETED: Finished all work in {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
         
         if retry_failed_only:
-            print(f"🔄 Processed failed documents for {len(results)} project(s)")
+            print(f"Processed failed documents for {len(results)} project(s)")
         elif retry_skipped_only:
-            print(f"🔄 Processed skipped documents for {len(results)} project(s)")
+            print(f"Processed skipped documents for {len(results)} project(s)")
         else:
-            print(f"✅ Processed new documents for {len(results)} project(s)")
+            print(f"Processed new documents for {len(results)} project(s)")
     else:
         if retry_failed_only:
-            print(f"🔄 RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
+            print(f"RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
         elif retry_skipped_only:
-            print(f"🔄 RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
+            print(f"RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
         else:
-            print(f"✅ PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
+            print(f"PROCESSING COMPLETED: Finished processing new documents for {len(results)} project(s)")
 
     # Stop progress tracking
     reason = "Completed"
