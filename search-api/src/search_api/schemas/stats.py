@@ -21,6 +21,7 @@ class ProjectStatsSchema(Schema):
     total_files = fields.Int()
     successful_files = fields.Int()
     failed_files = fields.Int()
+    skipped_files = fields.Int()
     success_rate = fields.Float()
 
 class ProcessingStatsSummarySchema(Schema):
@@ -28,6 +29,7 @@ class ProcessingStatsSummarySchema(Schema):
     total_files_across_all_projects = fields.Int()
     total_successful_files = fields.Int()
     total_failed_files = fields.Int()
+    total_skipped_files = fields.Int()
     overall_success_rate = fields.Float()
     projects_with_failures = fields.Int(required=False)
     avg_success_rate_per_project = fields.Float(required=False)
@@ -51,6 +53,7 @@ class ProjectDetailsSummarySchema(Schema):
     total_files = fields.Int()
     successful_files = fields.Int()
     failed_files = fields.Int()
+    skipped_files = fields.Int()
     success_rate = fields.Float()
 
 class ProjectDetailsSchema(Schema):
@@ -64,6 +67,7 @@ class ProcessingSummarySchema(Schema):
     total_files_across_all_projects = fields.Int()
     total_successful_files = fields.Int()
     total_failed_files = fields.Int()
+    total_skipped_files = fields.Int()
     overall_success_rate = fields.Float()
     projects_with_failures = fields.Int()
     avg_success_rate_per_project = fields.Float()

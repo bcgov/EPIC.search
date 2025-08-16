@@ -13,7 +13,7 @@ Embedding dimensions are dynamically set from the configuration (settings.py), d
 """
 
 import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text
+from sqlalchemy import Column, Integer, String, DateTime, Text, Float
 from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.ext.declarative import declarative_base

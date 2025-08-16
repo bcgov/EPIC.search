@@ -21,5 +21,30 @@ from .pgvector.vector_models import DocumentChunk, Document, Project, Processing
 from .pgvector import VectorStore as PgVectorStore
 
 def get_session():
-    """Return a new SQLAlchemy session for database operations."""
-    return SessionLocal()
+    """Return a new SQLAlchemy session for database operations with proper error handling."""
+    session = SessionLocal()
+    try:
+        # Timeouts are now configured at the connection level in engine creation
+        # No need to set them per session, avoiding prepared statement conflicts
+        return session
+    except Exception as e:
+        session.close()
+        raise e
+
+def get_db_session():
+    """Context manager for database sessions with automatic cleanup."""
+    from contextlib import contextmanager
+    
+    @contextmanager
+    def _session_context():
+        session = get_session()
+        try:
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    return _session_context()

@@ -15,6 +15,10 @@
 
 from http import HTTPStatus
 from flask_restx import Namespace, Resource
+from flask import Response, current_app, request
+import time
+import json
+
 from search_api.services.search_service import SearchService
 from search_api.utils.util import cors_preflight
 from search_api.schemas.search import SearchRequestSchema
@@ -48,8 +52,14 @@ class Search(Resource):
     @API.response(500, "Internal Server Error")
     def post():
         """Search"""
+        current_app.logger.info("=== Search query request started ===")
+        current_app.logger.info(f"Request URL: {request.url}")
+        current_app.logger.info(f"Request headers: {dict(request.headers)}")
+        current_app.logger.info(f"Request payload: {API.payload}")
+        
         try:
             request_data = SearchRequestSchema().load(API.payload)
+            current_app.logger.info("Schema validation successful")
                         
             question = request_data.get("question", None)
             project_ids = request_data.get("projectIds", None)
@@ -57,12 +67,31 @@ class Search(Resource):
             inference = request_data.get("inference", None)
             ranking = request_data.get("ranking", None)
             search_strategy = request_data.get("searchStrategy", None)
-        
+            
+            current_app.logger.info(f"Search parameters - Question: {question[:100] if question else None}{'...' if question and len(question) > 100 else ''}")
+            current_app.logger.info(f"Search parameters - Project IDs: {project_ids}")
+            current_app.logger.info(f"Search parameters - Document Type IDs: {document_type_ids}")
+            current_app.logger.info(f"Search parameters - Inference: {inference}")
+            current_app.logger.info(f"Search parameters - Ranking: {ranking}")
+            current_app.logger.info(f"Search parameters - Search Strategy: {search_strategy}")
+            
+            current_app.logger.info("Calling SearchService.get_documents_by_query")
+            start_time = time.time()
             documents = SearchService.get_documents_by_query(question, project_ids, document_type_ids, inference, ranking, search_strategy)
+            end_time = time.time()
+            
+            current_app.logger.info(f"SearchService completed in {(end_time - start_time):.2f} seconds")
+            current_app.logger.info(f"Search results: {len(documents.get('documents', [])) if isinstance(documents, dict) else 'Unknown count'} documents returned")
+            current_app.logger.info("=== Search query request completed successfully ===")
+            
             return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:
-            # Log the error internally            
+            # Log the error internally
             current_app.logger.error(f"Search error occurred: {str(e)}")
+            current_app.logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
+            current_app.logger.error("=== Search query request ended with error ===")
             # Return a generic error message
             error_response = {"error": "Internal server error occurred"}
             return Response(json.dumps(error_response), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
@@ -77,13 +106,36 @@ class SearchSimilar(Resource):
     @API.response(400, "Bad Request")
     @API.response(500, "Internal Server Error")
     def post():
+        current_app.logger.info("=== Search similar request started ===")
+        current_app.logger.info(f"Request URL: {request.url}")
+        current_app.logger.info(f"Request payload: {API.payload}")
+        
         try:
             request_data = SimilaritySearchRequestSchema().load(API.payload)
+            current_app.logger.info("Schema validation successful")
+            
             document_id = request_data.get("document_id")
             project_ids = request_data.get("projectIds", None)
             limit = request_data.get("limit", 10)
+            
+            current_app.logger.info(f"Similar search parameters - Document ID: {document_id}")
+            current_app.logger.info(f"Similar search parameters - Project IDs: {project_ids}")
+            current_app.logger.info(f"Similar search parameters - Limit: {limit}")
+            
+            current_app.logger.info("Calling SearchService.get_similar_documents")
+            start_time = time.time()
             result = SearchService.get_similar_documents(document_id, project_ids, limit)
+            end_time = time.time()
+            
+            current_app.logger.info(f"SearchService.get_similar_documents completed in {(end_time - start_time):.2f} seconds")
+            current_app.logger.info(f"Similar search results: {len(result.get('documents', [])) if isinstance(result, dict) else 'Unknown count'} documents returned")
+            current_app.logger.info("=== Search similar request completed successfully ===")
+            
             return Response(json.dumps(result), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:
             current_app.logger.error(f"Search similar POST error: {str(e)}")
+            current_app.logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
+            current_app.logger.error("=== Search similar request ended with error ===")
             return Response(json.dumps({"error": "Failed to get similar documents"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')

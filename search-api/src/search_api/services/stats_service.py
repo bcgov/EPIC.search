@@ -85,8 +85,8 @@ class StatsService:
         Returns:
             dict: Response containing:
                 - result.processing_stats: Statistics data from the vector search API
-                - result.projects: Per-project statistics (if available)
-                - result.summary: Aggregate metrics (if available)
+                - result.projects: Per-project statistics with total_files, successful_files, failed_files, skipped_files, and success_rate
+                - result.summary: Aggregate metrics including total_skipped_files across all projects
                 - result.metrics: Performance timing data for this API call
         """
         metrics = {}
@@ -112,6 +112,7 @@ class StatsService:
                 - result.project_details: Project-specific processing logs and data
                 - result.processing_logs: Array of document processing records (if available)
                 - result.project_id: The requested project ID (if available)
+                - result.summary: Project summary including total_files, successful_files, failed_files, skipped_files, and success_rate
                 - result.metrics: Performance timing data for this API call
         """
         metrics = {}
@@ -132,7 +133,7 @@ class StatsService:
         """Get high-level processing summary across the entire system.
         Returns:
             dict: Response containing:
-                - result.summary: High-level aggregate metrics from the vector search API
+                - result.summary: High-level aggregate metrics including total_skipped_files from the vector search API
                 - result.total_projects: Number of projects (if available)
                 - result.total_documents: Number of documents processed (if available)
                 - result.metrics: Performance timing data for this API call

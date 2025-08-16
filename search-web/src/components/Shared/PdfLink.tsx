@@ -85,7 +85,7 @@ const PdfLink = ({
   };
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
       <Link
         href="#"
         underline="none"
@@ -93,13 +93,23 @@ const PdfLink = ({
           fontWeight: "bold",
           pointerEvents: isLoading ? 'none' : 'auto',
           opacity: isLoading ? 0.7 : 1,
+          display: 'flex',
+          alignItems: 'center',
         }}
         onClick={handleClick}
       >
         {children}
       </Link>
       {isLoading && (
-        <CircularProgress size={16} sx={{ ml: 1 }} />
+        <CircularProgress 
+          size={16} 
+          sx={{ 
+            position: 'absolute',
+            left: -28,
+            top: '20%',
+            transform: 'translateY(-50%)',
+          }} 
+        />
       )}
     </Box>
   );

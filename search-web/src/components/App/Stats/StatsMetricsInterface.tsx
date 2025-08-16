@@ -30,6 +30,7 @@ import {
   ExpandMore,
   ExpandLess,
   Analytics,
+  SkipNext,
 } from "@mui/icons-material";
 import { BCDesignTokens } from "epic.theme";
 import { useStatsQuery, useProcessingStatsQuery, useProjectDetailsQuery } from "@/hooks/useStats";
@@ -86,10 +87,10 @@ const StatsMetricsInterface = () => {
     return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
   };
 
-  const formatProcessingTime = (ms: number) => {
-    if (ms < 1000) return `${ms.toFixed(0)}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${(ms / 60000).toFixed(1)}min`;
+  const formatProcessingTime = (seconds: number) => {
+    if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    return `${(seconds / 60).toFixed(1)}min`;
   };
 
   if (summaryLoading || processingLoading) {
@@ -139,15 +140,15 @@ const StatsMetricsInterface = () => {
       </Box>
 
       {/* Summary Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <Assessment color="primary" />
+      <Grid container spacing={2} sx={{ mb: 4 }}>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Assessment color="primary" sx={{ fontSize: 28 }} />
                 <Box>
-                  <Typography variant="h4">{summary?.total_projects || 0}</Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="h5">{summary?.total_projects || 0}</Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
                     Total Projects
                   </Typography>
                 </Box>
@@ -156,14 +157,14 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <CheckCircle sx={{ color: "#4caf50" }} />
+        <Grid item xs={6} sm={4} md={2.4}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <CheckCircle sx={{ color: "#4caf50", fontSize: 28 }} />
                 <Box>
-                  <Typography variant="h4">{summary?.total_successful_files || 0}</Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="h5">{summary?.total_successful_files || 0}</Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
                     Successful Files
                   </Typography>
                 </Box>
@@ -172,14 +173,14 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <Error sx={{ color: "#f44336" }} />
+        <Grid item xs={6} sm={4} md={2.4}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Error sx={{ color: "#f44336", fontSize: 28 }} />
                 <Box>
-                  <Typography variant="h4">{summary?.total_failed_files || 0}</Typography>
-                  <Typography variant="body2" color="textSecondary">
+                  <Typography variant="h5">{summary?.total_failed_files || 0}</Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
                     Failed Files
                   </Typography>
                 </Box>
@@ -188,21 +189,37 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
+        <Grid item xs={6} sm={4} md={2.4}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <SkipNext sx={{ color: "#ff9800", fontSize: 28 }} />
+                <Box>
+                  <Typography variant="h5">{summary?.total_skipped_files || 0}</Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
+                    Skipped Files
+                  </Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={8} md={2.4}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box>
-                <Typography variant="h4" sx={{ color: getSuccessRateColor(summary?.overall_success_rate || 0) }}>
+                <Typography variant="h5" sx={{ color: getSuccessRateColor(summary?.overall_success_rate || 0) }}>
                   {summary?.overall_success_rate?.toFixed(1) || 0}%
                 </Typography>
-                <Typography variant="body2" color="textSecondary">
+                <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem', mb: 1 }}>
                   Overall Success Rate
                 </Typography>
                 <LinearProgress
                   variant="determinate"
                   value={summary?.overall_success_rate || 0}
                   sx={{
-                    mt: 1,
+                    height: 6,
                     backgroundColor: BCDesignTokens.themeGray20,
                     '& .MuiLinearProgress-bar': {
                       backgroundColor: getSuccessRateColor(summary?.overall_success_rate || 0),
@@ -227,12 +244,13 @@ const StatsMetricsInterface = () => {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell><strong>Project</strong></TableCell>
-                  <TableCell align="center"><strong>Total Files</strong></TableCell>
-                  <TableCell align="center"><strong>Successful</strong></TableCell>
-                  <TableCell align="center"><strong>Failed</strong></TableCell>
-                  <TableCell align="center"><strong>Success Rate</strong></TableCell>
-                  <TableCell align="center"><strong>Actions</strong></TableCell>
+                  <TableCell sx={{ minWidth: 200 }}><strong>Project</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 100 }}><strong>Total Files</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 100 }}><strong>Successful</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 100 }}><strong>Failed</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 100 }}><strong>Skipped</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 150 }}><strong>Success Rate</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 150 }}><strong>Actions</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -267,6 +285,18 @@ const StatsMetricsInterface = () => {
                         />
                       </TableCell>
                       <TableCell align="center">
+                        <Chip 
+                          label={project.skipped_files || 0} 
+                          size="small" 
+                          sx={{ 
+                            backgroundColor: "#fff3e0", 
+                            color: "#f57c00",
+                            '& .MuiChip-icon': { color: "#f57c00" }
+                          }}
+                          icon={<SkipNext />}
+                        />
+                      </TableCell>
+                      <TableCell align="center">
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
                           <Typography 
                             variant="body2" 
@@ -294,6 +324,7 @@ const StatsMetricsInterface = () => {
                           startIcon={showProjectDetails[project.project_id] ? <ExpandLess /> : <ExpandMore />}
                           onClick={() => toggleProjectDetails(project.project_id)}
                           endIcon={<Visibility />}
+                          sx={{ py: 1 }}
                         >
                           {showProjectDetails[project.project_id] ? "Hide" : "View"} Details
                         </Button>
@@ -302,7 +333,7 @@ const StatsMetricsInterface = () => {
 
                     {/* Project Details Collapse */}
                     <TableRow>
-                      <TableCell colSpan={6} sx={{ py: 0 }}>
+                      <TableCell colSpan={7} sx={{ py: 0 }}>
                         <Collapse in={showProjectDetails[project.project_id]} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 2 }}>
                             {selectedProjectId === project.project_id && projectDetailsLoading && (
@@ -333,19 +364,51 @@ const StatsMetricsInterface = () => {
                                     <TableBody>
                                       {projectDetailsData.result.project_details.processing_logs.map((log: any) => (
                                         <TableRow key={log.log_id}>
-                                          <TableCell>
-                                            <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                                              {log.metrics?.document_info.display_name || 
-                                               log.metrics?.document_info.document_name || 
-                                               'UNKNOWN'}
-                                            </Typography>
+                                          <TableCell sx={{ maxWidth: 300, minWidth: 200 }}>
+                                            <Box>
+                                              <Typography variant="body2" sx={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                                                {log.metrics?.document_info.display_name || 
+                                                 log.metrics?.document_info.document_name || 
+                                                 'UNKNOWN'}
+                                              </Typography>
+                                              {log.metrics?.document_info.display_name && log.metrics?.document_info.document_name && (
+                                                <Typography 
+                                                  variant="caption" 
+                                                  sx={{ 
+                                                    wordBreak: 'break-word', 
+                                                    whiteSpace: 'pre-wrap',
+                                                    color: 'text.secondary',
+                                                    fontSize: '0.6rem',
+                                                    display: 'block',
+                                                    mt: 0.5
+                                                  }}
+                                                >
+                                                  {log.metrics.document_info.document_name}
+                                                </Typography>
+                                              )}
+                                            </Box>
                                           </TableCell>
                                           <TableCell align="center">
                                             <Chip
                                               label={log.status}
                                               size="small"
-                                              color={log.status === "success" ? "success" : "error"}
-                                              icon={log.status === "success" ? <CheckCircle /> : <Error />}
+                                              color={
+                                                log.status === "success" ? "success" : 
+                                                log.status === "failure" ? "error" : 
+                                                "default"
+                                              }
+                                              icon={
+                                                log.status === "success" ? <CheckCircle /> : 
+                                                log.status === "failure" ? <Error /> : 
+                                                <SkipNext />
+                                              }
+                                              sx={
+                                                log.status === "skipped" ? {
+                                                  backgroundColor: "#fff3e0", 
+                                                  color: "#f57c00",
+                                                  '& .MuiChip-icon': { color: "#f57c00" }
+                                                } : {}
+                                              }
                                             />
                                           </TableCell>
                                           <TableCell align="center">

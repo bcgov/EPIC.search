@@ -33,9 +33,31 @@ Vector Database Utilities module for unified pgvector integration and ORM manage
 
 from src.config.settings import get_settings
 from src.models.pgvector.vector_models import Base, DocumentChunk, Document, Project, ProcessingLog
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, event
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import Engine
+import os
 
 settings = get_settings()
+
+# Main database connection pool settings (for setup and admin operations)
+DB_POOL_SIZE = int(os.getenv('DB_POOL_SIZE', '10'))           # Reasonable default for setup operations
+DB_MAX_OVERFLOW = int(os.getenv('DB_MAX_OVERFLOW', '20'))     # Reasonable overflow for setup operations
+DB_POOL_RECYCLE = int(os.getenv('DB_POOL_RECYCLE', '900'))   # 15 minutes
+DB_POOL_TIMEOUT = int(os.getenv('DB_POOL_TIMEOUT', '120'))   # 2 minutes
+DB_CONNECT_TIMEOUT = int(os.getenv('DB_CONNECT_TIMEOUT', '60')) # 1 minute
+
+# Worker process database settings (for document processing)
+WORKER_POOL_SIZE = int(os.getenv('WORKER_POOL_SIZE', '1'))        # Single connection per worker
+WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))  # Minimal overflow per worker
+WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))  # Shorter timeout for workers
+WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30')) # Shorter connect timeout
+
+print(f"[CONFIG] Main database pool: size={DB_POOL_SIZE}, max_overflow={DB_MAX_OVERFLOW}, "
+      f"recycle={DB_POOL_RECYCLE}s ({DB_POOL_RECYCLE//60} min), "
+      f"pool_timeout={DB_POOL_TIMEOUT}s, connect_timeout={DB_CONNECT_TIMEOUT}s")
+print(f"[CONFIG] Worker database pool: size={WORKER_POOL_SIZE}, max_overflow={WORKER_MAX_OVERFLOW}, "
+      f"pool_timeout={WORKER_POOL_TIMEOUT}s, connect_timeout={WORKER_CONNECT_TIMEOUT}s")
 
 # Use SQLAlchemy to drop and create tables    
 database_url = settings.vector_store_settings.db_url
@@ -43,9 +65,31 @@ database_url = settings.vector_store_settings.db_url
 if database_url and database_url.startswith('postgresql:'):
     database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
 
-engine = create_engine(database_url)
+# Configure main engine for setup and admin operations
+engine = create_engine(
+    database_url,
+    pool_size=DB_POOL_SIZE,         # Main pool for setup operations
+    max_overflow=DB_MAX_OVERFLOW,   # Main pool overflow
+    pool_timeout=DB_POOL_TIMEOUT,   # Main pool timeout
+    pool_recycle=DB_POOL_RECYCLE,   # Main pool recycle
+    pool_pre_ping=True,             # Verify connections before use
+    connect_args={
+        "sslmode": "prefer",        # Use SSL when available but don't require it
+        "connect_timeout": DB_CONNECT_TIMEOUT,  # Main connection timeout
+        "application_name": "epic_embedder_main"  # Identify main process in database logs
+    }
+)
+
+# Set timeouts after connection establishment to avoid PostgreSQL startup parameter issues
+@event.listens_for(engine, "connect")
+def set_timeouts(dbapi_connection, connection_record):
+    """Set statement and lock timeouts after connection establishment."""
+    with dbapi_connection.cursor() as cursor:
+        cursor.execute("SET statement_timeout = '300s'")  # 5 minute query timeout
+        cursor.execute("SET lock_timeout = '60s'")        # 1 minute lock timeout
+
 SessionLocal = sessionmaker(bind=engine)
-    
+
 
 def create_index(conn, sql, index_name):
     print(f"Creating index: {index_name} ...")
@@ -64,7 +108,13 @@ def init_vec_db(skip_hnsw=False):
     # Initialize the pgvector extension (raw SQL, required for embedding column)
     vec.create_pgvector_extension()
 
-    # Always create tables and PKs if missing (safe for production)
+    # Drop and recreate tables if reset_db is True (dev/test only!)
+    if settings.vector_store_settings.reset_db:
+        print("[WARNING] RESET_DB=True - Dropping all existing tables and data!")
+        Base.metadata.drop_all(engine, tables=[DocumentChunk.__table__, Document.__table__, Project.__table__, ProcessingLog.__table__])
+        print("[DB RESET] All tables dropped successfully.")
+
+    # Create tables and PKs if missing (safe for production)
     Base.metadata.create_all(engine, tables=[DocumentChunk.__table__, Document.__table__, Project.__table__, ProcessingLog.__table__])
 
     # Add metadata, GIN, and regular indexes for metadata, tags, keywords, headings, project_id, etc.

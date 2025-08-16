@@ -13,7 +13,7 @@ import SearchLanding from "@/components/App/Search/SearchLanding";
 import SearchConfigModal from "@/components/App/Search/SearchConfigModal";
 import FilterModal from "@/components/App/Search/FilterModal";
 import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
-import { getStoredSearchStrategy, setStoredSearchStrategy } from "@/utils/searchConfig";
+import { getStoredSearchStrategy, setStoredSearchStrategy, RankingConfig, getStoredRankingConfig, scoreSettings, resultsSettings } from "@/utils/searchConfig";
 import { useProjects } from "@/hooks/useProjects";
 import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
 
@@ -27,6 +27,7 @@ function Search() {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [searchStrategy, setSearchStrategy] = useState<SearchStrategy | undefined>(getStoredSearchStrategy());
+  const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [selectedDocumentTypeIds, setSelectedDocumentTypeIds] = useState<string[]>([]);
 
@@ -62,14 +63,21 @@ function Search() {
       question: searchText,
       ...(searchStrategy && { searchStrategy }),
       ...(selectedProjectIds.length > 0 && { projectIds: selectedProjectIds }),
-      ...(selectedDocumentTypeIds.length > 0 && { documentTypeIds: selectedDocumentTypeIds })
+      ...(selectedDocumentTypeIds.length > 0 && { documentTypeIds: selectedDocumentTypeIds }),
+      ...(rankingConfig.useCustomRanking && {
+        ranking: {
+          minScore: scoreSettings[rankingConfig.scoreSetting],
+          topN: resultsSettings[rankingConfig.resultsSetting]
+        }
+      })
     };
     doSearch(searchRequest);
   };
 
-  const handleSaveSearchStrategy = (strategy: SearchStrategy | undefined) => {
+  const handleSaveSearchStrategy = (strategy: SearchStrategy | undefined, newRankingConfig: RankingConfig) => {
     setStoredSearchStrategy(strategy);
     setSearchStrategy(strategy);
+    setRankingConfig(newRankingConfig);
   };
 
   if (projectsLoading) {
@@ -194,7 +202,7 @@ function Search() {
             ) : null;
           })}
           {selectedDocumentTypeIds.length > 0 && allDocTypes &&
-            Object.entries(allDocTypes.result.document_type_mappings).flatMap(([group, types]) =>
+            Object.entries(allDocTypes.result.document_type_mappings).flatMap(([, types]) =>
               Object.entries(types).map(([typeId, typeName]) =>
                 selectedDocumentTypeIds.includes(typeId) ? (
                   <Chip

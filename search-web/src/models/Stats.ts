@@ -12,6 +12,7 @@ export interface SummaryStatsResponse {
       total_files_across_all_projects: number;
       total_successful_files: number;
       total_failed_files: number;
+      total_skipped_files: number;
       overall_success_rate: number;
       projects_with_failures: number;
       avg_success_rate_per_project: number;
@@ -26,6 +27,7 @@ export interface ProjectStats {
   total_files: number;
   successful_files: number;
   failed_files: number;
+  skipped_files: number;
   success_rate: number;
 }
 
@@ -38,6 +40,7 @@ export interface ProcessingStatsResponse {
         total_files_across_all_projects: number;
         total_successful_files: number;
         total_failed_files: number;
+        total_skipped_files: number;
         overall_success_rate: number;
       };
     };
@@ -88,7 +91,7 @@ export interface ProcessingMetrics {
 export interface ProcessingLog {
   log_id: number;
   document_id: string;
-  status: "success" | "failure";
+  status: "success" | "failure" | "skipped";
   processed_at: string;
   metrics: ProcessingMetrics | null;
 }
@@ -103,6 +106,7 @@ export interface ProjectDetailsResponse {
         total_files: number;
         successful_files: number;
         failed_files: number;
+        skipped_files: number;
         success_rate: number;
       };
     };

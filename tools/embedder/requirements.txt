@@ -19,6 +19,14 @@ pymupdf4llm==0.0.17
 strip-markdown==1.3
 Markdown==3.7
 
+# OCR processing for scanned PDFs
+pytesseract==0.3.13
+Pillow==11.1.0
+
+# Azure Document Intelligence OCR (optional)
+azure-ai-formrecognizer==3.3.0
+requests==2.32.3
+
 # AWS/S3 storage
 boto3==1.35.98
 botocore==1.35.98

@@ -504,7 +504,7 @@ The search API supports fine-grained control over result filtering and ranking t
 * Override environment defaults on a per-request basis
 * Customize search precision vs recall behavior
 
-### Environment Variables
+### Ranking Environment Variables
 
 Add to your `.env` file:
 
@@ -606,7 +606,7 @@ The ranking system uses a cross-encoder model (`cross-encoder/ms-marco-MiniLM-L-
 }
 ```
 
-### Response Metadata
+### Ranking Response Metadata
 
 The search response includes ranking information in the metrics:
 
@@ -615,6 +615,16 @@ The search response includes ranking information in the metrics:
   "vector_search": {
     "document_chunks": [...],
     "search_metrics": {
+      "ranking_config": {
+        "minScore": {
+          "value": -6.0,
+          "source": "parameter"  // "parameter" if provided by user, "environment" if using defaults
+        },
+        "topN": {
+          "value": 15,
+          "source": "parameter"  // "parameter" if provided by user, "environment" if using defaults
+        }
+      },
       "filtering_total_chunks": 25,
       "filtering_excluded_chunks": 20,
       "filtering_exclusion_percentage": 80.0,
@@ -670,6 +680,16 @@ Performs the two-stage search pipeline with document-level filtering followed by
       }
     ],
     "search_metrics": {
+      "ranking_config": {
+        "minScore": {
+          "value": -8.0,
+          "source": "environment"
+        },
+        "topN": {
+          "value": 10,
+          "source": "environment"
+        }
+      },
       "document_search_ms": 1715.4,     // Stage 1: Document-level search time
       "chunk_search_ms": 126.49,       // Stage 2: Chunk-level search time within found documents
       "semantic_search_ms": 3787.95,   // Semantic search fallback time (when no documents found)
@@ -923,6 +943,62 @@ The configuration variables are organized into logical groups:
 | CROSS_ENCODER_MODEL | Model for re-ranking results | cross-encoder/ms-marco-MiniLM-L-2-v2 |
 | EMBEDDING_MODEL_NAME | Model for generating embeddings | all-mpnet-base-v2 |
 | KEYWORD_MODEL_NAME | Model for keyword extraction | all-mpnet-base-v2 |
+| DOCUMENT_KEYWORD_EXTRACTION_METHOD | Method used for document keyword extraction | keybert |
+
+#### Keyword Extraction Configuration
+
+The system supports two different keyword extraction methods, which affects the query engine's search strategy:
+
+| Method | Description | Query Strategy | Best For |
+|--------|-------------|---------------|----------|
+| `keybert` (default) | Semantic embeddings-based extraction using KeyBERT | Match query keywords directly with document keywords | High semantic relevance, standard/fast embedding modes |
+| `tfidf` | Statistical frequency-based extraction using TF-IDF | Prioritize tags/headings over keywords, rely more on semantic search | Simplified mode, statistical frequency matching |
+
+**Configuration:**
+
+```bash
+# Set the keyword extraction method to match your document processing pipeline
+DOCUMENT_KEYWORD_EXTRACTION_METHOD=keybert  # or "tfidf"
+```
+
+**Impact on Search Behavior:**
+
+1. **KeyBERT Mode** (default):
+   * Query keywords extracted using KeyBERT with semantic embeddings
+   * Document-level search prioritizes keyword matching since both use semantic extraction
+   * High-quality semantic relevance between query and document keywords
+   * Works with diversity settings (0.6-0.7) from standard and fast modes
+
+2. **TF-IDF Mode**:
+   * Query keywords extracted using TF-IDF statistical methods
+   * Document-level search prioritizes tags and headings over keyword matching
+   * Search strategy relies more heavily on semantic vector search for accuracy
+   * Optimized for documents processed with simplified/fast TF-IDF extraction
+
+**Example Configuration for TF-IDF:**
+
+```bash
+# When your embedding service uses TF-IDF for document keywords
+DOCUMENT_KEYWORD_EXTRACTION_METHOD=tfidf
+```
+
+The search metrics will include the extraction method used:
+
+```json
+{
+  "search_metrics": {
+    "keyword_extraction_method": "tfidf",
+    "document_search_ms": 45.2,
+    // ... other metrics
+  }
+}
+```
+
+**Migration Note**: To switch from KeyBERT to TF-IDF mode, simply update your `.env` file with the new configuration and restart the application. The system is fully backward compatible and defaults to KeyBERT mode if not configured.
+    "document_search_ms": 45.2,
+    // ... other metrics
+  }
+}
 
 ### Configuration Classes
 
@@ -1039,7 +1115,7 @@ Choosing the appropriate model loading strategy depends on your specific deploym
 
 ### Statistics API
 
-The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
+The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, skipped counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
 
 #### Processing Statistics
 
@@ -1075,7 +1151,8 @@ GET /api/stats/processing
         "project_name": "Site C Clean Energy Project",
         "total_files": 150,
         "successful_files": 140,
-        "failed_files": 10,
+        "failed_files": 8,
+        "skipped_files": 2,
         "success_rate": 93.33
       }
     ],
@@ -1083,7 +1160,8 @@ GET /api/stats/processing
       "total_projects": 5,
       "total_files_across_all_projects": 750,
       "total_successful_files": 720,
-      "total_failed_files": 30,
+      "total_failed_files": 25,
+      "total_skipped_files": 5,
       "overall_success_rate": 96.0
     }
   }
@@ -1119,8 +1197,9 @@ Provides detailed processing logs for a specific project including individual do
     ],
     "summary": {
       "total_files": 50,
-      "successful_files": 48,
+      "successful_files": 46,
       "failed_files": 2,
+      "skipped_files": 2,
       "success_rate": 96.0
     }
   }
@@ -1165,7 +1244,7 @@ The Stats API requires the following database tables:
 * `id` (Integer, Primary Key)
 * `project_id` (String, Foreign Key)
 * `document_id` (VARCHAR)
-* `status` (VARCHAR: "success" or "failure")
+* `status` (VARCHAR: "success", "failure", or "skipped")
 * `processed_at` (TIMESTAMP)
 * `metrics` (JSONB)
 
@@ -1211,6 +1290,14 @@ This distinction makes it clear whether you're getting complete documents or spe
 ### Search Metrics
 
 The API returns detailed timing metrics for each stage of the search pipeline:
+
+#### Ranking Configuration Metrics
+
+* **`ranking_config`**: Shows the ranking parameters used for the search
+  * `minScore.value`: The minimum relevance score threshold applied
+  * `minScore.source`: Whether the value came from user parameter or environment default
+  * `topN.value`: The maximum number of results returned
+  * `topN.source`: Whether the value came from user parameter or environment default
 
 #### Timing Metrics
 

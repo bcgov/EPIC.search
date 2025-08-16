@@ -42,5 +42,5 @@ def read_file_from_s3(object_key):
         endpoint_url=settings.s3_settings.endpoint_uri,
     )
     response = s3.get_object(Bucket=settings.s3_settings.bucket_name, Key=object_key)
-    pdf_data = response["Body"].read()
-    return pdf_data
+    file_data = response["Body"].read()
+    return file_data

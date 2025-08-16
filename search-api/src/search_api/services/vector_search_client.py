@@ -154,8 +154,8 @@ class VectorSearchClient:
         Returns:
             dict: Processing statistics containing:
                 - processing_stats: Statistics data
-                - projects: Per-project statistics
-                - summary: Aggregate metrics
+                - projects: Per-project statistics with total_files, successful_files, failed_files, skipped_files, and success_rate
+                - summary: Aggregate metrics including total_skipped_files
                 
         Note:
             Returns empty dict {} if the API call fails
@@ -201,6 +201,7 @@ class VectorSearchClient:
             dict: Project details containing:
                 - processing_logs: Array of document processing records
                 - project_id: The requested project ID
+                - summary: Project summary with total_files, successful_files, failed_files, skipped_files, and success_rate
                 
         Note:
             Returns empty dict {} if the API call fails
@@ -227,7 +228,7 @@ class VectorSearchClient:
         
         Returns:
             dict: System summary containing:
-                - summary: High-level aggregate metrics
+                - summary: High-level aggregate metrics including total_skipped_files
                 - total_projects: Number of projects
                 - total_documents: Number of documents processed
                 - other system-wide statistics

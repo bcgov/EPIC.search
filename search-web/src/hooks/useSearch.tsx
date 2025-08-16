@@ -9,11 +9,17 @@ export type SearchStrategy =
   | "HYBRID_PARALLEL"
   | "DOCUMENT_ONLY";
 
+export interface RankingOptions {
+  minScore: number;
+  topN: number;
+}
+
 export interface SearchRequest {
   question: string;
   searchStrategy?: SearchStrategy;
   projectIds?: string[];
   documentTypeIds?: string[];
+  ranking?: RankingOptions;
 }
 
 const doSearch = async (searchRequest: SearchRequest) => {

@@ -6,7 +6,15 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--project_id", "650b5adc5d77c20022fb59fc"],
+            "args": ["--project_id", "58851197aaecd9001b8227cc"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Main with multiple projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--project_id", "588511e1aaecd9001b8272e7", "another_project_id", "third_project_id"],
             "console": "integratedTerminal"
         },
         {
@@ -14,6 +22,174 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",            
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - Specific Project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - Multiple Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed", "--project_id", "588511e1aaecd9001b8272e7", "another_project_id"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - All Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Failed - Shallow Mode (5 files)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-failed", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Skipped - Specific Project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-skipped", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Skipped - Multiple Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-skipped", "--project_id", "588511e1aaecd9001b8272e7", "another_project_id"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Skipped - All Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-skipped"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Retry Skipped - Shallow Mode (5 files)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--retry-skipped", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Mode - 5 minutes",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Mode - 30 minutes (All Projects)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "30"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed + Shallow Mode",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "10", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed + Retry Failed (15 min)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "15", "--retry-failed", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed + Retry Skipped (10 min)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "10", "--retry-skipped", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Mode - 1 minute (Quick Test)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "1", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Repair Mode - Specific Project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--repair", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Repair Mode - Multiple Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--repair", "--project_id", "588511e1aaecd9001b8272e7", "another_project_id"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Repair Mode - All Projects",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--repair"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Repair + Shallow Mode (5 docs)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--repair", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Timed Repair Mode (10 min)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--timed", "10", "--repair", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Reset Mode - Specific Project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--reset", "--project_id", "58851197aaecd9001b8227cc"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Reset + Timed Mode (5 min) - Specific Project",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--reset", "--timed", "5", "--project_id", "58851197aaecd9001b8227cc"],
             "console": "integratedTerminal"
         }
     ]

@@ -28,9 +28,11 @@ from .s3_reader import read_file_from_s3
 from .markdown_splitter import chunk_markdown_text
 from .tag_extractor import extract_tags_from_chunks
 from .embedding import get_embedding
-from .pdf_validation import validate_pdf_file
+from .file_validation import validate_file
 from .markdown_reader import read_as_pages
 from .bert_keyword_extractor import extract_keywords_from_chunks
+from .fast_keyword_extractor import extract_keywords_from_chunks_fast
+from .ocr.ocr_factory import initialize_ocr, is_ocr_available
 
 # Import and run path setup
 from src.path_setup import setup_paths
@@ -170,9 +172,31 @@ def chunk_and_embed_pages(
         if chunk_texts:
             # Parallel tag extraction for all chunks on this page
             t_tag = time.perf_counter() if chunk_metrics is not None else None
-            tag_results = extract_tags_from_chunks(chunk_dicts)
-            if chunk_metrics is not None:
-                chunk_metrics["_get_tags_times"].append(time.perf_counter() - t_tag)
+            try:
+                tag_results = extract_tags_from_chunks(chunk_dicts, document_id=s3_key)
+                if chunk_metrics is not None:
+                    chunk_metrics["_get_tags_times"].append(time.perf_counter() - t_tag)
+                    
+            except RuntimeError as e:
+                if "paging file" in str(e).lower() or "virtual memory" in str(e).lower():
+                    error_msg = (
+                        f"Windows virtual memory error: {e}\n\n"
+                        f"💡 QUICK FIX: Restart your PC\n"
+                        f"This usually happens after running the system for a long time.\n"
+                        f"A restart will clear memory fragmentation and fix the issue."
+                    )
+                    print(f"[LOADER] {error_msg}")
+                    # Create empty tag results to allow processing to continue
+                    tag_results = {"all_matches": [], "chunks": []}
+                else:
+                    # Re-raise non-memory errors
+                    raise
+                    
+            except Exception as e:
+                print(f"[LOADER] Unexpected error during tag extraction: {e}")
+                print(f"[LOADER] Skipping tag extraction for this document")
+                # Create empty tag results to allow processing to continue
+                tag_results = {"all_matches": [], "chunks": []}
             # Use new tag_results structure
             if tag_results and isinstance(tag_results, dict):
                 # Aggregate all unique tags for the document
@@ -183,9 +207,22 @@ def chunk_and_embed_pages(
                     chunk_id = chunk_dict["id"]
                     tags = chunk_id_to_tags.get(chunk_id, [])
                     chunk_metadatas[i]["tags"] = tags
-            # Batch keyword extraction for all chunks on this page (now refactored)
+            # Batch keyword extraction for all chunks on this page with configurable mode
             t_kw = time.perf_counter() if chunk_metrics is not None else None
-            chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts)
+            
+            # Choose extraction method based on configuration
+            extraction_mode = settings.multi_processing_settings.keyword_extraction_mode
+            if extraction_mode == "fast":
+                chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
+                    chunk_dicts, use_batch_mode=True, simplified_mode=False, document_id=s3_key
+                )
+            elif extraction_mode == "simplified":
+                chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
+                    chunk_dicts, use_batch_mode=True, simplified_mode=True, document_id=s3_key
+                )
+            else:  # extraction_mode == "standard" or any other value
+                chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts)
+            
             if chunk_metrics is not None:
                 chunk_metrics["_get_keywords_times"].append(time.perf_counter() - t_kw)
             all_keywords.update(page_keywords)
@@ -239,13 +276,18 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
     }
     
     try:
-        pdf_bytes = read_file_from_s3(s3_key)
-        doc_info["file_size_bytes"] = len(pdf_bytes)
+        file_data = read_file_from_s3(s3_key)
+        doc_info["file_size_bytes"] = len(file_data)
+        
+        # Determine the correct file extension from the S3 key
+        original_ext = os.path.splitext(s3_key)[1]
+        if not original_ext:
+            original_ext = ".pdf"  # Default to PDF if no extension
         
         if temp_dir is None:
             temp_dir = tempfile.gettempdir()
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, dir=temp_dir) as temp:
-            temp.write(pdf_bytes)
+        with tempfile.NamedTemporaryFile(suffix=original_ext, delete=False, dir=temp_dir) as temp:
+            temp.write(file_data)
             temp.flush()
             temp_path = temp.name
         
@@ -258,20 +300,45 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
         except Exception as pdf_meta_err:
             print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
         
-        is_valid, reason = validate_pdf_file(temp_path, s3_key)
+        is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key)
         doc_info["validation_status"] = "valid" if is_valid else "invalid"
         doc_info["validation_reason"] = reason if not is_valid else None
         
+        # Add OCR processing information to document info
+        if ocr_info:
+            doc_info["ocr_processing"] = ocr_info
+        
         if not is_valid:
-            if reason == "scanned_or_image_pdf":
-                print(f"[SKIP] File {s3_key} is likely a scanned/image-based PDF (PDF {doc_info.get('pdf_version', 'unknown')}, no extractable text). Marking as failed and deleting temp file.")
+            if reason in ["scanned_or_image_pdf", "ocr_failed"]:
+                if reason == "scanned_or_image_pdf":
+                    print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Will be marked as skipped.")
+                else:  # ocr_failed
+                    print(f"[FAIL] File {s3_key} OCR processing failed. Will be marked as failure.")
+            elif reason == "precheck_failed":
+                print(f"[SKIP] File {s3_key} is not a valid PDF or unsupported format. Will be marked as skipped.")
             else:
-                print(f"[SKIP] File {s3_key} failed PDF validation: {reason}. Deleting temp file.")
+                print(f"[FAIL] File {s3_key} failed PDF validation: {reason}. Will be marked as failure.")
             try:
                 os.remove(temp_path)
             except Exception as cleanup_err:
                 print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
             return None, doc_info
+        
+        # If OCR was used, store summary information instead of full page content
+        if reason == "ocr_processed" and ocr_pages:
+            # Create OCR summary with metadata only, not full text content
+            ocr_summary = {
+                "total_pages": len(ocr_pages),
+                "pages_with_text": sum(1 for page in ocr_pages if page.get("text", "").strip()),
+                "total_characters": sum(len(page.get("text", "")) for page in ocr_pages),
+                "extraction_method": ocr_pages[0].get("metadata", {}).get("extraction_method") if ocr_pages else None,
+                "ocr_settings": {
+                    "dpi": ocr_pages[0].get("metadata", {}).get("ocr_dpi") if ocr_pages else None,
+                    "language": ocr_pages[0].get("metadata", {}).get("ocr_language") if ocr_pages else None
+                }
+            }
+            doc_info["ocr_summary"] = ocr_summary
+            doc_info["ocr_pages"] = ocr_pages  # Keep for processing, but this won't be logged
         
         return temp_path, doc_info
         
@@ -284,8 +351,15 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
 def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
     """
     Insert chunk records into the chunk table using SQLAlchemy ORM.
+    Uses batched inserts to prevent connection timeouts with large documents.
     Expects project_id column to exist in the table. If not, fix your DB migration/init logic.
     """
+    import time
+    from sqlalchemy.exc import OperationalError
+    from src.config.settings import get_settings
+    
+    settings = get_settings()
+    
     chunk_objs = []
     for record in chunks_to_upsert:
         record["document_id"] = doc_id
@@ -302,8 +376,39 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
             project_id=project_id
         )
         chunk_objs.append(chunk_obj)
-    session.add_all(chunk_objs)
-    session.commit()
+    
+    # Insert in batches to prevent connection timeouts
+    batch_size = settings.multi_processing_settings.chunk_insert_batch_size
+    total_chunks = len(chunk_objs)
+    print(f"[DB] Inserting {total_chunks} chunks in batches of {batch_size}...")
+    
+    for i in range(0, total_chunks, batch_size):
+        batch = chunk_objs[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        total_batches = (total_chunks + batch_size - 1) // batch_size
+        
+        # Retry logic for connection issues
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                session.add_all(batch)
+                session.commit()
+                print(f"[DB] Inserted batch {batch_num}/{total_batches} ({len(batch)} chunks)")
+                break
+            except OperationalError as e:
+                if "SSL SYSCALL error" in str(e) or "EOF detected" in str(e):
+                    print(f"[DB] Connection error on batch {batch_num}, attempt {attempt + 1}/{max_retries}: {e}")
+                    if attempt < max_retries - 1:
+                        # Rollback and wait before retry
+                        session.rollback()
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    else:
+                        print(f"[DB] Failed to insert batch {batch_num} after {max_retries} attempts")
+                        raise
+                else:
+                    # Non-connection error, re-raise immediately
+                    raise
 
 def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_headings, project_id, semantic_embedding=None, document_metadata=None):
     """
@@ -360,10 +465,14 @@ def extract_document_metadata(api_doc: Dict[str, Any], base_metadata: Dict[str, 
             type_value = api_doc[field_name]
             break
     
+    # If still no type_value, try documentSource as fallback
+    if not type_value and "documentSource" in api_doc and api_doc["documentSource"]:
+        type_value = api_doc["documentSource"]
+    
     document_type, document_type_id = resolve_document_type(type_value)
     metadata["document_type"] = document_type
     metadata["document_type_id"] = document_type_id
-    
+                               
     # Extract other explicit fields as needed
     if "name" in api_doc:
         metadata["document_name"] = api_doc["name"]
@@ -389,6 +498,28 @@ def extract_document_metadata(api_doc: Dict[str, Any], base_metadata: Dict[str, 
                 if last_dot > 0:  # Ensure there's content before the dot
                     fallback_name = fallback_name[:last_dot]
             metadata["display_name"] = fallback_name
+    
+    # Additional fallback for missing display_name/document_name using internalOriginalName
+    if not metadata.get("display_name") or not metadata.get("document_name"):
+        fallback_name = None
+        
+        # Try internalOriginalName as fallback
+        if "internalOriginalName" in api_doc and api_doc["internalOriginalName"]:
+            fallback_name = api_doc["internalOriginalName"].strip()
+        
+        if fallback_name:
+            # For display_name, strip the extension for cleaner display
+            if not metadata.get("display_name"):
+                display_name_clean = fallback_name
+                if display_name_clean.lower().endswith(('.pdf', '.doc', '.docx', '.txt')):
+                    last_dot = display_name_clean.rfind('.')
+                    if last_dot > 0:
+                        display_name_clean = display_name_clean[:last_dot]
+                metadata["display_name"] = display_name_clean
+            
+            # For document_name, keep the full filename with extension
+            if not metadata.get("document_name"):
+                metadata["document_name"] = fallback_name
     
     if "uploadDate" in api_doc:
         metadata["upload_date"] = api_doc["uploadDate"]
@@ -438,24 +569,55 @@ def load_data(
     """
     doc_id = base_metadata.get("document_id") or os.path.basename(s3_key)
     project_id = base_metadata.get("project_id", "")
-    print(f"[Worker] Actually processing: doc_id={doc_id}, file_key={s3_key}, project_id={project_id}")
+    import os
+    process_id = os.getpid()
+    print(f"[Worker PID {process_id}] Processing: doc_id={doc_id}, file_key={s3_key}, project_id={project_id}")
     temp_path = None
+    # Initialize fresh metrics for this document (ensure no cross-document contamination)
     metrics = {
         "document_info": None,  # Will be populated with doc metadata regardless of success/failure
+        "process_id": process_id,  # Track which process handled this document
     }
     
-    # Try to use a shared engine if available, else create locally
-    try:
-        from src.models.pgvector.vector_db_utils import engine as shared_engine
-        engine_to_use = shared_engine
-    except ImportError:
-        from src.config.settings import get_settings
-        settings = get_settings()
-        from sqlalchemy import create_engine
-        database_url = settings.vector_store_settings.db_url
-        if database_url and database_url.startswith('postgresql:'):
-            database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
-        engine_to_use = create_engine(database_url)
+    # Each process needs its own database engine to avoid prepared statement conflicts
+    # Do NOT use shared engine across processes
+    from src.config.settings import get_settings
+    settings = get_settings()
+    from sqlalchemy import create_engine, event
+    import os
+    
+    # Worker-specific database settings
+    WORKER_POOL_SIZE = int(os.getenv('WORKER_POOL_SIZE', '1'))
+    WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))
+    WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))
+    WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30'))
+    
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    # Create process-specific engine with worker settings
+    engine_to_use = create_engine(
+        database_url,
+        pool_size=WORKER_POOL_SIZE,
+        max_overflow=WORKER_MAX_OVERFLOW,
+        pool_timeout=WORKER_POOL_TIMEOUT,
+        pool_recycle=1800,     # 30 minutes
+        pool_pre_ping=True,    # Verify connections before use
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": WORKER_CONNECT_TIMEOUT,
+            "application_name": f"epic_embedder_worker_{process_id}"
+        }
+    )
+    
+    # Set timeouts after connection establishment for this worker's engine
+    @event.listens_for(engine_to_use, "connect")
+    def set_worker_timeouts(dbapi_connection, connection_record):
+        """Set statement and lock timeouts for worker connections."""
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '300s'")  # 5 minute query timeout
+            cursor.execute("SET lock_timeout = '60s'")        # 1 minute lock timeout
     
     Session = sessionmaker(bind=engine_to_use)
     session = Session()
@@ -485,7 +647,9 @@ def load_data(
         
         # Merge doc_info but preserve API-derived names if they exist
         if doc_info:
-            metrics["document_info"].update(doc_info)
+            # Create a copy of doc_info without the full OCR pages for metrics logging
+            doc_info_for_metrics = {k: v for k, v in doc_info.items() if k != "ocr_pages"}
+            metrics["document_info"].update(doc_info_for_metrics)
             # Restore API-derived names if they were better than the S3 basename
             if api_derived_names.get("document_name"):
                 metrics["document_info"]["document_name"] = api_derived_names["document_name"]
@@ -493,20 +657,56 @@ def load_data(
                 metrics["document_info"]["display_name"] = api_derived_names["display_name"]
         
         if not temp_path:
-            # Log failure with document info in metrics
+            # Determine status based on validation reason - distinguish between failures and skipped files
+            validation_reason = doc_info.get("validation_reason") if doc_info else None
+            print(f"[DEBUG] Processing failed document {s3_key} with validation_reason: '{validation_reason}'")
+            
+            if validation_reason == "precheck_failed":
+                # Non-PDF files should be marked as skipped
+                status = "skipped"
+                print(f"[SKIP] File {s3_key} is not a valid PDF or unsupported format. Marking as skipped.")
+            elif validation_reason == "scanned_or_image_pdf":
+                # Scanned PDFs without OCR should be marked as skipped
+                status = "skipped"
+                print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Marking as skipped.")
+            else:
+                # Actual processing failures (OCR failed, etc.) should be marked as failure
+                status = "failure"
+                print(f"[FAIL] File {s3_key} failed processing: {validation_reason}. Marking as failure.")
+            
+            # Log with appropriate status
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
                 log.metrics = metrics
-                log.status = "failure"
+                log.status = status
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status=status, metrics=metrics)
                 session.add(log)
-            session.commit()
+            
+            try:
+                session.commit()
+                print(f"[DEBUG] Successfully committed {status} status for {s3_key}")
+            except Exception as commit_err:
+                print(f"[ERROR] Failed to commit {status} status for {s3_key}: {commit_err}")
+                session.rollback()
+                raise
+            
+            # Ensure we return immediately after successful commit to avoid any further processing
+            print(f"[DEBUG] Returning None for {s3_key} with status {status}")
             return None
 
         t1 = time.perf_counter()
-        pages = read_as_pages(temp_path)
-        metrics["read_as_pages"] = time.perf_counter() - t1
+        
+        # Check if we have OCR data from validation, otherwise read normally
+        if doc_info and doc_info.get("ocr_pages"):
+            print(f"[OCR] Using OCR-extracted pages for {s3_key}")
+            pages = doc_info["ocr_pages"]
+            metrics["read_as_pages"] = time.perf_counter() - t1
+            metrics["extraction_method"] = "ocr_tesseract"
+        else:
+            pages = read_as_pages(temp_path)
+            metrics["read_as_pages"] = time.perf_counter() - t1
+            metrics["extraction_method"] = "standard_pdf"
         
         if not any(page.get("text", "").strip() for page in pages):
             print(f"[WARN] No readable text found in any page of file {s3_key}. Skipping file.")
@@ -587,6 +787,24 @@ def load_data(
         session.rollback()
         traceback_str = traceback.format_exc()
         print(f"\n[ERROR] Exception processing file:\n  S3 Key: {s3_key}\n  Doc ID: {doc_id}\n  Project ID: {project_id}\n  Error: {e}\nTraceback:\n{traceback_str}\n")
+        
+        # Check if this is overriding a previously set status
+        existing_log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+        if existing_log:
+            print(f"[DEBUG] Exception handler found existing log with status: '{existing_log.status}' - this will be overridden to 'failure'")
+            # If the status was already set to "skipped", don't override it unless it's a critical error
+            if existing_log.status == "skipped":
+                print(f"[WARN] Not overriding 'skipped' status for {s3_key} due to exception: {e}")
+                # Just log the exception but don't change the status
+                existing_log.metrics = existing_log.metrics or {}
+                if isinstance(existing_log.metrics, dict):
+                    existing_log.metrics["exception_after_skip"] = str(e)
+                    existing_log.metrics["exception_traceback"] = traceback_str
+                try:
+                    session.commit()
+                except Exception as log_err:
+                    print(f"[ERROR] Failed to log exception details for skipped file: {log_err}")
+                return None  # Don't re-raise, just return
         
         # Ensure we have basic document info even for complete failures
         if not metrics.get("document_info"):

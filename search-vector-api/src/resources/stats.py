@@ -8,7 +8,8 @@ statistics and metrics. It includes endpoints for:
 3. Overall system processing metrics
 
 The endpoints support optional project filtering and provide comprehensive
-information about file processing success rates and error details.
+information about file processing success rates, failure counts, skipped 
+counts, and error details.
 """
 
 from http import HTTPStatus
@@ -73,7 +74,7 @@ class ProcessingStats(Resource):
     """Processing statistics endpoint.
     
     Provides aggregated processing statistics across projects including
-    total files processed, success rates, and failure counts.
+    total files processed, success rates, failure counts, and skipped counts.
     """
 
     @staticmethod
@@ -85,7 +86,7 @@ class ProcessingStats(Resource):
         
         Retrieves aggregated processing statistics across all projects,
         including total files processed, success counts, failure counts,
-        and success rates for each project.
+        skipped counts, and success rates for each project.
         
         Returns:
             Response: JSON containing processing statistics:
@@ -97,7 +98,8 @@ class ProcessingStats(Resource):
                                 "project_name": "Project Name",
                                 "total_files": 150,
                                 "successful_files": 140,
-                                "failed_files": 10,
+                                "failed_files": 8,
+                                "skipped_files": 2,
                                 "success_rate": 93.33
                             }
                         ],
@@ -105,7 +107,8 @@ class ProcessingStats(Resource):
                             "total_projects": 5,
                             "total_files_across_all_projects": 750,
                             "total_successful_files": 720,
-                            "total_failed_files": 30,
+                            "total_failed_files": 25,
+                            "total_skipped_files": 5,
                             "overall_success_rate": 96.0
                         }
                     }
@@ -213,8 +216,9 @@ class ProjectProcessingDetails(Resource):
                         ],
                         "summary": {
                             "total_files": 50,
-                            "successful_files": 48,
+                            "successful_files": 46,
                             "failed_files": 2,
+                            "skipped_files": 2,
                             "success_rate": 96.0
                         }
                     }
@@ -272,9 +276,11 @@ class ProcessingSummary(Resource):
                         "total_projects": 5,
                         "total_files_across_all_projects": 750,
                         "total_successful_files": 720,
-                        "total_failed_files": 30,
+                        "total_failed_files": 25,
+                        "total_skipped_files": 5,
                         "overall_success_rate": 96.0,
                         "projects_with_failures": 2,
+                        "projects_with_skipped_files": 1,
                         "avg_success_rate_per_project": 95.5
                     }
                 }
@@ -287,6 +293,7 @@ class ProcessingSummary(Resource):
             
             # Calculate additional summary metrics
             projects_with_failures = len([p for p in projects if p.get("failed_files", 0) > 0])
+            projects_with_skipped_files = len([p for p in projects if p.get("skipped_files", 0) > 0])
             avg_success_rate = (
                 sum(p.get("success_rate", 0) for p in projects) / len(projects)
                 if projects else 0.0
@@ -296,6 +303,7 @@ class ProcessingSummary(Resource):
                 "processing_summary": {
                     **summary,
                     "projects_with_failures": projects_with_failures,
+                    "projects_with_skipped_files": projects_with_skipped_files,
                     "avg_success_rate_per_project": round(avg_success_rate, 2)
                 }
             }

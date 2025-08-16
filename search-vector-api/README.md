@@ -84,6 +84,15 @@ The application uses typed configuration classes for different aspects of the sy
 
 > **Note**: The `MIN_RELEVANCE_SCORE` has been optimized to -8.0 to provide better filtering of irrelevant results while preserving relevant documents. Cross-encoder models like `cross-encoder/ms-marco-MiniLM-L-2-v2` can produce negative relevance scores for relevant documents, so positive thresholds would filter out good matches. The system also includes intelligent detection of queries that don't match the document content well (all scores below -9.0), providing user feedback for potential query refinement.
 
+#### Keyword Extraction Configuration
+
+* `DOCUMENT_KEYWORD_EXTRACTION_METHOD`: Method used for document keyword extraction (default: "keybert")
+  * **"keybert"**: Semantic embeddings-based extraction (standard/fast modes with diversity 0.6-0.7)
+  * **"tfidf"**: Statistical frequency-based extraction (simplified mode)
+  * **Impact**: Changes query keyword extraction method and search strategy to match document processing
+
+> **New Feature**: The API now adapts its search strategy based on how document keywords were extracted. When set to "tfidf", the system prioritizes tags and semantic search over keyword matching since TF-IDF keywords are statistical rather than semantic. This ensures optimal performance regardless of which extraction mode your embedding service uses.
+
 #### Search Strategy Configuration
 
 The API supports multiple configurable search strategies to optimize for different use cases:
