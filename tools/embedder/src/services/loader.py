@@ -19,7 +19,6 @@ import traceback
 import strip_markdown
 import time
 import numpy as np
-import gc
 
 from typing import List, Dict, Any, Tuple
 from sqlalchemy.orm import sessionmaker
@@ -466,10 +465,14 @@ def extract_document_metadata(api_doc: Dict[str, Any], base_metadata: Dict[str, 
             type_value = api_doc[field_name]
             break
     
+    # If still no type_value, try documentSource as fallback
+    if not type_value and "documentSource" in api_doc and api_doc["documentSource"]:
+        type_value = api_doc["documentSource"]
+    
     document_type, document_type_id = resolve_document_type(type_value)
     metadata["document_type"] = document_type
     metadata["document_type_id"] = document_type_id
-    
+                               
     # Extract other explicit fields as needed
     if "name" in api_doc:
         metadata["document_name"] = api_doc["name"]
@@ -495,6 +498,28 @@ def extract_document_metadata(api_doc: Dict[str, Any], base_metadata: Dict[str, 
                 if last_dot > 0:  # Ensure there's content before the dot
                     fallback_name = fallback_name[:last_dot]
             metadata["display_name"] = fallback_name
+    
+    # Additional fallback for missing display_name/document_name using internalOriginalName
+    if not metadata.get("display_name") or not metadata.get("document_name"):
+        fallback_name = None
+        
+        # Try internalOriginalName as fallback
+        if "internalOriginalName" in api_doc and api_doc["internalOriginalName"]:
+            fallback_name = api_doc["internalOriginalName"].strip()
+        
+        if fallback_name:
+            # For display_name, strip the extension for cleaner display
+            if not metadata.get("display_name"):
+                display_name_clean = fallback_name
+                if display_name_clean.lower().endswith(('.pdf', '.doc', '.docx', '.txt')):
+                    last_dot = display_name_clean.rfind('.')
+                    if last_dot > 0:
+                        display_name_clean = display_name_clean[:last_dot]
+                metadata["display_name"] = display_name_clean
+            
+            # For document_name, keep the full filename with extension
+            if not metadata.get("document_name"):
+                metadata["document_name"] = fallback_name
     
     if "uploadDate" in api_doc:
         metadata["upload_date"] = api_doc["uploadDate"]
@@ -559,21 +584,29 @@ def load_data(
     from src.config.settings import get_settings
     settings = get_settings()
     from sqlalchemy import create_engine, event
+    import os
+    
+    # Worker-specific database settings
+    WORKER_POOL_SIZE = int(os.getenv('WORKER_POOL_SIZE', '1'))
+    WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))
+    WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))
+    WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30'))
+    
     database_url = settings.vector_store_settings.db_url
     if database_url and database_url.startswith('postgresql:'):
         database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
     
-    # Create process-specific engine with minimal connection pool
+    # Create process-specific engine with worker settings
     engine_to_use = create_engine(
         database_url,
-        pool_size=1,           # Single connection per process
-        max_overflow=2,        # Minimal overflow for this process
-        pool_timeout=30,       # Shorter timeout
-        pool_recycle=1800,     # Recycle connections after 30 minutes
+        pool_size=WORKER_POOL_SIZE,
+        max_overflow=WORKER_MAX_OVERFLOW,
+        pool_timeout=WORKER_POOL_TIMEOUT,
+        pool_recycle=1800,     # 30 minutes
         pool_pre_ping=True,    # Verify connections before use
         connect_args={
             "sslmode": "prefer",
-            "connect_timeout": 30,
+            "connect_timeout": WORKER_CONNECT_TIMEOUT,
             "application_name": f"epic_embedder_worker_{process_id}"
         }
     )

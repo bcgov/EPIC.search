@@ -1,8 +1,6 @@
 from src.models import get_session
 from src.models.pgvector.vector_models import ProcessingLog, DocumentChunk, Document
 from sqlalchemy import text
-from typing import Dict, List, Tuple
-import json
 
 """
 Repair Service module for identifying and fixing inconsistent document states.
@@ -39,9 +37,13 @@ def analyze_repair_candidates(project_id=None):
         }
         
         # Add project filter if specified
-        project_filter = ""
+        pl_project_filter = ""
+        dc_project_filter = ""
+        d_project_filter = ""
         if project_id:
-            project_filter = f"AND project_id = '{project_id}'"
+            pl_project_filter = f"AND pl.project_id = '{project_id}'"
+            dc_project_filter = f"AND dc.project_id = '{project_id}'"
+            d_project_filter = f"AND d.project_id = '{project_id}'"
         
         # 1. Find documents with chunks but marked as failed (partial failures)
         partial_failure_query = text(f"""
@@ -50,7 +52,7 @@ def analyze_repair_candidates(project_id=None):
                    pl.metrics->'document_info'->>'document_name' as doc_name
             FROM processing_logs pl
             JOIN document_chunks dc ON pl.document_id = dc.document_id
-            WHERE pl.status = 'failure' {project_filter}
+            WHERE pl.status = 'failure' {pl_project_filter}
             GROUP BY pl.document_id, pl.project_id, pl.status, pl.processed_at, pl.metrics
             ORDER BY pl.processed_at DESC
         """)
@@ -73,7 +75,7 @@ def analyze_repair_candidates(project_id=None):
                    dc.metadata->>'document_name' as doc_name
             FROM document_chunks dc
             LEFT JOIN processing_logs pl ON dc.document_id = pl.document_id AND dc.project_id = pl.project_id
-            WHERE pl.document_id IS NULL {project_filter.replace('project_id', 'dc.project_id') if project_filter else ''}
+            WHERE pl.document_id IS NULL {dc_project_filter}
             GROUP BY dc.document_id, dc.project_id, dc.metadata
             ORDER BY dc.document_id
         """)
@@ -94,7 +96,7 @@ def analyze_repair_candidates(project_id=None):
                    dc.metadata->>'document_name' as doc_name
             FROM document_chunks dc
             LEFT JOIN documents d ON dc.document_id = d.document_id
-            WHERE d.document_id IS NULL {project_filter.replace('project_id', 'dc.project_id') if project_filter else ''}
+            WHERE d.document_id IS NULL {dc_project_filter}
             GROUP BY dc.document_id, dc.project_id, dc.metadata
             ORDER BY dc.document_id
         """)
@@ -116,7 +118,7 @@ def analyze_repair_candidates(project_id=None):
             FROM processing_logs pl
             LEFT JOIN document_chunks dc ON pl.document_id = dc.document_id AND pl.project_id = dc.project_id
             WHERE pl.status = 'success' 
-            AND dc.document_id IS NULL {project_filter}
+            AND dc.document_id IS NULL {pl_project_filter}
             ORDER BY pl.processed_at DESC
         """)
         
@@ -184,6 +186,66 @@ def cleanup_document_data(document_id: str, project_id: str):
         
     except Exception as e:
         session.rollback()
+        raise e
+    finally:
+        session.close()
+
+def cleanup_project_data(project_id: str):
+    """
+    Clean up ALL data for a project (complete reset).
+    
+    Removes all chunks, document records, and processing logs for the specified project
+    to enable a complete fresh reprocessing.
+    
+    Args:
+        project_id (str): The project ID to completely clean up
+        
+    Returns:
+        dict: Summary of what was cleaned up
+    """
+    session = get_session()
+    
+    try:
+        cleanup_summary = {
+            'chunks_deleted': 0,
+            'document_records_deleted': 0,
+            'processing_logs_deleted': 0,
+            'project_id': project_id
+        }
+        
+        print(f"[RESET] Starting complete cleanup for project {project_id}")
+        
+        # Delete all chunks for this project
+        chunks_deleted = session.query(DocumentChunk).filter_by(
+            project_id=project_id
+        ).delete(synchronize_session=False)
+        cleanup_summary['chunks_deleted'] = chunks_deleted
+        print(f"[RESET] Deleted {chunks_deleted} document chunks")
+        
+        # Delete all document records for this project (direct filter, no join needed)
+        docs_deleted = session.query(Document).filter_by(
+            project_id=project_id
+        ).delete(synchronize_session=False)
+        cleanup_summary['document_records_deleted'] = docs_deleted
+        print(f"[RESET] Deleted {docs_deleted} document records")
+        
+        # Delete all processing logs for this project
+        logs_deleted = session.query(ProcessingLog).filter_by(
+            project_id=project_id
+        ).delete(synchronize_session=False)
+        cleanup_summary['processing_logs_deleted'] = logs_deleted
+        print(f"[RESET] Deleted {logs_deleted} processing log entries")
+        
+        session.commit()
+        
+        total_deleted = cleanup_summary['chunks_deleted'] + cleanup_summary['document_records_deleted'] + cleanup_summary['processing_logs_deleted']
+        print(f"[RESET] Project {project_id} cleanup complete: {total_deleted} total records deleted")
+        
+        return cleanup_summary
+        
+    except Exception as e:
+        session.rollback()
+        print(f"[RESET] Error during project cleanup: {e}")
         raise e
     finally:
         session.close()

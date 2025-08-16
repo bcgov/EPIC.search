@@ -413,54 +413,71 @@ All configuration is managed via environment variables and loaded by `get_settin
   - Processing concurrency
   - `reset_db` flag for safe table (re)creation
 
-- **Example environment variables:**
+### Database Connection Pools
 
-  | Variable Name         | Purpose                                 | Default/Auto Value           |
-  |----------------------|-----------------------------------------|------------------------------|
-  | EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"          |
-  | KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"          |
-  | EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                          |
-  | FILES_CONCURRENCY_SIZE | Number of files to process in parallel | auto (intelligent CPU-based) |
-  | KEYWORD_EXTRACTION_WORKERS | Threads per document for keywords | auto (optimized for KeyBERT) |
-  | GET_PROJECT_PAGE     | Number of projects to fetch per API call | 1                           |
-  | GET_DOCS_PAGE        | Number of documents to fetch per API call | 1000                        |
-  | CHUNK_SIZE           | Size of text chunks in characters        | 1000                        |
-  | CHUNK_OVERLAP        | Number of characters to overlap between chunks | 200                     |
-  | CHUNK_INSERT_BATCH_SIZE | Number of chunks per database batch   | 25 (50 for high-RAM systems) |
-  | AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                        |
+The system uses two separate database connection pools for optimal performance and stability:
 
-### Intelligent Auto-Configuration
+#### Main Database Pool (Setup & Admin Operations)
 
-The embedder supports intelligent auto-configuration for optimal performance across different hardware:
+Used for schema creation, indexing, and administrative tasks:
 
-**FILES_CONCURRENCY_SIZE Options:**
+| Variable Name         | Purpose                                 | Default Value                |
+|----------------------|-----------------------------------------|------------------------------|
+| DB_POOL_SIZE         | Persistent connections for main operations | 10                        |
+| DB_MAX_OVERFLOW      | Additional connections when needed      | 20                           |
+| DB_POOL_RECYCLE      | Connection recycling time (seconds)     | 900 (15 minutes)             |
+| DB_POOL_TIMEOUT      | Pool connection wait time (seconds)     | 120 (2 minutes)              |
+| DB_CONNECT_TIMEOUT   | Initial connection timeout (seconds)    | 60 (1 minute)                |
 
-- `auto` - Half CPU cores for 16+ core systems (prevents over-parallelization)
-- `auto-full` - All CPU cores (maximum parallelism)
-- `auto-conservative` - Quarter CPU cores (resource-constrained environments)
-- Integer value - Manual override
+#### Worker Database Pool (Document Processing)
 
-**KEYWORD_EXTRACTION_WORKERS Options:**
+Used by worker processes to prevent P03 prepared statement conflicts:
 
-- `auto` - Optimized for KeyBERT bottleneck (2 threads for 16+ cores, 3 for 8-15 cores, 4 for <8 cores)
-- `auto-aggressive` - 4 threads per process (maximum keyword parallelism)
-- `auto-conservative` - 1 thread per process (minimal thread contention)
-- Integer value - Manual override
+| Variable Name           | Purpose                               | Default Value                |
+|------------------------|---------------------------------------|------------------------------|
+| WORKER_POOL_SIZE       | Connections per worker process        | 1                            |
+| WORKER_MAX_OVERFLOW    | Additional connections per worker     | 2                            |
+| WORKER_POOL_TIMEOUT    | Worker pool timeout (seconds)        | 30                           |
+| WORKER_CONNECT_TIMEOUT | Worker connection timeout (seconds)  | 30                           |
 
-**Example configurations:**
+### Processing Configuration
 
-```bash
-# High-performance server (32+ cores)
-FILES_CONCURRENCY_SIZE=auto          # Uses 16 processes
-KEYWORD_EXTRACTION_WORKERS=auto      # Uses 2 threads per process = 32 total threads
+| Variable Name         | Purpose                                 | Default Value                |
+|----------------------|-----------------------------------------|------------------------------|
+| EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"          |
+| KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"          |
+| EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                          |
+| FILES_CONCURRENCY_SIZE | Number of files to process in parallel | 16                           |
+| KEYWORD_EXTRACTION_WORKERS | Threads per document for keywords | 2                            |
+| GET_PROJECT_PAGE     | Number of projects to fetch per API call | 1                           |
+| GET_DOCS_PAGE        | Number of documents to fetch per API call | 1000                        |
+| CHUNK_SIZE           | Size of text chunks in characters        | 1000                        |
+| CHUNK_OVERLAP        | Number of characters to overlap between chunks | 200                     |
+| CHUNK_INSERT_BATCH_SIZE | Number of chunks per database batch   | 25                           |
+| AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                        |
 
-# Development machine (4-8 cores)
-FILES_CONCURRENCY_SIZE=auto          # Uses all 4-8 cores
-KEYWORD_EXTRACTION_WORKERS=auto      # Uses 3-4 threads per process
+### High-Performance Server Configuration
 
-# Resource-constrained environment
-FILES_CONCURRENCY_SIZE=auto-conservative  # Uses quarter of cores
-KEYWORD_EXTRACTION_WORKERS=auto-conservative  # Uses 1 thread per process
+For servers with 16+ CPU cores processing large document sets:
+
+```env
+# Main database pool (increased for high-throughput admin operations)
+DB_POOL_SIZE=20
+DB_MAX_OVERFLOW=40
+DB_POOL_RECYCLE=600                    # 10 minutes - shorter for stability on long runs
+DB_POOL_TIMEOUT=300                    # 5 minutes for patient connection waiting
+DB_CONNECT_TIMEOUT=120                 # 2 minutes for network delays
+
+# Worker database pool (keep minimal to prevent conflicts)
+WORKER_POOL_SIZE=1
+WORKER_MAX_OVERFLOW=2
+WORKER_POOL_TIMEOUT=30
+WORKER_CONNECT_TIMEOUT=30
+
+# Processing configuration
+FILES_CONCURRENCY_SIZE=16              # Adjust based on CPU cores
+KEYWORD_EXTRACTION_WORKERS=2           # Optimized for KeyBERT
+CHUNK_INSERT_BATCH_SIZE=50             # Higher for servers with more RAM
 ```
 
 ## Tag/Keyword Extraction

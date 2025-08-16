@@ -108,6 +108,23 @@ def get_document_type_id_from_name(type_name: str) -> str:
     if not type_name:
         return None
     
+    # Special mappings for documentSource values
+    source_mappings = {
+        "COMMENT": "Comment/Submission",
+        "APPLICATION": "Application",
+        "DECISION": "Decision Material",
+        "REPORT": "Report",
+        "CORRESPONDENCE": "Correspondence"
+    }
+    
+    # Check special mappings first
+    if type_name.upper() in source_mappings:
+        mapped_type = source_mappings[type_name.upper()]
+        # Now look up the ID for the mapped type
+        reverse_lookup = _build_reverse_lookup()
+        if mapped_type.lower() in reverse_lookup:
+            return reverse_lookup[mapped_type.lower()]
+    
     reverse_lookup = _build_reverse_lookup()
     
     # Try exact match first
@@ -126,6 +143,7 @@ def resolve_document_type(type_value: str) -> tuple:
     
     Args:
         type_value (str): Either a document type ID or human-readable name
+        api_doc (dict): Full API document object for debugging
         
     Returns:
         tuple: (document_type_name, document_type_id)

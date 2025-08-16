@@ -37,72 +37,27 @@ from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import Engine
 import os
-import multiprocessing
 
 settings = get_settings()
 
-def _parse_files_concurrency():
-    """Parse FILES_CONCURRENCY_SIZE with intelligent auto-calculation (matches settings.py logic)"""
-    env_value = os.environ.get("FILES_CONCURRENCY_SIZE", "")
-    cpu_count = multiprocessing.cpu_count()
-    
-    # Handle empty or auto values with intelligent defaults
-    if not env_value or env_value.lower() == 'auto':
-        # For high-core systems, use half the cores to avoid over-parallelization
-        if cpu_count >= 16:
-            return cpu_count // 2
-        else:
-            return cpu_count
-    elif env_value.lower() == 'auto-full':
-        return cpu_count
-    elif env_value.lower() == 'auto-conservative':
-        return max(1, cpu_count // 4)
-    
-    try:
-        # Try to parse as integer
-        return int(env_value)
-    except ValueError:
-        # If parsing fails, fall back to intelligent auto
-        return cpu_count // 2 if cpu_count >= 16 else cpu_count
+# Main database connection pool settings (for setup and admin operations)
+DB_POOL_SIZE = int(os.getenv('DB_POOL_SIZE', '10'))           # Reasonable default for setup operations
+DB_MAX_OVERFLOW = int(os.getenv('DB_MAX_OVERFLOW', '20'))     # Reasonable overflow for setup operations
+DB_POOL_RECYCLE = int(os.getenv('DB_POOL_RECYCLE', '900'))   # 15 minutes
+DB_POOL_TIMEOUT = int(os.getenv('DB_POOL_TIMEOUT', '120'))   # 2 minutes
+DB_CONNECT_TIMEOUT = int(os.getenv('DB_CONNECT_TIMEOUT', '60')) # 1 minute
 
-def _calculate_auto_db_pool_config():
-    """Calculate database pool settings based on concurrency"""
-    concurrent_workers = _parse_files_concurrency()
-    
-    # Calculate pool sizes based on concurrent workers
-    # Formula: pool_size = 2x workers (safe ratio), overflow = 4x workers (good capacity)
-    auto_pool_size = max(4, concurrent_workers * 2)
-    auto_max_overflow = max(8, concurrent_workers * 4)
-    
-    return auto_pool_size, auto_max_overflow, concurrent_workers
+# Worker process database settings (for document processing)
+WORKER_POOL_SIZE = int(os.getenv('WORKER_POOL_SIZE', '1'))        # Single connection per worker
+WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))  # Minimal overflow per worker
+WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))  # Shorter timeout for workers
+WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30')) # Shorter connect timeout
 
-# Get auto-calculated values
-auto_pool_size, auto_max_overflow, estimated_workers = _calculate_auto_db_pool_config()
-
-# Configurable connection pool settings via environment variables with AUTO support
-DB_POOL_SIZE_RAW = os.getenv('DB_POOL_SIZE', 'auto').lower()
-DB_MAX_OVERFLOW_RAW = os.getenv('DB_MAX_OVERFLOW', 'auto').lower()
-
-if DB_POOL_SIZE_RAW == 'auto':
-    DB_POOL_SIZE = auto_pool_size
-else:
-    DB_POOL_SIZE = int(DB_POOL_SIZE_RAW)
-
-if DB_MAX_OVERFLOW_RAW == 'auto':
-    DB_MAX_OVERFLOW = auto_max_overflow
-else:
-    DB_MAX_OVERFLOW = int(DB_MAX_OVERFLOW_RAW)
-
-DB_POOL_RECYCLE = int(os.getenv('DB_POOL_RECYCLE', '900'))      # Default: 15 minutes
-DB_POOL_TIMEOUT = int(os.getenv('DB_POOL_TIMEOUT', '120'))      # Default: 2 minutes to wait for connection from pool
-DB_CONNECT_TIMEOUT = int(os.getenv('DB_CONNECT_TIMEOUT', '60')) # Default: 1 minute to establish initial connection
-
-print(f"[CONFIG] Database connection pool: size={DB_POOL_SIZE}, max_overflow={DB_MAX_OVERFLOW}, "
+print(f"[CONFIG] Main database pool: size={DB_POOL_SIZE}, max_overflow={DB_MAX_OVERFLOW}, "
       f"recycle={DB_POOL_RECYCLE}s ({DB_POOL_RECYCLE//60} min), "
       f"pool_timeout={DB_POOL_TIMEOUT}s, connect_timeout={DB_CONNECT_TIMEOUT}s")
-if DB_POOL_SIZE_RAW == 'auto' or DB_MAX_OVERFLOW_RAW == 'auto':
-    print(f"[CONFIG] Auto-calculated for ~{estimated_workers} concurrent workers "
-          f"(FILES_CONCURRENCY_SIZE={os.getenv('FILES_CONCURRENCY_SIZE', 'auto')})")
+print(f"[CONFIG] Worker database pool: size={WORKER_POOL_SIZE}, max_overflow={WORKER_MAX_OVERFLOW}, "
+      f"pool_timeout={WORKER_POOL_TIMEOUT}s, connect_timeout={WORKER_CONNECT_TIMEOUT}s")
 
 # Use SQLAlchemy to drop and create tables    
 database_url = settings.vector_store_settings.db_url
@@ -110,22 +65,22 @@ database_url = settings.vector_store_settings.db_url
 if database_url and database_url.startswith('postgresql:'):
     database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
 
-# Configure engine with connection pooling and timeout settings for server
+# Configure main engine for setup and admin operations
 engine = create_engine(
     database_url,
-    pool_size=DB_POOL_SIZE,         # Configurable via DB_POOL_SIZE env var
-    max_overflow=DB_MAX_OVERFLOW,   # Configurable via DB_MAX_OVERFLOW env var
-    pool_timeout=DB_POOL_TIMEOUT,   # Configurable via DB_POOL_TIMEOUT env var
-    pool_recycle=DB_POOL_RECYCLE,   # Configurable via DB_POOL_RECYCLE env var
+    pool_size=DB_POOL_SIZE,         # Main pool for setup operations
+    max_overflow=DB_MAX_OVERFLOW,   # Main pool overflow
+    pool_timeout=DB_POOL_TIMEOUT,   # Main pool timeout
+    pool_recycle=DB_POOL_RECYCLE,   # Main pool recycle
     pool_pre_ping=True,             # Verify connections before use
     connect_args={
         "sslmode": "prefer",        # Use SSL when available but don't require it
-        "connect_timeout": DB_CONNECT_TIMEOUT,  # Configurable via DB_CONNECT_TIMEOUT env var
-        "application_name": "epic_embedder"  # Identify embedder in database logs
+        "connect_timeout": DB_CONNECT_TIMEOUT,  # Main connection timeout
+        "application_name": "epic_embedder_main"  # Identify main process in database logs
     }
 )
 
-# Set timeouts after connection establishment to avoid Azure PostgreSQL startup parameter issues
+# Set timeouts after connection establishment to avoid PostgreSQL startup parameter issues
 @event.listens_for(engine, "connect")
 def set_timeouts(dbapi_connection, connection_record):
     """Set statement and lock timeouts after connection establishment."""

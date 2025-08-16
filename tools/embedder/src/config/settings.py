@@ -1,5 +1,4 @@
 import os
-import multiprocessing
 
 from functools import lru_cache
 from dotenv import load_dotenv
@@ -91,57 +90,24 @@ class MultiProcessingSettings(BaseModel):
     keyword_extraction_workers: int = Field(default_factory=lambda: _parse_keyword_workers())
 
 def _parse_files_concurrency():
-    """Parse FILES_CONCURRENCY_SIZE with intelligent auto-calculation"""
-    env_value = os.environ.get("FILES_CONCURRENCY_SIZE", "")
-    cpu_count = multiprocessing.cpu_count()
-    
-    # Handle empty or auto values with intelligent defaults
-    if not env_value or env_value.lower() == 'auto':
-        # For high-core systems, use half the cores to avoid over-parallelization
-        if cpu_count >= 16:
-            return cpu_count // 2
-        else:
-            return cpu_count
-    elif env_value.lower() == 'auto-full':
-        return cpu_count
-    elif env_value.lower() == 'auto-conservative':
-        return max(1, cpu_count // 4)
+    """Parse FILES_CONCURRENCY_SIZE as integer"""
+    env_value = os.environ.get("FILES_CONCURRENCY_SIZE", "16")
     
     try:
-        # Try to parse as integer
         return int(env_value)
     except ValueError:
-        # If parsing fails, fall back to intelligent auto
-        print(f"[WARNING] Invalid FILES_CONCURRENCY_SIZE value '{env_value}', using auto calculation ({cpu_count // 2 if cpu_count >= 16 else cpu_count})")
-        return cpu_count // 2 if cpu_count >= 16 else cpu_count
+        print(f"[WARNING] Invalid FILES_CONCURRENCY_SIZE value '{env_value}', using default (16)")
+        return 16
 
 def _parse_keyword_workers():
-    """Parse KEYWORD_EXTRACTION_WORKERS with intelligent auto-calculation"""
-    env_value = os.environ.get("KEYWORD_EXTRACTION_WORKERS", "")
-    cpu_count = multiprocessing.cpu_count()
-    
-    # Handle empty or auto values
-    if not env_value or env_value.lower() == 'auto':
-        # Conservative threading for KeyBERT bottleneck: 2 for high-core systems
-        if cpu_count >= 16:
-            return 2
-        elif cpu_count >= 8:
-            return 3
-        else:
-            return 4
-    elif env_value.lower() == 'auto-aggressive':
-        return 4
-    elif env_value.lower() == 'auto-conservative':
-        return 1
+    """Parse KEYWORD_EXTRACTION_WORKERS as integer"""
+    env_value = os.environ.get("KEYWORD_EXTRACTION_WORKERS", "2")
     
     try:
-        # Try to parse as integer
         return int(env_value)
     except ValueError:
-        # If parsing fails, fall back to intelligent auto
-        default_workers = 2 if cpu_count >= 16 else (3 if cpu_count >= 8 else 4)
-        print(f"[WARNING] Invalid KEYWORD_EXTRACTION_WORKERS value '{env_value}', using auto calculation ({default_workers})")
-        return default_workers
+        print(f"[WARNING] Invalid KEYWORD_EXTRACTION_WORKERS value '{env_value}', using default (2)")
+        return 2
 
 
 class S3Settings(BaseModel):

@@ -7,7 +7,7 @@ The EPIC.search Embedder is a robust, production-grade document processing syste
 - **📄 Advanced PDF Processing**: Handles both regular and scanned PDF documents
 - **🔍 OCR Support**: Automatic text extraction from scanned PDFs using Tesseract or Azure Document Intelligence
 - **🧠 Semantic Search**: Vector embeddings for intelligent document search
-- **⚡ High Performance**: Intelligent auto-configuration with parallel processing
+- **⚡ High Performance**: Optimized parallel processing with configurable concurrency
 - **🏷️ Smart Tagging**: AI-powered keyword and tag extraction
 - **📊 Rich Analytics**: Comprehensive processing metrics and failure analysis
 - **🔧 Production Ready**: Docker support, robust error handling, and monitoring
@@ -128,12 +128,11 @@ python main.py --timed 30 --project_id <project_id>  # 30 minutes for specific p
 python main.py --timed 120 --shallow 10  # 2 hours with shallow limit
 python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 
-# High-performance server runs with intelligent auto-configuration
-# The embedder automatically detects hardware and optimizes settings
+# High-performance server runs with optimized settings
+# Configure concurrency based on your hardware resources
 python main.py --project_id <project_id>
 
-# Manual override examples (auto-configuration is usually better)
-# 32-core server with manual settings
+# Example: 32-core server with manual settings
 FILES_CONCURRENCY_SIZE=16 KEYWORD_EXTRACTION_WORKERS=2 python main.py
 
 # Background processing with nohup (server deployment)
@@ -210,8 +209,8 @@ To run this project, you will need to add the following environment variables to
 - `DOC_TAGS_TABLE_NAME` - Table name for the document chunks with tags index (default: "document_tags")
 - `DOC_CHUNKS_TABLE_NAME` - Table name for the untagged document chunks (default: "document_chunks")
 - `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
-- `FILES_CONCURRENCY_SIZE` - Number of documents to process in parallel (default: auto - intelligent CPU-based)
-- `KEYWORD_EXTRACTION_WORKERS` - Number of threads per document for keyword extraction (default: auto - optimized for KeyBERT)
+- `FILES_CONCURRENCY_SIZE` - Number of documents to process in parallel (default: 16)
+- `KEYWORD_EXTRACTION_WORKERS` - Number of threads per document for keyword extraction (default: 2)
 - `CHUNK_INSERT_BATCH_SIZE` - Number of chunks to insert per database batch for stability (default: 25)
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)
@@ -338,24 +337,6 @@ azure-ai-formrecognizer==3.3.0
 requests==2.32.3
 ```
 
-### Intelligent Auto-Configuration
-
-The embedder features intelligent auto-configuration that optimizes performance based on your hardware:
-
-**FILES_CONCURRENCY_SIZE Options:**
-
-- `auto` (default) - Uses half CPU cores for 16+ core systems, all cores for smaller systems
-- `auto-full` - Uses all CPU cores (maximum parallelism)
-- `auto-conservative` - Uses quarter CPU cores (resource-constrained environments)
-- Integer value - Manual override
-
-**KEYWORD_EXTRACTION_WORKERS Options:**
-
-- `auto` (default) - Optimized for KeyBERT: 2 threads for 16+ cores, 3 for 8-15 cores, 4 for <8 cores
-- `auto-aggressive` - 4 threads per process (maximum keyword parallelism)
-- `auto-conservative` - 1 thread per process (minimal thread contention)
-- Integer value - Manual override
-
 ### Model Configuration
 
 The embedder uses two separate models that can be configured independently:
@@ -367,34 +348,21 @@ A sample environment file is provided in `sample.env`. Copy this file to `.env` 
 
 ### High-Performance Server Configuration
 
-The embedder now uses intelligent auto-configuration by default, eliminating the need for manual tuning in most cases:
+For servers with 16+ CPU cores processing large document sets:
 
 ```env
-# Recommended: Let the embedder auto-configure (works for all hardware)
-FILES_CONCURRENCY_SIZE=auto          # Automatically optimizes based on CPU count
-KEYWORD_EXTRACTION_WORKERS=auto      # Automatically optimizes for KeyBERT bottleneck
-CHUNK_INSERT_BATCH_SIZE=50           # Good for high-RAM systems (HC44-32rs)
+# Processing configuration
+FILES_CONCURRENCY_SIZE=16            # Number of concurrent document processing workers
+KEYWORD_EXTRACTION_WORKERS=2         # Number of keyword extraction threads per worker
+CHUNK_INSERT_BATCH_SIZE=50           # Number of chunks per database batch
 
-# Alternative auto-modes for specific scenarios
-FILES_CONCURRENCY_SIZE=auto-full           # Maximum parallelism (all CPU cores)
-KEYWORD_EXTRACTION_WORKERS=auto-aggressive # Maximum keyword parallelism (4 threads)
-
-FILES_CONCURRENCY_SIZE=auto-conservative      # Resource-constrained (quarter cores)
-KEYWORD_EXTRACTION_WORKERS=auto-conservative  # Minimal contention (1 thread)
+# Database pool configuration for high-compute environments
+DB_POOL_SIZE=20                      # More connections for main operations
+DB_MAX_OVERFLOW=40                   # More overflow capacity
+DB_POOL_RECYCLE=600                  # 10 minutes - shorter for stability on long runs
+DB_POOL_TIMEOUT=300                  # 5 minutes for patient connection waiting
+DB_CONNECT_TIMEOUT=120               # 2 minutes for network delays
 ```
-
-**Hardware-specific auto-configuration results:**
-
-- **32-core server (HC44-32rs):** auto = 16 processes × 2 threads = 32 total threads (100% CPU utilization)
-- **16-core server:** auto = 8 processes × 2 threads = 16 total threads
-- **8-core development machine:** auto = 8 processes × 3 threads = 24 total threads
-- **4-core laptop:** auto = 4 processes × 4 threads = 16 total threads
-
-**Performance scaling with auto-configuration:**
-
-- **Eliminates over-parallelization** that caused 100x slowdowns in previous versions
-- **Optimizes for KeyBERT bottleneck** (the main performance constraint)
-- **Automatically adjusts** database connection pooling based on process count
 
 ## Architecture
 
@@ -427,7 +395,7 @@ The embedder includes automated progress tracking that provides real-time summar
 ================================================================================
 EMBEDDER STARTED: 2025-01-15 14:30:00
 SCOPE: 25 projects, 1,250 documents
-CONCURRENCY: FILES=auto, DB_POOL=auto/auto
+CONCURRENCY: FILES=16, DB_POOL=10/20
 ================================================================================
 
 --------------------------------------------------------------------------------

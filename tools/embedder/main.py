@@ -2,7 +2,7 @@ import argparse
 import logging
 from datetime import datetime
 from src.services.logger import load_completed_files, load_incomplete_files, load_skipped_files
-from src.services.repair_service import get_repair_candidates_for_processing, cleanup_document_data, print_repair_analysis
+from src.services.repair_service import get_repair_candidates_for_processing, cleanup_document_data, cleanup_project_data, print_repair_analysis
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
@@ -167,12 +167,12 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     else:
         time_limit_seconds = None
     
-    # HC44-32rs specific performance info
+    # High-compute server specific performance info
     import multiprocessing
     cpu_count = multiprocessing.cpu_count()
     if cpu_count >= 32:
-        print(f"[HC44-32rs] Detected {cpu_count} vCPUs - high-performance server mode enabled")
-        print(f"[HC44-32rs] Theoretical max throughput: {files_concurrency * keyword_workers} concurrent operations")
+        print(f"[HIGH-COMPUTE] Detected {cpu_count} vCPUs - high-performance server mode enabled")
+        print(f"[HIGH-COMPUTE] Theoretical max throughput: {files_concurrency * keyword_workers} concurrent operations")
     else:
         print(f"[PERF] Detected {cpu_count} vCPUs - standard mode")
     
@@ -218,16 +218,6 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
             print(f"Warning: Could not get file count for project {project.get('name', 'unknown')}: {e}")
     
     # Start progress tracking
-    mode_info = ""
-    if timed_mode:
-        mode_info = f" (TIMED: {time_limit_minutes} min)"
-    elif retry_failed_only:
-        mode_info = " (RETRY FAILED)"
-    elif retry_skipped_only:
-        mode_info = " (RETRY SKIPPED)"
-    elif repair_mode:
-        mode_info = " (REPAIR MODE)"
-    
     print(f"TIMED MODE: {time_limit_minutes} minutes limit" if timed_mode else "")
     progress_tracker.start(len(projects), total_documents)
 
@@ -275,12 +265,13 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         # Handle repair mode - analyze and process inconsistent documents
         if repair_mode:
             print(f"\n🔧 REPAIR MODE: Analyzing {project_name} for inconsistent document states...")
+            print(f"🔧 REPAIR MODE: Skipping normal document processing flow")
             
             # Get repair candidates for this project
             repair_candidates = get_repair_candidates_for_processing(project_id)
             
             if not repair_candidates:
-                print(f"✅ No documents need repair for {project_name}")
+                print(f"✅ No documents need repair for {project_name} - database may be empty or all documents are consistent")
                 continue
             
             print(f"🔧 Found {len(repair_candidates)} documents that need repair for {project_name}")
@@ -580,6 +571,9 @@ if __name__ == "__main__":
             "--repair", action="store_true", help="Repair mode: identify and fix documents in inconsistent states (partial processing, orphaned chunks, failed but with data). Cleans up and reprocesses automatically."
         )
         parser.add_argument(
+            "--reset", action="store_true", help="Reset mode: completely clean and reprocess a specific project. Deletes all documents, chunks, and processing logs for the project. Can only be used with --project_id (single project only)."
+        )
+        parser.add_argument(
             "--timed", type=int, metavar="MINUTES", help="Run in timed mode for the specified number of minutes, then gracefully stop. Example: --timed 60"
         )
         args = parser.parse_args()
@@ -595,6 +589,15 @@ if __name__ == "__main__":
         
         if args.repair and (args.retry_failed or args.retry_skipped):
             parser.error("Cannot use --repair with --retry-failed or --retry-skipped. Repair mode automatically handles inconsistent states.")
+        
+        # Validate reset flag - must be used only with a single project_id
+        if args.reset:
+            if not args.project_id:
+                parser.error("--reset requires --project_id to be specified. Reset mode can only be used with a specific project.")
+            if len(args.project_id) > 1:
+                parser.error("--reset can only be used with a single project ID. Multiple projects are not allowed with reset mode.")
+            if args.retry_failed or args.retry_skipped or args.repair or args.shallow:
+                parser.error("--reset cannot be used with other processing modes (--retry-failed, --retry-skipped, --repair, --shallow). Reset mode can only be combined with --timed.")
         
         # Validate timed argument
         if args.timed is not None and args.timed <= 0:
@@ -615,13 +618,27 @@ if __name__ == "__main__":
         time_limit_minutes = args.timed if timed_mode else None
 
         if args.project_id:
-            # Run immediately if project_id(s) are provided
-            result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
-            print(result)
+            # Handle reset mode first (clean slate)
+            if args.reset:
+                project_id = args.project_id[0]  # We validated it's only one project
+                print(f"[RESET] Starting complete reset for project {project_id}")
+                
+                # Perform complete cleanup
+                cleanup_summary = cleanup_project_data(project_id)
+                print(f"[RESET] Cleanup complete: {cleanup_summary}")
+                
+                # Now process normally (fresh start)
+                print(f"[RESET] Beginning fresh processing for project {project_id}")
+                result = process_projects([project_id], shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+                print(f"[RESET] Fresh processing complete: {result}")
+            else:
+                # Run immediately if project_id(s) are provided (normal modes)
+                result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+                print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
             print(result)
     finally:
         pass
