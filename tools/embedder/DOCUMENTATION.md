@@ -484,7 +484,7 @@ WORKER_CONNECT_TIMEOUT=30
 
 # Memory-conscious settings
 CHUNK_INSERT_BATCH_SIZE=25
-KEYWORD_EXTRACTION_MODE=fast          # Good balance of speed/quality
+KEYWORD_EXTRACTION_MODE=simplified          
 ```
 
 #### **Azure F32s_v2 (32 cores, 64 GB RAM)**
@@ -511,7 +511,7 @@ WORKER_CONNECT_TIMEOUT=45
 
 # Optimized for standard RAM
 CHUNK_INSERT_BATCH_SIZE=40
-KEYWORD_EXTRACTION_MODE=fast
+KEYWORD_EXTRACTION_MODE=simplified
 ```
 
 #### **Azure HC44-32rs (32 cores, 352 GB RAM)**
@@ -538,10 +538,45 @@ WORKER_CONNECT_TIMEOUT=60
 
 # High-memory optimizations
 CHUNK_INSERT_BATCH_SIZE=75             # Larger batches with abundant RAM
-KEYWORD_EXTRACTION_MODE=standard       # Can afford full KeyBERT quality
+KEYWORD_EXTRACTION_MODE=simplified
 ```
 
-#### **Azure HBv3 (120 cores, 448 GB RAM) - Bulk Processing**
+#### **Azure F64s_v2 (64 cores, 128 GB RAM) - High-Performance Bulk Processing**
+
+Compute-optimized VM for large document processing with better quota availability
+
+```env
+# Processing configuration (optimized for F64s_v2)
+FILES_CONCURRENCY_SIZE=48              # 75% of cores for optimal performance
+KEYWORD_EXTRACTION_WORKERS=6           # Higher parallelism for 64 cores
+
+# Main database pool
+DB_POOL_SIZE=20
+DB_MAX_OVERFLOW=35
+DB_POOL_RECYCLE=600                    # 10 minutes
+DB_POOL_TIMEOUT=120
+DB_CONNECT_TIMEOUT=60
+
+# Worker database pool
+WORKER_POOL_SIZE=2
+WORKER_MAX_OVERFLOW=4
+WORKER_POOL_TIMEOUT=60
+WORKER_CONNECT_TIMEOUT=60
+
+# Memory-optimized settings (128 GB RAM)
+CHUNK_INSERT_BATCH_SIZE=60
+KEYWORD_EXTRACTION_MODE=simplified
+```
+
+**Performance Characteristics:**
+
+- **48 concurrent workers** × **6 keyword threads** = **288 total processing threads**
+- **Throughput**: 400-800 documents/hour (depending on document complexity)
+- **60,000 documents**: ~3-6 days of continuous processing
+- **Better quota availability** than HB-series in most regions
+- **Available in all zones** (1, 2, 3) in Canada Central
+
+#### **Azure HBv3 (120 cores, 448 GB RAM) - Maximum Bulk Processing**
 
 High-performance compute for large initial data loads (10,000+ documents)
 
@@ -580,6 +615,7 @@ KEYWORD_EXTRACTION_MODE=fast           # Good balance for bulk processing
 - **Total DB Connections** = FILES_CONCURRENCY_SIZE × (WORKER_POOL_SIZE + WORKER_MAX_OVERFLOW)
 - **Laptop Example**: 6 × (1 + 2) = 18 total connections
 - **F32s_v2 Example**: 24 × (1 + 3) = 96 total connections  
+- **F64s_v2 Example**: 48 × (2 + 4) = 288 total connections
 - **HC44-32rs Example**: 28 × (2 + 4) = 168 total connections
 - **HBv3 Example**: 80 × (3 + 5) = 640 total connections
 
