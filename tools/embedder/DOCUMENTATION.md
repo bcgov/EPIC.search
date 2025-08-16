@@ -456,29 +456,134 @@ Used by worker processes to prevent P03 prepared statement conflicts:
 | CHUNK_INSERT_BATCH_SIZE | Number of chunks per database batch   | 25                           |
 | AUTO_CREATE_PGVECTOR_EXTENSION | Auto-create pgvector extension   | True                        |
 
-### High-Performance Server Configuration
+### Recommended Hardware Configurations
 
-For servers with 16+ CPU cores processing large document sets:
+Configuration recommendations based on different hardware specifications:
+
+#### **Development Laptop (8 cores, 16-32 GB RAM)**
+
+Example: MacBook Pro, ThinkPad, Dell XPS
 
 ```env
-# Main database pool (increased for high-throughput admin operations)
-DB_POOL_SIZE=20
-DB_MAX_OVERFLOW=40
-DB_POOL_RECYCLE=600                    # 10 minutes - shorter for stability on long runs
-DB_POOL_TIMEOUT=300                    # 5 minutes for patient connection waiting
-DB_CONNECT_TIMEOUT=120                 # 2 minutes for network delays
+# Processing configuration
+FILES_CONCURRENCY_SIZE=6               # Conservative for laptop thermals
+KEYWORD_EXTRACTION_WORKERS=3           # Balanced for 8-core systems
 
-# Worker database pool (keep minimal to prevent conflicts)
+# Main database pool
+DB_POOL_SIZE=8
+DB_MAX_OVERFLOW=12
+DB_POOL_RECYCLE=1800                   # 30 minutes
+DB_POOL_TIMEOUT=60
+DB_CONNECT_TIMEOUT=30
+
+# Worker database pool
 WORKER_POOL_SIZE=1
 WORKER_MAX_OVERFLOW=2
 WORKER_POOL_TIMEOUT=30
 WORKER_CONNECT_TIMEOUT=30
 
-# Processing configuration
-FILES_CONCURRENCY_SIZE=16              # Adjust based on CPU cores
-KEYWORD_EXTRACTION_WORKERS=2           # Optimized for KeyBERT
-CHUNK_INSERT_BATCH_SIZE=50             # Higher for servers with more RAM
+# Memory-conscious settings
+CHUNK_INSERT_BATCH_SIZE=25
+KEYWORD_EXTRACTION_MODE=fast          # Good balance of speed/quality
 ```
+
+#### **Azure F32s_v2 (32 cores, 64 GB RAM)**
+
+Standard performance Azure VM
+
+```env
+# Processing configuration
+FILES_CONCURRENCY_SIZE=24              # 75% of cores for optimal performance
+KEYWORD_EXTRACTION_WORKERS=4           # Higher parallelism for 32 cores
+
+# Main database pool
+DB_POOL_SIZE=15
+DB_MAX_OVERFLOW=30
+DB_POOL_RECYCLE=600                    # 10 minutes
+DB_POOL_TIMEOUT=90
+DB_CONNECT_TIMEOUT=45
+
+# Worker database pool
+WORKER_POOL_SIZE=1
+WORKER_MAX_OVERFLOW=3
+WORKER_POOL_TIMEOUT=45
+WORKER_CONNECT_TIMEOUT=45
+
+# Optimized for standard RAM
+CHUNK_INSERT_BATCH_SIZE=40
+KEYWORD_EXTRACTION_MODE=fast
+```
+
+#### **Azure HC44-32rs (32 cores, 352 GB RAM)**
+
+High-memory compute Azure VM
+
+```env
+# Processing configuration
+FILES_CONCURRENCY_SIZE=28              # Aggressive utilization with high RAM
+KEYWORD_EXTRACTION_WORKERS=6           # Maximum keyword parallelism
+
+# Main database pool
+DB_POOL_SIZE=20
+DB_MAX_OVERFLOW=40
+DB_POOL_RECYCLE=600                    # 10 minutes
+DB_POOL_TIMEOUT=120
+DB_CONNECT_TIMEOUT=60
+
+# Worker database pool (can afford larger pools with abundant RAM)
+WORKER_POOL_SIZE=2
+WORKER_MAX_OVERFLOW=4
+WORKER_POOL_TIMEOUT=60
+WORKER_CONNECT_TIMEOUT=60
+
+# High-memory optimizations
+CHUNK_INSERT_BATCH_SIZE=75             # Larger batches with abundant RAM
+KEYWORD_EXTRACTION_MODE=standard       # Can afford full KeyBERT quality
+```
+
+#### **Azure HBv3 (120 cores, 448 GB RAM) - Bulk Processing**
+
+High-performance compute for large initial data loads (10,000+ documents)
+
+```env
+# Aggressive configuration for bulk processing
+FILES_CONCURRENCY_SIZE=80              # 2/3 of cores to avoid overload
+KEYWORD_EXTRACTION_WORKERS=8           # Maximum keyword parallelism
+
+# Main database pool (scaled for high throughput)
+DB_POOL_SIZE=25
+DB_MAX_OVERFLOW=50
+DB_POOL_RECYCLE=600                    # 10 minutes
+DB_POOL_TIMEOUT=180                    # 3 minutes for patient waiting
+DB_CONNECT_TIMEOUT=90                  # 90 seconds for network delays
+
+# Worker database pool (larger pools with abundant resources)
+WORKER_POOL_SIZE=3
+WORKER_MAX_OVERFLOW=5
+WORKER_POOL_TIMEOUT=90
+WORKER_CONNECT_TIMEOUT=90
+
+# Bulk processing optimizations
+CHUNK_INSERT_BATCH_SIZE=100            # Large batches with abundant RAM
+KEYWORD_EXTRACTION_MODE=fast           # Good balance for bulk processing
+```
+
+**Estimated Performance:**
+
+- **80 concurrent workers** × **8 keyword threads** = **640 total processing threads**
+- **Throughput**: 500-1000+ documents/hour (depending on document complexity)
+- **60,000 documents**: ~2.5-5 days of continuous processing
+- **Cost strategy**: Use for initial bulk load, then scale down to smaller VM
+
+#### **Performance Notes**
+
+- **Total DB Connections** = FILES_CONCURRENCY_SIZE × (WORKER_POOL_SIZE + WORKER_MAX_OVERFLOW)
+- **Laptop Example**: 6 × (1 + 2) = 18 total connections
+- **F32s_v2 Example**: 24 × (1 + 3) = 96 total connections  
+- **HC44-32rs Example**: 28 × (2 + 4) = 168 total connections
+- **HBv3 Example**: 80 × (3 + 5) = 640 total connections
+
+> ⚠️ **Database Limits**: Ensure your PostgreSQL `max_connections` setting can handle the total connection count with headroom for other applications.
 
 ## Tag/Keyword Extraction
 
