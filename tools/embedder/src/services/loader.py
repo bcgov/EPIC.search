@@ -174,7 +174,7 @@ def chunk_and_embed_pages(
             # Parallel tag extraction for all chunks on this page
             t_tag = time.perf_counter() if chunk_metrics is not None else None
             try:
-                tag_results = extract_tags_from_chunks(chunk_dicts)
+                tag_results = extract_tags_from_chunks(chunk_dicts, document_id=s3_key)
                 if chunk_metrics is not None:
                     chunk_metrics["_get_tags_times"].append(time.perf_counter() - t_tag)
                     
@@ -215,11 +215,11 @@ def chunk_and_embed_pages(
             extraction_mode = settings.multi_processing_settings.keyword_extraction_mode
             if extraction_mode == "fast":
                 chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
-                    chunk_dicts, use_batch_mode=True, simplified_mode=False
+                    chunk_dicts, use_batch_mode=True, simplified_mode=False, document_id=s3_key
                 )
             elif extraction_mode == "simplified":
                 chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
-                    chunk_dicts, use_batch_mode=True, simplified_mode=True
+                    chunk_dicts, use_batch_mode=True, simplified_mode=True, document_id=s3_key
                 )
             else:  # extraction_mode == "standard" or any other value
                 chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts)

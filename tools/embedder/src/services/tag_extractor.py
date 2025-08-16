@@ -1,5 +1,6 @@
 from sentence_transformers import util
 import multiprocessing
+import time
 from concurrent.futures import ThreadPoolExecutor
 from .embedding import get_embedding
 
@@ -145,16 +146,20 @@ def get_tag_embeddings():
     Raises:
         RuntimeError: If embedding generation fails due to memory constraints
     """
+    import os
     global _cached_tag_embeddings
     
     # Return cached embeddings if available
     if _cached_tag_embeddings is not None:
+        print(f"[TAG-EXTRACTOR] Using cached tag embeddings (PID: {os.getpid()})")
         return _cached_tag_embeddings
     
     try:
-        print(f"[TAG-EXTRACTOR] Generating embeddings for {len(tags)} predefined tags...")
+        print(f"[TAG-EXTRACTOR] Generating embeddings for {len(tags)} predefined tags... (PID: {os.getpid()})")
+        start_time = time.time()
         embeddings = get_embedding(tags)
-        print(f"[TAG-EXTRACTOR] Successfully generated tag embeddings")
+        end_time = time.time()
+        print(f"[TAG-EXTRACTOR] Successfully generated tag embeddings in {end_time - start_time:.2f}s (PID: {os.getpid()})")
         
         # Cache the embeddings globally
         _cached_tag_embeddings = embeddings
@@ -236,7 +241,7 @@ def process_chunk(chunk_dict, tag_embeddings, threshold=0.6):
     )
 
 
-def process_document_chunked(document_chunks, tag_embeddings):
+def process_document_chunked(document_chunks, tag_embeddings, doc_log_id="unknown"):
     """
     Process multiple document chunks in parallel to extract tags.
     
@@ -246,6 +251,7 @@ def process_document_chunked(document_chunks, tag_embeddings):
     Args:
         document_chunks (list): List of document chunk dictionaries
         tag_embeddings (list): List of vector embeddings for the predefined tags
+        doc_log_id (str): Document identifier for logging
         
     Returns:
         dict: A dictionary containing:
@@ -254,10 +260,14 @@ def process_document_chunked(document_chunks, tag_embeddings):
             - all_matches: Dictionary mapping chunk keys to all tag matches
             - tags_and_chunks: List of dictionaries, each containing a tag and its associated chunk data
     """
+    import os
     results = {
         "all_matches": {},
         "chunks": []
     }
+
+    print(f"[TAG-EXTRACTOR] [{doc_log_id}] Processing {len(document_chunks)} chunks with threading (PID: {os.getpid()})")
+    threading_start = time.time()
 
     with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
         futures = []
@@ -277,18 +287,25 @@ def process_document_chunked(document_chunks, tag_embeddings):
                     "all_matches": all_matches
                 })
             except Exception as e:
-                print(f"Error processing chunk {idx}: {str(e)}")
+                print(f"[TAG-EXTRACTOR] [{doc_log_id}] Error processing chunk {idx}: {str(e)}")
+
+    threading_time = time.time() - threading_start
+    print(f"[TAG-EXTRACTOR] [{doc_log_id}] Threading processing took {threading_time:.3f}s for {len(document_chunks)} chunks")
 
     # Build root-level all_matches: unique keywords across all chunks
+    aggregation_start = time.time()
     all_matches = set()
     for chunk in results["chunks"]:
         all_matches.update(chunk["all_matches"])
     results["all_matches"] = list(all_matches)
+    aggregation_time = time.time() - aggregation_start
+    
+    print(f"[TAG-EXTRACTOR] [{doc_log_id}] Aggregation took {aggregation_time:.3f}s")
     
     return results
 
 
-def extract_tags_from_chunks(document_chunks):
+def extract_tags_from_chunks(document_chunks, document_id=None):
     """
     Find relevant tags in a large document using both explicit and semantic matching.
     
@@ -298,12 +315,39 @@ def extract_tags_from_chunks(document_chunks):
     
     Args:
         document_chunks (list): List of document chunk dictionaries
+        document_id (str, optional): Identifier for the document being processed (for logging)
         
     Returns:
         dict: A dictionary of results containing tag matches and associated chunk data
     """
+    import os
+    start_time = time.time()
+    
+    # Create a short document identifier for logging
+    doc_log_id = "unknown"
+    if document_id:
+        # Use just the filename part for cleaner logs
+        doc_log_id = os.path.basename(document_id)
+        if len(doc_log_id) > 30:  # Truncate very long filenames
+            doc_log_id = doc_log_id[:27] + "..."
+    
+    print(f"[TAG-EXTRACTOR] [{doc_log_id}] Starting tag extraction for {len(document_chunks)} chunks (PID: {os.getpid()})")
+    
+    # Time the tag embedding retrieval
+    embedding_start = time.time()
     tag_embeddings = get_tag_embeddings()
-    return process_document_chunked(document_chunks, tag_embeddings)    
+    embedding_time = time.time() - embedding_start
+    print(f"[TAG-EXTRACTOR] [{doc_log_id}] Tag embeddings took {embedding_time:.3f}s")
+    
+    # Time the actual processing
+    processing_start = time.time()
+    result = process_document_chunked(document_chunks, tag_embeddings, doc_log_id)
+    processing_time = time.time() - processing_start
+    
+    total_time = time.time() - start_time
+    print(f"[TAG-EXTRACTOR] [{doc_log_id}] Processing {len(document_chunks)} chunks took {processing_time:.3f}s, total: {total_time:.3f}s")
+    
+    return result    
 
 
 def get_tags(query: str, threshold=0.6):

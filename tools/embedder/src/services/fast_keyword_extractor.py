@@ -28,7 +28,7 @@ _keymodel = None
 _sentence_model = None
 _candidate_cache = {}
 
-def extract_keywords_from_chunks_fast(chunk_dicts, use_batch_mode=True, simplified_mode=False):
+def extract_keywords_from_chunks_fast(chunk_dicts, use_batch_mode=True, simplified_mode=False, document_id=None):
     """
     Optimized keyword extraction with multiple performance improvements.
     
@@ -36,25 +36,34 @@ def extract_keywords_from_chunks_fast(chunk_dicts, use_batch_mode=True, simplifi
         chunk_dicts (list): List of chunk dictionaries with 'content' and 'metadata' fields
         use_batch_mode (bool): Use batch embedding computation (faster for many chunks)
         simplified_mode (bool): Use simplified extraction (much faster, slightly lower quality)
+        document_id (str, optional): Identifier for the document being processed (for logging)
         
     Returns:
         tuple: (updated_chunk_dicts_with_keywords, set_of_all_unique_keywords)
     """
+    import os
     start_time = time.time()
     global _keymodel, _sentence_model
+    
+    # Create a short document identifier for logging
+    doc_log_id = "unknown"
+    if document_id:
+        doc_log_id = os.path.basename(document_id)
+        if len(doc_log_id) > 30:
+            doc_log_id = doc_log_id[:27] + "..."
     
     # Time model loading
     model_load_start = time.time()
     if _keymodel is None or _sentence_model is None:
-        print(f"[KEYWORDS-FAST] Loading models...")
+        print(f"[KEYWORDS-FAST] [{doc_log_id}] Loading models...")
         model_name = settings.keyword_extraction_settings.model_name
         _sentence_model = SentenceTransformer(model_name)
         _keymodel = KeyBERT(model=_sentence_model)
         model_load_time = time.time() - model_load_start
-        print(f"[KEYWORDS-FAST] Model loading took {model_load_time:.2f}s")
+        print(f"[KEYWORDS-FAST] [{doc_log_id}] Model loading took {model_load_time:.2f}s")
     else:
         model_load_time = 0
-        print(f"[KEYWORDS-FAST] Using cached models")
+        print(f"[KEYWORDS-FAST] [{doc_log_id}] Using cached models")
     
     # Time text preparation
     prep_start = time.time()
@@ -66,8 +75,8 @@ def extract_keywords_from_chunks_fast(chunk_dicts, use_batch_mode=True, simplifi
     all_keywords = set()
     chunk_count = len(texts)
     
-    print(f"[KEYWORDS-FAST] Processing {chunk_count} chunks (batch_mode={use_batch_mode}, simplified={simplified_mode})")
-    print(f"[KEYWORDS-FAST] Text preparation took {prep_time:.3f}s")
+    print(f"[KEYWORDS-FAST] [{doc_log_id}] Processing {chunk_count} chunks (batch_mode={use_batch_mode}, simplified={simplified_mode})")
+    print(f"[KEYWORDS-FAST] [{doc_log_id}] Text preparation took {prep_time:.3f}s")
     
     if simplified_mode:
         # Ultra-fast mode: Use TF-IDF + simple filtering instead of KeyBERT
