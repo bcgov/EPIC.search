@@ -197,6 +197,22 @@ class WordDocumentSettings(BaseModel):
     preserve_formatting: bool = Field(default_factory=lambda: os.environ.get("WORD_PRESERVE_FORMATTING", "false").lower() == "true")
 
 
+class ImageAnalysisSettings(BaseModel):
+    """
+    Configuration for image analysis and description generation using Azure Computer Vision.
+    
+    Attributes:
+        enabled (bool): Whether image analysis is enabled for pure images
+        confidence_threshold (float): Minimum confidence threshold for image analysis results
+        azure_endpoint (str): Azure Computer Vision endpoint URL
+        azure_key (str): Azure Computer Vision subscription key
+    """
+    enabled: bool = Field(default_factory=lambda: os.environ.get("IMAGE_ANALYSIS_ENABLED", "true").lower() == "true")
+    confidence_threshold: float = Field(default_factory=lambda: float(os.environ.get("IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD", "0.5")))
+    azure_endpoint: str = Field(default_factory=lambda: os.environ.get("AZURE_VISION_ENDPOINT", ""))
+    azure_key: str = Field(default_factory=lambda: os.environ.get("AZURE_VISION_KEY", ""))
+
+
 class Settings(BaseModel):
     """
     Main settings class that combines all configuration categories.
@@ -242,6 +258,7 @@ class Settings(BaseModel):
     )
     ocr_settings: OCRSettings = Field(default_factory=OCRSettings)
     word_document_settings: WordDocumentSettings = Field(default_factory=WordDocumentSettings)
+    image_analysis_settings: ImageAnalysisSettings = Field(default_factory=ImageAnalysisSettings)
 
 
 @lru_cache()

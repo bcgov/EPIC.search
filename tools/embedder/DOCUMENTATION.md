@@ -31,12 +31,14 @@ The system now includes intelligent cross-project parallel processing to maximiz
 - **Maximum Throughput**: Up to 48x performance improvement for multi-project scenarios
 
 **Cross-Project Mode (Automatic)**:
+
 - Multiple projects in any processing mode (normal, retry-failed, retry-skipped, repair)
 - Creates unified document queue across all projects
 - Workers process documents from any project in optimized batches
 - Example: `python main.py --project_id proj1 proj2 proj3 --retry-failed`
 
 **Sequential Mode (Automatic)**:
+
 - Single project processing
 - Shallow mode: `--shallow` (due to per-project limits)
 - Maintains compatibility with existing processing logic
@@ -375,6 +377,97 @@ Documents from these devices automatically trigger OCR processing:
 - No automatic fallback between providers (explicit configuration required)
 - Clear error messages guide users to alternative providers
 - Validation ensures provider dependencies are available
+
+## 🆕 Image Analysis for Pure Images
+
+The system now includes AI-powered image analysis for pure images (photos, graphics, etc.) that don't contain readable text. When OCR fails to extract meaningful text from image files, the system automatically attempts to analyze and describe the visual content.
+
+### How It Works
+
+1. **Image Validation**: Verify the file can be opened as a valid image format
+2. **OCR Attempt**: First try to extract any text content using OCR
+3. **Image Analysis Fallback**: If OCR fails or finds no text, analyze visual content
+4. **Description Generation**: Create searchable text describing the image content
+5. **Indexing**: Store the generated description for semantic search
+
+### Supported Image Formats
+
+- **JPEG/JPG**: Digital photos and graphics
+- **PNG**: Screenshots and graphics with transparency
+- **BMP**: Bitmap images
+- **TIFF/TIF**: High-quality scanned images
+- **GIF**: Animated and static graphics
+
+### Analysis Providers
+
+**Azure Computer Vision**:
+
+- Advanced object detection and categorization
+- High-quality image descriptions
+- Confidence scores for detected elements
+- Supports: objects, categories, tags, faces, landmarks
+
+**OpenAI GPT-4 Vision**:
+
+- Natural language descriptions
+- Context-aware analysis
+- Detailed visual element identification
+- Excellent for complex scenes
+
+### Image Analysis Configuration
+
+```env
+# Image Analysis Configuration
+IMAGE_ANALYSIS_ENABLED=true              # Enable/disable image content analysis
+IMAGE_ANALYSIS_PREFERRED_PROVIDER=azure  # 'azure' or 'openai'
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5  # Minimum confidence (0.0-1.0)
+
+# Azure Computer Vision
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# OpenAI GPT-4 Vision
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### Example: Badger Photo Processing
+
+**Input**: `wildlife_photos/badger_in_meadow.jpg` (pure image file)
+
+**Processing Flow**:
+
+1. OCR attempts text extraction → **Fails** (no text in image)
+2. Image analysis activates → **Success**
+3. Azure Vision analyzes content
+
+**Generated Content**:
+
+```json
+Description: "A brown and white badger standing in tall grass near rocks in a natural outdoor setting"
+Tags: ["badger", "animal", "wildlife", "grass", "outdoors", "mammal", "nature"]
+Objects: ["badger", "grass", "rocks"]
+```
+
+**Searchable Text**:
+
+```text
+Image file: badger in meadow | Image description: A brown and white badger standing in tall grass near rocks in a natural outdoor setting | Image contains: badger, animal, wildlife, grass, outdoors, mammal, nature | Objects detected: badger, grass, rocks | Content type: Digital image analyzed with azure | Visual content analysis
+```
+
+**Search Queries That Find This Image**:
+
+- "badger wildlife"
+- "animals in grass"
+- "outdoor mammal photos"
+- "badger nature pictures"
+
+### Status Outcomes
+
+- **✅ Success + Image Analysis**: Pure image processed with AI-generated description, marked with `content_type: "image_with_analysis"`
+- **⚠️ Skipped**: Image analysis not available or disabled (status: `"image_analysis_unavailable"`)
+- **❌ Failed**: Both OCR and image analysis failed (status: `"image_analysis_failed"`)
+
+> 💡 **Discovery Tip**: Pure images become discoverable through natural language search. Users can find visual content by describing what they're looking for, even when images contain no text.
 
 ## NLP Model Architecture
 

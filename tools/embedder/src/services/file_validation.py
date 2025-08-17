@@ -203,7 +203,7 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
 
 
 def _validate_image_file(temp_path, s3_key, ocr_info):
-    """Validate and process image file with OCR."""
+    """Validate and process image file with OCR, fallback to image analysis."""
     # Verify the file can be opened as an image
     try:
         test_image = Image.open(temp_path)
@@ -215,7 +215,7 @@ def _validate_image_file(temp_path, s3_key, ocr_info):
         print(f"[WARN] File {s3_key} cannot be opened as a valid image: {image_validation_err}")
         return False, "precheck_failed", None, ocr_info
     
-    # For image files, always attempt OCR if available
+    # For image files, always attempt OCR first if available
     if is_ocr_available():
         print(f"[OCR] Image file {s3_key} - attempting OCR processing...")
         ocr_info["ocr_attempted"] = True
@@ -238,31 +238,84 @@ def _validate_image_file(temp_path, s3_key, ocr_info):
                 return True, "ocr_processed", ocr_pages, ocr_info
             else:
                 print(f"[OCR] OCR processing failed to extract meaningful text from image {s3_key}")
-                ocr_info["pages_processed"] = len(ocr_pages) if ocr_pages else 0
+                print(f"[IMAGE_ANALYSIS] Attempting image content analysis for {s3_key}...")
+                # OCR failed, try image analysis
+                return _try_image_analysis_fallback(temp_path, s3_key, ocr_info)
                 
-                # Provide more specific error information based on OCR provider
-                if ocr_info.get("ocr_provider") == "azure":
-                    if ocr_pages and len(ocr_pages) > 0:
-                        # Azure processed the file but found no text
-                        ocr_info["ocr_error"] = f"Azure Document Intelligence processed {len(ocr_pages)} page(s) but detected no text content. Image may have poor quality, unusual formatting, or text that Azure cannot recognize."
-                        ocr_info["azure_pages_returned"] = len(ocr_pages)
-                    else:
-                        # Azure returned no pages at all
-                        ocr_info["ocr_error"] = "Azure Document Intelligence returned no pages. File may be corrupted or in an unsupported format."
-                        ocr_info["azure_pages_returned"] = 0
-                else:
-                    ocr_info["ocr_error"] = "No meaningful text extracted from image OCR processing"
-                
-                return False, "ocr_failed", None, ocr_info
         except Exception as ocr_err:
             error_msg = str(ocr_err)
             print(f"[ERROR] OCR processing failed with exception for image {s3_key}: {error_msg}")
+            print(f"[IMAGE_ANALYSIS] Attempting image content analysis for {s3_key}...")
+            # OCR failed, try image analysis
             ocr_info["ocr_error"] = error_msg
             ocr_info["ocr_error_type"] = type(ocr_err).__name__
-            return False, "ocr_failed", None, ocr_info
+            return _try_image_analysis_fallback(temp_path, s3_key, ocr_info)
     else:
-        print(f"[SKIP] Image file {s3_key} requires OCR but OCR is not available")
-        return False, "scanned_or_image_pdf", None, ocr_info
+        print(f"[IMAGE_ANALYSIS] Image file {s3_key} - OCR not available, attempting image content analysis...")
+        return _try_image_analysis_fallback(temp_path, s3_key, ocr_info)
+
+
+def _try_image_analysis_fallback(temp_path, s3_key, ocr_info):
+    """Try image analysis when OCR fails or is unavailable."""
+    # Import image analysis
+    try:
+        from .image_analysis import is_image_analysis_available, analyze_image_content
+    except ImportError:
+        print(f"[SKIP] Image analysis not available for {s3_key}")
+        return False, "image_analysis_unavailable", None, ocr_info
+    
+    if is_image_analysis_available():
+        try:
+            success, analysis_result = analyze_image_content(temp_path, s3_key)
+            
+            if success and analysis_result:
+                print(f"[IMAGE_ANALYSIS] Successfully analyzed image content for {s3_key}")
+                
+                # Convert analysis result to page format for processing
+                searchable_text = analysis_result.get("searchable_text", "")
+                description = analysis_result.get("description", "")
+                
+                # Create page data structure similar to OCR/PDF pages
+                page_data = [{
+                    "page_number": 1,
+                    "text": searchable_text,  # For backward compatibility with existing processing
+                    "content": searchable_text,  # Alternative field name
+                    "image_analysis": {
+                        "method": analysis_result.get("method", "unknown"),
+                        "description": description,
+                        "tags": analysis_result.get("tags", []),
+                        "objects": analysis_result.get("objects", []),
+                        "categories": analysis_result.get("categories", []),
+                        "confidence": analysis_result.get("confidence", 0.0)
+                    },
+                    "content_type": "image_with_analysis"
+                }]
+                
+                # Add image analysis info to ocr_info for tracking
+                ocr_info["image_analysis_attempted"] = True
+                ocr_info["image_analysis_successful"] = True
+                ocr_info["image_analysis_method"] = analysis_result.get("method", "unknown")
+                ocr_info["image_analysis_confidence"] = analysis_result.get("confidence", 0.0)
+                
+                return True, "image_analysis_processed", page_data, ocr_info
+            else:
+                error_msg = analysis_result.get("error", "Unknown image analysis error") if analysis_result else "Image analysis returned no result"
+                print(f"[ERROR] Image analysis failed for {s3_key}: {error_msg}")
+                ocr_info["image_analysis_attempted"] = True
+                ocr_info["image_analysis_successful"] = False
+                ocr_info["image_analysis_error"] = error_msg
+                return False, "image_analysis_failed", None, ocr_info
+                
+        except Exception as analysis_err:
+            error_msg = str(analysis_err)
+            print(f"[ERROR] Image analysis exception for {s3_key}: {error_msg}")
+            ocr_info["image_analysis_attempted"] = True
+            ocr_info["image_analysis_successful"] = False
+            ocr_info["image_analysis_error"] = error_msg
+            return False, "image_analysis_failed", None, ocr_info
+    else:
+        print(f"[SKIP] Image file {s3_key} - neither OCR nor image analysis available")
+        return False, "no_content_analysis_available", None, ocr_info
 
 
 def _validate_word_file(temp_path, s3_key, ocr_info):

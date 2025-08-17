@@ -18,6 +18,7 @@ import tempfile
 import traceback
 import strip_markdown
 import time
+import json
 import numpy as np
 
 from typing import List, Dict, Any, Tuple
@@ -42,6 +43,50 @@ setup_paths()
 from src.config.settings import get_settings
 from src.config.document_types import get_document_type, resolve_document_type
 settings = get_settings()
+
+def sanitize_text_for_postgres(text):
+    """
+    Sanitize text to remove null bytes that PostgreSQL cannot handle.
+    
+    Args:
+        text (str): Input text that may contain null bytes.
+        
+    Returns:
+        str: Sanitized text with null bytes removed.
+    """
+    if not text:
+        return text
+    return text.replace('\x00', '')
+
+def sanitize_metadata_for_postgres(metadata):
+    """
+    Recursively sanitize metadata dictionary to remove null bytes from string values.
+    
+    Args:
+        metadata (dict): Input metadata that may contain null bytes in string values.
+        
+    Returns:
+        dict: Sanitized metadata with null bytes removed from string values.
+    """
+    if not isinstance(metadata, dict):
+        return metadata
+    
+    sanitized = {}
+    for key, value in metadata.items():
+        if isinstance(value, str):
+            sanitized[key] = sanitize_text_for_postgres(value)
+        elif isinstance(value, dict):
+            sanitized[key] = sanitize_metadata_for_postgres(value)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                sanitize_text_for_postgres(item) if isinstance(item, str)
+                else sanitize_metadata_for_postgres(item) if isinstance(item, dict)
+                else item
+                for item in value
+            ]
+        else:
+            sanitized[key] = value
+    return sanitized
 
 def build_document_embedding(tags, keywords, headings, document_metadata, embedding_fn):
     """
@@ -140,6 +185,9 @@ def chunk_and_embed_pages(
             chunk_text = strip_markdown.strip_markdown(chunk.page_content).strip()
             if not chunk_text:
                 continue
+            
+            # Sanitize chunk text to remove null bytes that PostgreSQL cannot handle
+            chunk_text = sanitize_text_for_postgres(chunk_text)
             chunk_data = chunk.metadata if chunk.metadata else {}
             headings = [chunk_data.get(h, "") for h in headers]
             all_headings.update([h for h in headings if h])
@@ -369,10 +417,15 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
         # Convert numpy ndarray to list for DB insert (not JSON string)
         if isinstance(embedding, np.ndarray):
             embedding = embedding.tolist()
+        
+        # Sanitize content and metadata to remove null bytes that PostgreSQL cannot handle
+        content = sanitize_text_for_postgres(record["content"])
+        metadata = sanitize_metadata_for_postgres(record["metadata"])
+        
         chunk_obj = DocumentChunk(
             embedding=embedding,  # assign as list, not JSON string
-            chunk_metadata=record["metadata"],
-            content=record["content"],
+            chunk_metadata=metadata,
+            content=content,
             document_id=doc_id,
             project_id=project_id
         )
@@ -418,6 +471,13 @@ def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_heading
     # Convert ndarray to list for JSON serialization
     if isinstance(semantic_embedding, np.ndarray):
         semantic_embedding = semantic_embedding.tolist()
+    
+    # Sanitize text fields to remove null bytes
+    all_tags = [sanitize_text_for_postgres(tag) for tag in all_tags] if all_tags else all_tags
+    all_keywords = [sanitize_text_for_postgres(keyword) for keyword in all_keywords] if all_keywords else all_keywords
+    all_headings = [sanitize_text_for_postgres(heading) for heading in all_headings] if all_headings else all_headings
+    document_metadata = sanitize_metadata_for_postgres(document_metadata) if document_metadata else document_metadata
+    
     doc = session.query(Document).filter_by(document_id=doc_id).first()
     if doc:
         doc.document_tags = all_tags
@@ -679,10 +739,10 @@ def load_data(
             # Log with appropriate status
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
-                log.status = status
+                log.metrics = sanitize_metadata_for_postgres(metrics)
+                log.status = sanitize_text_for_postgres(status)
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status=status, metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status=sanitize_text_for_postgres(status), metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             
             try:
@@ -742,10 +802,10 @@ def load_data(
             # Log failure with document info
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
+                log.metrics = sanitize_metadata_for_postgres(metrics)
                 log.status = "failure"
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             session.commit()
             return None
@@ -779,10 +839,10 @@ def load_data(
             # Log failure with document info
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
+                log.metrics = sanitize_metadata_for_postgres(metrics)
                 log.status = "failure"
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             session.commit()
             return None
@@ -798,10 +858,10 @@ def load_data(
         # Insert metrics into processing_logs table (assumes metrics column exists and is JSONB)
         log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
         if log:
-            log.metrics = metrics
+            log.metrics = sanitize_metadata_for_postgres(metrics)
             log.status = "success"
         else:
-            log = ProcessingLog(document_id=doc_id, project_id=project_id, status="success", metrics=metrics)
+            log = ProcessingLog(document_id=doc_id, project_id=project_id, status="success", metrics=sanitize_metadata_for_postgres(metrics))
             session.add(log)
         session.commit()
         
@@ -854,10 +914,10 @@ def load_data(
         try:
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
+                log.metrics = sanitize_metadata_for_postgres(metrics)
                 log.status = "failure"
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             session.commit()
         except Exception as log_err:
