@@ -616,7 +616,8 @@ def load_data(
     s3_key: str,
     base_metadata: Dict[str, Any],
     temp_dir: str = None,
-    api_doc: Dict[str, Any] = None
+    api_doc: Dict[str, Any] = None,
+    is_retry: bool = False
 ) -> str:
     """
     Orchestrate the loading and processing of a document from S3 into the vector store.
@@ -627,6 +628,7 @@ def load_data(
         base_metadata: Metadata to attach to chunks
         temp_dir: Temporary directory for file processing
         api_doc: API document object to store as document metadata
+        is_retry: If True, cleanup existing document content before processing
     """
     doc_id = base_metadata.get("document_id") or os.path.basename(s3_key)
     project_id = base_metadata.get("project_id", "")
@@ -717,6 +719,12 @@ def load_data(
                 metrics["document_info"]["document_name"] = api_derived_names["document_name"]
             if api_derived_names.get("display_name"):
                 metrics["document_info"]["display_name"] = api_derived_names["display_name"]
+        
+        # Clean up existing document content if this is a retry (do this after validation but before processing)
+        if is_retry:
+            print(f"[RETRY] Cleaning up existing content for document {doc_id} before reprocessing...")
+            from ..services.repair_service import cleanup_document_content_for_retry
+            cleanup_document_content_for_retry(doc_id, project_id)
         
         if not temp_path:
             # Determine status based on validation reason - distinguish between failures and skipped files

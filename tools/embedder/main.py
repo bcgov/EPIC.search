@@ -2,7 +2,7 @@ import argparse
 import logging
 from datetime import datetime
 from src.services.logger import load_completed_files, load_incomplete_files, load_skipped_files
-from src.services.repair_service import get_repair_candidates_for_processing, cleanup_document_data, cleanup_project_data, print_repair_analysis
+from src.services.repair_service import get_repair_candidates_for_processing, cleanup_document_data, cleanup_project_data, cleanup_document_content_for_retry, print_repair_analysis
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
@@ -346,6 +346,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                         api_docs_list,
                         files_concurrency_size,
                         embedder_temp_dir,
+                        is_retry=False,
                     )
                     
                     print(f" Repair completed for {project_name}")
@@ -401,21 +402,11 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                             continue
                         print(f"Retrying failed document: {doc_name}")
                         
-                        # Clean up existing inconsistent data before retry
-                        print(f" Cleaning up partial data for {doc_name[:50]}...")
-                        cleanup_summary = cleanup_document_data(doc_id, project_id)
-                        print(f"   Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
-                        
                     elif retry_skipped_only:
                         # Only process files that were previously skipped
                         if not is_processed or status != "skipped":
                             continue
                         print(f"Retrying skipped document: {doc_name}")
-                        
-                        # Clean up existing data before retry (skipped files might have partial data)
-                        print(f"Cleaning up any existing data for {doc_name[:50]}...")
-                        cleanup_summary = cleanup_document_data(doc_id, project_id)
-                        print(f"   Deleted: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
                         
                     else:
                         # Normal mode: skip already processed files
@@ -479,6 +470,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                                 batch_api_docs,
                                 batch_size=files_concurrency_size,
                                 temp_dir=embedder_temp_dir,
+                                is_retry=False,
                             )
                             
                             files_processed = end_idx
@@ -498,6 +490,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                             api_docs_list,
                             batch_size=files_concurrency_size,
                             temp_dir=embedder_temp_dir,
+                            is_retry=False,
                         )
                         
                     # Update shallow count for normal mode
@@ -683,26 +676,17 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                         status_type = "failed" if status == "failed" else "skipped"
                         print(f"  Queuing {status_type} document for retry: {doc_name}")
                         
-                        # Clean up existing data before retry
-                        cleanup_summary = cleanup_document_data(doc_id, project_id)
-                        
                     elif retry_failed_only:
                         # Only process files that previously failed
                         if not is_processed or status != "failed":
                             continue
                         print(f"  Queuing failed document for retry: {doc_name}")
                         
-                        # Clean up existing inconsistent data before retry
-                        cleanup_summary = cleanup_document_data(doc_id, project_id)
-                        
                     elif retry_skipped_only:
                         # Only process files that were previously skipped
                         if not is_processed or status != "skipped":
                             continue
                         print(f"  Queuing skipped document for retry: {doc_name}")
-                        
-                        # Clean up existing data before retry
-                        cleanup_summary = cleanup_document_data(doc_id, project_id)
                         
                     else:
                         # Normal mode: skip already processed files
@@ -792,6 +776,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                 batch_data['api_docs_list'],
                 batch_size=files_concurrency_size,
                 temp_dir=embedder_temp_dir,
+                is_retry=(retry_failed_only or retry_skipped_only),
             )
         
         batch_end = datetime.now()

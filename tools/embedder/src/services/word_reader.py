@@ -105,7 +105,58 @@ def extract_text_from_doc_fallback(file_path: str) -> str:
         return text_content.strip()
         
     except Exception as e:
-        raise Exception(f"Failed to extract text using docx2txt: {str(e)}")
+        # For legacy DOC files that docx2txt can't handle, we'll let the caller
+        # know this is a legacy format issue, not a general failure
+        if "word/document.xml" in str(e):
+            raise Exception(f"Legacy DOC format not supported by docx2txt: {str(e)}")
+        else:
+            raise Exception(f"Failed to extract text using docx2txt: {str(e)}")
+
+
+def extract_text_with_legacy_doc_fallback(file_path: str) -> str:
+    """
+    Try to extract text from legacy DOC files using alternative methods.
+    
+    Args:
+        file_path: Path to the DOC file
+        
+    Returns:
+        Extracted text content
+        
+    Raises:
+        Exception: If all extraction methods fail
+    """
+    # Check if it's an OLE compound document (classic DOC format)
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(8)
+            ole_signature = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+            if not header.startswith(ole_signature):
+                raise Exception("Not a classic DOC format file")
+    except Exception as e:
+        raise Exception(f"Failed to read file header: {e}")
+    
+    # Try alternative extraction methods for legacy DOC files
+    extraction_errors = []
+    
+    # Method 1: Try subprocess with antiword if available
+    try:
+        import subprocess
+        result = subprocess.run(['antiword', file_path], capture_output=True, text=True, timeout=30)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        else:
+            extraction_errors.append(f"antiword: {result.stderr or 'no output'}")
+    except FileNotFoundError:
+        extraction_errors.append("antiword: not found")
+    except Exception as e:
+        extraction_errors.append(f"antiword: {e}")
+    
+    # Method 2: Try other methods if needed
+    # For now, we'll raise an exception indicating this needs OCR fallback
+    
+    error_summary = "; ".join(extraction_errors)
+    raise Exception(f"Legacy DOC format requires alternative processing. Tried: {error_summary}")
 
 
 def extract_text_from_word_document(file_path: str) -> str:
@@ -115,6 +166,7 @@ def extract_text_from_word_document(file_path: str) -> str:
     This function tries multiple extraction methods:
     1. python-docx for DOCX files (preferred for structure)
     2. docx2txt as fallback for both DOC and DOCX
+    3. Legacy DOC fallback for older DOC files that docx2txt can't handle
     
     Args:
         file_path: Path to the Word document
@@ -141,6 +193,14 @@ def extract_text_from_word_document(file_path: str) -> str:
             return extract_text_from_doc_fallback(file_path)
         except Exception as e:
             print(f"[WARNING] docx2txt failed for {file_path}: {e}")
+            
+            # For DOC files, try legacy fallback if docx2txt failed due to format issues
+            if file_ext == '.doc' and "Legacy DOC format" in str(e) or "word/document.xml" in str(e):
+                try:
+                    return extract_text_with_legacy_doc_fallback(file_path)
+                except Exception as legacy_e:
+                    print(f"[WARNING] Legacy DOC fallback failed for {file_path}: {legacy_e}")
+                    # Let this fall through to the final error handling
     
     # If we get here, all methods failed
     available_methods = []
@@ -152,7 +212,11 @@ def extract_text_from_word_document(file_path: str) -> str:
     if not available_methods:
         raise Exception("No Word document processing libraries available. Install python-docx or docx2txt.")
     else:
-        raise Exception(f"All available extraction methods failed: {', '.join(available_methods)}")
+        # For DOC files that failed all text extraction, indicate they might need OCR
+        if file_ext == '.doc':
+            raise Exception(f"Legacy DOC format may require OCR processing. Text extraction failed with: {', '.join(available_methods)}")
+        else:
+            raise Exception(f"All available extraction methods failed: {', '.join(available_methods)}")
 
 
 def read_word_as_pages(file_path: str) -> List[Dict[str, Any]]:
