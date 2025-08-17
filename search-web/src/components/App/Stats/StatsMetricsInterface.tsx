@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Box,
   Card,
@@ -20,6 +20,10 @@ import {
   IconButton,
   Tooltip,
   Collapse,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from "@mui/material";
 import {
   Assessment,
@@ -31,6 +35,8 @@ import {
   ExpandLess,
   Analytics,
   SkipNext,
+  FilterList,
+  Check,
 } from "@mui/icons-material";
 import { BCDesignTokens } from "epic.theme";
 import { useStatsQuery, useProcessingStatsQuery, useProjectDetailsQuery } from "@/hooks/useStats";
@@ -39,6 +45,8 @@ import { ProjectStats } from "@/models/Stats";
 const StatsMetricsInterface = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showProjectDetails, setShowProjectDetails] = useState<Record<string, boolean>>({});
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [filterAnchorEl, setFilterAnchorEl] = useState<null | HTMLElement>(null);
 
   const {
     data: summaryData,
@@ -79,6 +87,44 @@ const StatsMetricsInterface = () => {
     if (rate >= 60) return BCDesignTokens.themeGold60;
     return "#f44336"; // Red
   };
+
+  const handleFilterClick = (event: React.MouseEvent<HTMLElement>) => {
+    setFilterAnchorEl(event.currentTarget);
+  };
+
+  const handleFilterClose = () => {
+    setFilterAnchorEl(null);
+  };
+
+  const handleFilterChange = (filter: string) => {
+    setStatusFilter(filter);
+    setFilterAnchorEl(null);
+  };
+
+  // Sort and filter processing logs
+  const getSortedAndFilteredLogs = useMemo(() => {
+    if (!projectDetailsData?.result?.project_details?.processing_logs) return [];
+    
+    let logs = [...projectDetailsData.result.project_details.processing_logs];
+    
+    // Filter by status
+    if (statusFilter !== "all") {
+      logs = logs.filter((log: any) => log.status === statusFilter);
+    }
+    
+    // Sort by display name A-Z
+    logs.sort((a: any, b: any) => {
+      const aName = a.metrics?.document_info?.display_name || 
+                   a.metrics?.document_info?.document_name || 
+                   'UNKNOWN';
+      const bName = b.metrics?.document_info?.display_name || 
+                   b.metrics?.document_info?.document_name || 
+                   'UNKNOWN';
+      return aName.localeCompare(bName);
+    });
+    
+    return logs;
+  }, [projectDetailsData, statusFilter]);
 
   const formatFileSize = (bytes: number) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -354,7 +400,18 @@ const StatsMetricsInterface = () => {
                                     <TableHead>
                                       <TableRow>
                                         <TableCell>Document</TableCell>
-                                        <TableCell align="center">Status</TableCell>
+                                        <TableCell align="center">
+                                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                                            Status
+                                            <IconButton 
+                                              size="small" 
+                                              onClick={handleFilterClick}
+                                              sx={{ p: 0.5 }}
+                                            >
+                                              <FilterList fontSize="small" />
+                                            </IconButton>
+                                          </Box>
+                                        </TableCell>
                                         <TableCell align="center">Pages</TableCell>
                                         <TableCell align="center">File Size</TableCell>
                                         <TableCell align="center">Processing Time</TableCell>
@@ -362,7 +419,7 @@ const StatsMetricsInterface = () => {
                                       </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                      {projectDetailsData.result.project_details.processing_logs.map((log: any) => (
+                                      {getSortedAndFilteredLogs.map((log: any) => (
                                         <TableRow key={log.log_id}>
                                           <TableCell sx={{ maxWidth: 300, minWidth: 200 }}>
                                             <Box>
@@ -449,6 +506,41 @@ const StatsMetricsInterface = () => {
           </TableContainer>
         </CardContent>
       </Card>
+
+      {/* Status Filter Menu */}
+      <Menu
+        anchorEl={filterAnchorEl}
+        open={Boolean(filterAnchorEl)}
+        onClose={handleFilterClose}
+        PaperProps={{
+          sx: { minWidth: 150 }
+        }}
+      >
+        <MenuItem onClick={() => handleFilterChange("all")}>
+          <ListItemIcon>
+            {statusFilter === "all" && <Check fontSize="small" />}
+          </ListItemIcon>
+          <ListItemText>All</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleFilterChange("success")}>
+          <ListItemIcon>
+            {statusFilter === "success" && <Check fontSize="small" />}
+          </ListItemIcon>
+          <ListItemText>Success</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleFilterChange("failure")}>
+          <ListItemIcon>
+            {statusFilter === "failure" && <Check fontSize="small" />}
+          </ListItemIcon>
+          <ListItemText>Failure</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleFilterChange("skipped")}>
+          <ListItemIcon>
+            {statusFilter === "skipped" && <Check fontSize="small" />}
+          </ListItemIcon>
+          <ListItemText>Skipped</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 };
