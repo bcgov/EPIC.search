@@ -43,6 +43,36 @@ The system now includes intelligent cross-project parallel processing to maximiz
 - Shallow mode: `--shallow` (due to per-project limits)
 - Maintains compatibility with existing processing logic
 
+### 🆕 Smart File Type Pre-Filtering
+
+The system now includes intelligent file type filtering to optimize processing performance and avoid unnecessary S3 download failures:
+
+- **Pre-Download Filtering**: Checks file extensions before S3 download to skip unsupported types
+- **DRY Code Design**: Centralized file type logic prevents duplication across services
+- **Helpful User Guidance**: Provides specific recommendations for unsupported file types
+- **Performance Optimization**: Eliminates wasted bandwidth and processing time on incompatible files
+
+**Supported File Types**:
+
+- **PDF**: All PDF variants (text, scanned, image-based)
+- **Word**: DOCX files (DOC legacy format not supported)
+- **Images**: PNG, JPG, JPEG, BMP, TIFF, GIF
+- **Text**: TXT, MD, CSV, TSV, LOG, RTF
+
+**Auto-Skipped File Types**:
+
+- **Legacy Office**: DOC, XLS, XLSX, PPT, PPTX
+- **Archives**: ZIP, RAR, 7Z, TAR, GZ
+- **Media**: MP4, AVI, MOV, MP3, WAV
+- **CAD/Database**: DWG, DXF, MDB, ACCDB, ODT, ODS, ODP
+
+**Example Behavior**:
+
+```text
+[SKIP] File report.xlsx: Excel files are not supported for text processing
+[SKIP] File legacy.doc: Please convert DOC files to DOCX format for processing
+```
+
 ### System Flow Diagram
 
 ```mermaid

@@ -175,29 +175,58 @@ The preloaded model approach is recommended for production deployments as it eli
 
 ## Supported File Types
 
-### PDF Documents
+### ✅ Supported Formats
+
+#### PDF Documents
 
 - **📄 Native Text PDFs**: Direct text extraction with high accuracy
 - **🔍 Scanned/Image PDFs**: OCR processing using Tesseract or Azure Document Intelligence
 - **🖼️ Image-based PDFs**: Automatic detection and fallback to image content analysis
 - **📋 Mixed Content PDFs**: Intelligent routing to appropriate processing pipeline
 
-### Microsoft Word Documents
+#### Microsoft Word Documents
 
 - **✅ DOCX Files**: Modern Word format with full support
 - **❌ DOC Files**: Legacy format **NOT SUPPORTED** - requires conversion to DOCX format
 
-### Images
+#### Images
 
 - **🖼️ Image Files**: PNG, JPG, JPEG, BMP, TIFF, GIF formats
 - **🤖 AI Analysis**: Azure Computer Vision integration for content description and tagging
 - **📐 Size Requirements**: Images must be at least 50x50 pixels for analysis
 - **🔄 Smart Fallback**: OCR attempts followed by image content analysis
 
-### Text Files
+#### Text Files
 
 - **📝 Plain Text**: TXT, LOG, MD files with encoding detection
 - **📊 Structured Data**: CSV, TSV files with proper parsing
+
+### ❌ Unsupported Formats (Automatically Skipped)
+
+The system now **pre-filters files before S3 download** to avoid unnecessary processing failures:
+
+#### Microsoft Office (Legacy/Unsupported)
+
+- **DOC** - Legacy Word format (convert to DOCX)
+- **XLS, XLSX** - Excel spreadsheets
+- **PPT, PPTX** - PowerPoint presentations
+
+#### Archives & Compressed Files
+
+- **ZIP, RAR, 7Z, TAR, GZ** - Archive formats
+
+#### Media Files
+
+- **MP4, AVI, MOV** - Video files
+- **MP3, WAV** - Audio files
+
+#### Other Document Formats
+
+- **ODT, ODS, ODP** - OpenDocument formats
+- **DWG, DXF** - CAD files
+- **MDB, ACCDB** - Database files
+
+> **💡 Smart Processing**: Unsupported files are automatically marked as "skipped" with helpful guidance messages, preventing unnecessary S3 download attempts and improving performance.
 
 ### Processing Intelligence
 

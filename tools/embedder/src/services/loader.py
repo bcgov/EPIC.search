@@ -715,6 +715,42 @@ def load_data(
     session = Session()
     
     try:
+        # PRE-FILTER: Check if file should be processed before downloading from S3
+        from ..services.file_type_filter import should_skip_file_early
+        should_skip, skip_reason, suggested_status = should_skip_file_early(s3_key)
+        
+        if should_skip:
+            print(f"[EARLY_SKIP] File {s3_key} skipped before S3 download: {skip_reason}")
+            
+            # Update metrics with the skip information
+            metrics["document_info"]["validation_status"] = "skipped_early"
+            metrics["document_info"]["validation_reason"] = skip_reason
+            metrics["download_and_validate_pdf"] = 0  # No download time
+            
+            # Log the early skip
+            log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+            if log:
+                log.metrics = sanitize_metadata_for_postgres(metrics)
+                log.status = suggested_status
+            else:
+                log = ProcessingLog(
+                    document_id=doc_id, 
+                    project_id=project_id, 
+                    status=suggested_status, 
+                    metrics=sanitize_metadata_for_postgres(metrics)
+                )
+                session.add(log)
+            
+            try:
+                session.commit()
+                print(f"[DEBUG] Successfully committed {suggested_status} status for early skipped file {s3_key}")
+            except Exception as commit_err:
+                print(f"[ERROR] Failed to commit {suggested_status} status for {s3_key}: {commit_err}")
+                session.rollback()
+                raise
+            
+            return None  # Early return, no further processing needed
+        
         # Ensure we have basic document info even for early failures
         if not metrics.get("document_info"):
             metrics["document_info"] = {
