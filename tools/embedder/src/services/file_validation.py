@@ -12,7 +12,7 @@ def validate_file(temp_path, s3_key):
     This function handles multiple file types:
     - PDFs: Identifies likely scanned PDFs and attempts OCR if needed
     - Images: Attempts OCR processing directly  
-    - Word documents: Extracts text content, with OCR fallback for legacy DOC files
+    - Word documents: Extracts text content from DOCX files. Legacy DOC files are skipped with recommendation to convert.
     - Text files: Reads and chunks plain text content (.txt, .md, .csv, .log, .rtf, etc.)
     """
     # Debug: Check OCR availability at the start
@@ -89,11 +89,31 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
         'ricoh'
     ]
     
+    # Check for image-based PDF indicators (PDFs created from images)
+    image_pdf_indicators = [
+        'adobe photoshop',
+        'photoshop',
+        'image converter',
+        'img2pdf',
+        'pil',  # Python Imaging Library
+        'imagick',
+        'gimp',
+        'paint',
+        'snagit',
+        'screenshot'
+    ]
+    
     is_likely_scanned = any(indicator in creator or indicator in producer for indicator in scanned_indicators)
+    is_likely_image_pdf = any(indicator in creator or indicator in producer for indicator in image_pdf_indicators)
     
     # Enhanced validation logic - check for scanned PDFs regardless of version
     # Primary check: minimal extractable text (classic scanned document signature)
     if not first_page_text or first_page_text in ("", "-----", "-----\n\n"):
+        # Check if this appears to be an image-based PDF that should be treated as an image
+        if is_likely_image_pdf:
+            print(f"[IMAGE_PDF] Document {s3_key} appears to be an image-based PDF (creator: {creator}, producer: {producer}) - treating as image...")
+            return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
+        
         # Try OCR if available
         if is_ocr_available():
             print(f"[OCR] Document {s3_key} appears to be scanned - attempting OCR processing...")
@@ -118,14 +138,31 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
                     print(f"[OCR] OCR processing failed to extract meaningful text from {s3_key}")
                     ocr_info["pages_processed"] = len(ocr_pages) if ocr_pages else 0
                     ocr_info["ocr_error"] = "No meaningful text extracted from OCR processing"
+                    
+                    # If OCR fails and this looks like an image PDF, try image processing
+                    if is_likely_image_pdf:
+                        print(f"[IMAGE_PDF] OCR failed for image-based PDF {s3_key}, trying image analysis...")
+                        return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
+                    
                     return False, "ocr_failed", None, ocr_info
             except Exception as ocr_err:
                 error_msg = str(ocr_err)
                 print(f"[ERROR] OCR processing failed with exception for {s3_key}: {error_msg}")
                 ocr_info["ocr_error"] = error_msg
                 ocr_info["ocr_error_type"] = type(ocr_err).__name__
+                
+                # If OCR fails and this looks like an image PDF, try image processing
+                if is_likely_image_pdf:
+                    print(f"[IMAGE_PDF] OCR failed for image-based PDF {s3_key}, trying image analysis...")
+                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
+                
                 return False, "ocr_failed", None, ocr_info
         else:
+            # If no OCR available but this looks like an image PDF, try image processing
+            if is_likely_image_pdf:
+                print(f"[IMAGE_PDF] No OCR available for image-based PDF {s3_key}, trying image analysis...")
+                return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
+            
             print(f"[SKIP] Document {s3_key} appears to be scanned but OCR is not available")
             return False, "scanned_or_image_pdf", None, ocr_info
     
@@ -166,6 +203,11 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
             print(f"[SKIP] Document {s3_key} from scanning device but OCR is not available")
             return False, "scanned_or_image_pdf", None, ocr_info
     
+    # Check for image-based PDFs with some text content
+    if is_likely_image_pdf and len(first_page_text) < 500:  # Higher threshold for image PDFs
+        print(f"[IMAGE_PDF] Document {s3_key} appears to be image-based PDF with minimal text ({len(first_page_text)} chars) - attempting image processing...")
+        return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
+    
     # Tertiary check: Known scanning devices should always get OCR treatment for better quality
     if is_likely_scanned:
         # Try OCR if available - even if there's some extracted text, OCR might be better
@@ -205,6 +247,191 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
             # Fall through to standard processing
     
     return True, None, None, ocr_info
+
+
+def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
+    """
+    Handle PDFs that are actually image files by converting them to images and processing with image analysis.
+    
+    Args:
+        temp_path: Path to the PDF file
+        s3_key: S3 key for identification
+        ocr_info: OCR information dictionary (updated in place)
+        
+    Returns:
+        Tuple of (is_valid, reason, pages_data, ocr_info)
+    """
+    import tempfile
+    import os
+    
+    try:
+        print(f"[IMAGE_PDF] Converting PDF {s3_key} to image for processing...")
+        
+        # Open the PDF and convert first page to image
+        doc = fitz.open(temp_path)
+        if doc.page_count == 0:
+            doc.close()
+            print(f"[ERROR] PDF {s3_key} has no pages")
+            return False, "no_pages", None, ocr_info
+        
+        # Convert first page to image (high DPI for better quality)
+        page = doc[0]
+        mat = fitz.Matrix(300/72, 300/72)  # 300 DPI
+        pix = page.get_pixmap(matrix=mat)
+        
+        # Save as temporary PNG file
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_image:
+            temp_image_path = temp_image.name
+            pix.save(temp_image_path)
+        
+        doc.close()
+        
+        try:
+            # First try OCR on the converted image
+            if is_ocr_available():
+                print(f"[IMAGE_PDF] Attempting OCR on converted image from {s3_key}...")
+                ocr_info["ocr_attempted"] = True
+                ocr_info["ocr_method"] = "image_pdf_conversion_ocr"
+                
+                # Add OCR provider information
+                try:
+                    from src.services.ocr.ocr_factory import OCRFactory
+                    provider = OCRFactory.get_provider()
+                    ocr_info["ocr_provider"] = provider.value
+                except:
+                    ocr_info["ocr_provider"] = "unknown"
+                    
+                try:
+                    ocr_pages = extract_text_with_ocr(temp_image_path, s3_key)
+                    if ocr_pages and any(page.get("text", "").strip() for page in ocr_pages):
+                        print(f"[IMAGE_PDF] Successfully extracted text via OCR from image PDF {s3_key}")
+                        ocr_info["ocr_successful"] = True
+                        ocr_info["pages_processed"] = len(ocr_pages)
+                        
+                        # Update page metadata to indicate this was from an image PDF
+                        for page in ocr_pages:
+                            if "metadata" in page:
+                                page["metadata"]["source_type"] = "image_pdf"
+                                page["metadata"]["original_format"] = "pdf_converted_to_image"
+                        
+                        return True, "image_pdf_ocr_processed", ocr_pages, ocr_info
+                    else:
+                        print(f"[IMAGE_PDF] OCR failed to extract meaningful text from converted image")
+                        ocr_info["ocr_error"] = "No meaningful text extracted from converted image"
+                except Exception as ocr_err:
+                    error_msg = str(ocr_err)
+                    print(f"[ERROR] OCR failed on converted image from {s3_key}: {error_msg}")
+                    ocr_info["ocr_error"] = error_msg
+                    ocr_info["ocr_error_type"] = type(ocr_err).__name__
+            
+            # If OCR fails or is unavailable, try image analysis
+            print(f"[IMAGE_PDF] Attempting image content analysis on converted image from {s3_key}...")
+            
+            # Import image analysis
+            try:
+                from .image_analysis import is_image_analysis_available, analyze_image_content
+            except ImportError:
+                print(f"[SKIP] Image analysis not available for {s3_key}")
+                return False, "image_analysis_unavailable", None, ocr_info
+            
+            if is_image_analysis_available():
+                try:
+                    success, analysis_result = analyze_image_content(temp_image_path, s3_key)
+                    
+                    if success and analysis_result:
+                        print(f"[IMAGE_PDF] Successfully analyzed image content for PDF {s3_key}")
+                        
+                        # Get PDF metadata for enhancement
+                        pdf_metadata = None
+                        try:
+                            doc_for_metadata = fitz.open(temp_path)
+                            pdf_metadata = doc_for_metadata.metadata
+                            doc_for_metadata.close()
+                        except:
+                            pass
+                        
+                        # Enhance the analysis result specifically for image PDFs
+                        try:
+                            from .image_analysis import get_image_analysis_service
+                            service = get_image_analysis_service()
+                            enhanced_analysis = service.enhance_content_for_image_pdf(s3_key, analysis_result, pdf_metadata)
+                            analysis_result = enhanced_analysis
+                        except Exception as enhance_err:
+                            print(f"[WARN] Could not enhance image PDF content for {s3_key}: {enhance_err}")
+                            # Continue with original analysis result
+                        
+                        # Convert analysis result to page format for processing
+                        searchable_text = analysis_result.get("searchable_text", "")
+                        description = analysis_result.get("description", "")
+                        
+                        # Enhance searchable text with PDF context
+                        pdf_context = f"PDF document originally created as image file (creator: {s3_key.split('/')[-1]})"
+                        enhanced_searchable_text = f"{pdf_context} | {searchable_text}"
+                        
+                        # Create page data structure similar to OCR/PDF pages
+                        page_data = [{
+                            "page_number": 1,
+                            "text": enhanced_searchable_text,
+                            "content": enhanced_searchable_text,
+                            "image_analysis": {
+                                "method": analysis_result.get("method", "unknown"),
+                                "description": description,
+                                "tags": analysis_result.get("tags", []),
+                                "objects": analysis_result.get("objects", []),
+                                "categories": analysis_result.get("categories", []),
+                                "confidence": analysis_result.get("confidence", 0.0),
+                                "pdf_enhanced": analysis_result.get("pdf_enhancement", {}).get("enhanced_for_pdf", False)
+                            },
+                            "metadata": {
+                                "source_type": "image_pdf",
+                                "original_format": "pdf_converted_to_image",
+                                "conversion_dpi": 300,
+                                "extraction_method": "image_analysis_from_pdf",
+                                "pdf_metadata": pdf_metadata
+                            },
+                            "content_type": "image_pdf_with_analysis"
+                        }]
+                        
+                        # Add image analysis info to ocr_info for tracking
+                        ocr_info["image_analysis_attempted"] = True
+                        ocr_info["image_analysis_successful"] = True
+                        ocr_info["image_analysis_method"] = analysis_result.get("method", "unknown")
+                        ocr_info["image_analysis_confidence"] = analysis_result.get("confidence", 0.0)
+                        ocr_info["pdf_converted_to_image"] = True
+                        ocr_info["pdf_enhancement_applied"] = analysis_result.get("pdf_enhancement", {}).get("enhanced_for_pdf", False)
+                        
+                        return True, "image_pdf_analysis_processed", page_data, ocr_info
+                    else:
+                        error_msg = analysis_result.get("error", "Unknown image analysis error") if analysis_result else "Image analysis returned no result"
+                        print(f"[ERROR] Image analysis failed for converted PDF {s3_key}: {error_msg}")
+                        ocr_info["image_analysis_attempted"] = True
+                        ocr_info["image_analysis_successful"] = False
+                        ocr_info["image_analysis_error"] = error_msg
+                        return False, "image_pdf_analysis_failed", None, ocr_info
+                        
+                except Exception as analysis_err:
+                    error_msg = str(analysis_err)
+                    print(f"[ERROR] Image analysis exception for converted PDF {s3_key}: {error_msg}")
+                    ocr_info["image_analysis_attempted"] = True
+                    ocr_info["image_analysis_successful"] = False
+                    ocr_info["image_analysis_error"] = error_msg
+                    return False, "image_pdf_analysis_failed", None, ocr_info
+            else:
+                print(f"[SKIP] Neither OCR nor image analysis available for image PDF {s3_key}")
+                return False, "no_content_analysis_available", None, ocr_info
+                
+        finally:
+            # Clean up temporary image file
+            try:
+                os.unlink(temp_image_path)
+            except:
+                pass  # Ignore cleanup errors
+                
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[ERROR] Failed to process image PDF {s3_key}: {error_msg}")
+        ocr_info["image_pdf_processing_error"] = error_msg
+        return False, "image_pdf_processing_failed", None, ocr_info
 
 
 def _validate_image_file(temp_path, s3_key, ocr_info):
@@ -377,66 +604,18 @@ def _validate_word_file(temp_path, s3_key, ocr_info):
         error_msg = str(e)
         print(f"[ERROR] Word document validation failed: {error_msg} for {s3_key}")
         
-        # Check if this is a legacy DOC file that might benefit from OCR
+        # Check if this is a legacy DOC file 
         file_ext = s3_key.lower().split('.')[-1] if '.' in s3_key else ''
         is_legacy_doc_error = (file_ext == 'doc' and 
                               ("Legacy DOC format" in error_msg or 
                                "word/document.xml" in error_msg or
-                               "may require OCR processing" in error_msg))
+                               "may require OCR processing" in error_msg or
+                               "antiword" in error_msg))
         
-        if is_legacy_doc_error and ocr_info.get("ocr_available", False):
-            print(f"[INFO] Attempting OCR fallback for legacy DOC file: {s3_key}")
-            try:
-                # Convert Word document to PDF first, then apply OCR
-                # This is a common approach for legacy DOC files
-                import fitz  # PyMuPDF
-                
-                # Try to open as PDF (some DOC files can be read this way)
-                try:
-                    doc = fitz.open(temp_path)
-                    if doc.page_count > 0:
-                        print(f"[INFO] DOC file {s3_key} opened as PDF with {doc.page_count} pages, attempting OCR")
-                        
-                        # Use OCR on the document
-                        ocr_result = extract_text_with_ocr(temp_path, s3_key)
-                        doc.close()
-                        
-                        if ocr_result and ocr_result.get("success"):
-                            ocr_info.update({
-                                "ocr_attempted": True,
-                                "ocr_successful": True,
-                                "ocr_method": ocr_result.get("method", "unknown"),
-                                "pages_processed": len(ocr_result.get("pages", []))
-                            })
-                            
-                            pages_data = ocr_result.get("pages", [])
-                            if pages_data:
-                                # Add metadata to OCR pages
-                                metadata = get_word_document_metadata(temp_path)
-                                for page in pages_data:
-                                    page['metadata'] = metadata
-                                    page['validation_method'] = 'word_document_ocr'
-                                
-                                total_text = sum(len(page.get('content', '')) for page in pages_data)
-                                print(f"[SUCCESS] Legacy DOC {s3_key} processed via OCR - {len(pages_data)} pages, {total_text} characters")
-                                return True, "success", pages_data, ocr_info
-                        
-                        ocr_info.update({
-                            "ocr_attempted": True,
-                            "ocr_successful": False,
-                            "ocr_method": ocr_result.get("method") if ocr_result else None
-                        })
-                    
-                    doc.close()
-                except Exception as pdf_e:
-                    print(f"[INFO] Could not open DOC as PDF for {s3_key}: {pdf_e}")
-                
-            except Exception as ocr_e:
-                print(f"[ERROR] OCR fallback failed for {s3_key}: {ocr_e}")
-                ocr_info.update({
-                    "ocr_attempted": True,
-                    "ocr_successful": False
-                })
+        if is_legacy_doc_error:
+            print(f"[SKIP] Legacy DOC file {s3_key} is not supported - these files require conversion to DOCX format")
+            print(f"[INFO] Recommendation: Convert {s3_key} to .docx format for processing")
+            return False, "legacy_doc_format_unsupported", None, ocr_info
         
         return False, "word_validation_failed", None, ocr_info
 

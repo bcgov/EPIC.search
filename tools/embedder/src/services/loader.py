@@ -340,14 +340,15 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             temp.flush()
             temp_path = temp.name
         
-        # Extract PDF metadata
-        try:
-            doc = pymupdf.open(temp_path)
-            doc_info["metadata"] = doc.metadata
-            doc_info["page_count"] = doc.page_count
-            doc.close()
-        except Exception as pdf_meta_err:
-            print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
+        # Extract PDF metadata only for PDF files
+        if original_ext.lower() == '.pdf':
+            try:
+                doc = pymupdf.open(temp_path)
+                doc_info["metadata"] = doc.metadata
+                doc_info["page_count"] = doc.page_count
+                doc.close()
+            except Exception as pdf_meta_err:
+                print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
         
         is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key)
         doc_info["validation_status"] = "valid" if is_valid else "invalid"
@@ -363,6 +364,8 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
                     print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Will be marked as skipped.")
                 else:  # ocr_failed
                     print(f"[FAIL] File {s3_key} OCR processing failed. Will be marked as failure.")
+            elif reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed"]:
+                print(f"[FAIL] File {s3_key} image processing failed: {reason}. Will be marked as failure.")
             elif reason == "precheck_failed":
                 print(f"[SKIP] File {s3_key} is not a valid PDF or unsupported format. Will be marked as skipped.")
             else:
@@ -388,6 +391,31 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             }
             doc_info["ocr_summary"] = ocr_summary
             doc_info["ocr_pages"] = ocr_pages  # Keep for processing, but this won't be logged
+        
+        # If image analysis was used (including image PDFs), store summary information
+        elif reason in ["image_analysis_processed", "image_pdf_analysis_processed", "image_pdf_ocr_processed"] and ocr_pages:
+            # Create image processing summary with metadata
+            processing_summary = {
+                "total_pages": len(ocr_pages),
+                "pages_with_content": sum(1 for page in ocr_pages if page.get("text", "").strip()),
+                "total_characters": sum(len(page.get("text", "")) for page in ocr_pages),
+                "processing_method": reason,
+                "content_type": ocr_pages[0].get("content_type") if ocr_pages else None
+            }
+            
+            # Add image analysis specific information if available
+            if ocr_pages and "image_analysis" in ocr_pages[0]:
+                image_analysis = ocr_pages[0]["image_analysis"]
+                processing_summary["image_analysis"] = {
+                    "method": image_analysis.get("method", "unknown"),
+                    "confidence": image_analysis.get("confidence", 0.0),
+                    "tags_count": len(image_analysis.get("tags", [])),
+                    "objects_count": len(image_analysis.get("objects", [])),
+                    "description_available": bool(image_analysis.get("description", "").strip())
+                }
+            
+            doc_info["image_processing_summary"] = processing_summary
+            doc_info["ocr_pages"] = ocr_pages  # Keep for processing
         
         return temp_path, doc_info
         
@@ -739,6 +767,10 @@ def load_data(
                 # Scanned PDFs without OCR should be marked as skipped
                 status = "skipped"
                 print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Marking as skipped.")
+            elif validation_reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed", "no_content_analysis_available"]:
+                # Image processing failures should be marked as failure
+                status = "failure"
+                print(f"[FAIL] File {s3_key} failed image processing: {validation_reason}. Marking as failure.")
             else:
                 # Actual processing failures (OCR failed, etc.) should be marked as failure
                 status = "failure"

@@ -7,6 +7,7 @@ for pure images (photos, graphics, etc.) that don't contain readable text.
 
 import os
 import requests
+import time
 from typing import Dict, List, Optional, Tuple
 
 
@@ -56,9 +57,29 @@ class ImageAnalysisService:
         try:
             print(f"[IMAGE_ANALYSIS] Using Azure Computer Vision for {s3_key}")
             
+            # Check image dimensions first (Azure requires at least 50x50 pixels)
+            try:
+                from PIL import Image
+                with Image.open(image_path) as img:
+                    width, height = img.size
+                    print(f"[IMAGE_ANALYSIS] Image dimensions: {width}x{height} pixels")
+                    
+                    if width < 50 or height < 50:
+                        print(f"[SKIP] Image {s3_key} is too small ({width}x{height}) - Azure requires at least 50x50 pixels")
+                        return False, {
+                            "error": f"Image too small ({width}x{height}px) - minimum 50x50px required",
+                            "method": "azure_computer_vision",
+                            "skipped_reason": "image_too_small"
+                        }
+            except Exception as img_check_err:
+                print(f"[WARN] Could not check image dimensions for {s3_key}: {img_check_err}")
+                # Continue anyway - let Azure handle the validation
+            
             # Read and prepare image
             with open(image_path, 'rb') as image_file:
                 image_data = image_file.read()
+            
+            print(f"[IMAGE_ANALYSIS] Sending {len(image_data)} bytes to Azure Computer Vision")
             
             # Azure Computer Vision API
             analyze_url = f"{self.azure_vision_endpoint.rstrip('/')}/vision/v3.2/analyze"
@@ -69,12 +90,41 @@ class ImageAnalysisService:
             }
             
             params = {
-                'visualFeatures': 'Categories,Description,Tags,Objects,Faces,ImageType,Color',
-                'details': 'Landmarks,Celebrities'
+                'visualFeatures': 'Description,Tags',
+                # Remove details parameter to avoid permission issues
             }
             
             response = requests.post(analyze_url, headers=headers, params=params, data=image_data, timeout=30)
-            response.raise_for_status()
+            
+            # Handle different error responses
+            if response.status_code == 400:
+                error_detail = response.json() if response.content else {"error": "Bad Request"}
+                error_msg = error_detail.get('error', {}).get('message', 'Bad Request')
+                print(f"[SKIP] Azure rejected image {s3_key}: {error_msg}")
+                return False, {
+                    "error": f"Azure API error: {error_msg}",
+                    "method": "azure_computer_vision",
+                    "skipped_reason": "azure_validation_failed",
+                    "status_code": 400
+                }
+            elif response.status_code == 403:
+                print(f"[ERROR] Azure permission denied for {s3_key} - check API key, quotas, or service configuration")
+                return False, {
+                    "error": "Azure permission denied - check API key, quotas, or service tier",
+                    "method": "azure_computer_vision",
+                    "skipped_reason": "azure_permission_denied",
+                    "status_code": 403
+                }
+            elif response.status_code == 429:
+                print(f"[ERROR] Azure rate limit exceeded for {s3_key} - too many requests")
+                return False, {
+                    "error": "Azure rate limit exceeded - too many requests",
+                    "method": "azure_computer_vision",
+                    "skipped_reason": "azure_rate_limited",
+                    "status_code": 429
+                }
+            
+            response.raise_for_status()  # Raise for any other HTTP errors
             
             result = response.json()
             
@@ -126,33 +176,121 @@ class ImageAnalysisService:
             print(f"[ERROR] Azure Vision analysis failed for {s3_key}: {str(e)}")
             return False, {"error": f"Azure Vision analysis failed: {str(e)}"}
     
+    def enhance_content_for_image_pdf(self, s3_key: str, analysis_result: Dict, pdf_metadata: Dict = None) -> Dict:
+        """
+        Enhance analysis result specifically for image PDFs to improve searchability.
+        
+        Args:
+            s3_key: S3 key for the PDF file
+            analysis_result: Original image analysis result
+            pdf_metadata: PDF metadata if available
+            
+        Returns:
+            Enhanced analysis result with additional PDF-specific context
+        """
+        if not analysis_result:
+            return analysis_result
+            
+        enhanced_result = analysis_result.copy()
+        
+        # Add PDF-specific tags
+        pdf_tags = ["PDF", "ScannedDocument", "ImageBasedPDF", "DigitalDocument"]
+        
+        # Analyze the creator/producer for additional context
+        if pdf_metadata:
+            creator = pdf_metadata.get('creator', '').lower()
+            producer = pdf_metadata.get('producer', '').lower()
+            
+            if 'photoshop' in creator or 'photoshop' in producer:
+                pdf_tags.extend(["ImageProcessing", "GraphicDesign", "ProcessedImage"])
+            
+            if 'scanner' in creator or 'scanner' in producer:
+                pdf_tags.extend(["ScannedContent", "DigitalScanning"])
+                
+            # Add format information
+            pdf_format = pdf_metadata.get('format', '')
+            if pdf_format:
+                pdf_tags.append(f"Format{pdf_format.replace(' ', '').replace('.', '')}")
+        
+        # Enhance existing tags
+        existing_tags = enhanced_result.get("tags", [])
+        enhanced_tags = list(set(existing_tags + pdf_tags))
+        enhanced_result["tags"] = enhanced_tags
+        
+        # Enhance searchable text with PDF context
+        original_searchable_text = enhanced_result.get("searchable_text", "")
+        
+        # Add document type and processing information
+        pdf_context_parts = [
+            "Document type: Image-based PDF file",
+            "Content source: Scanned or image-converted PDF document",
+            "Processing method: Visual content analysis of PDF-embedded image"
+        ]
+        
+        # Add metadata context if available
+        if pdf_metadata:
+            creation_date = pdf_metadata.get('creationDate', '')
+            if creation_date:
+                pdf_context_parts.append(f"Document creation context: {creation_date}")
+                
+            if 'photoshop' in (pdf_metadata.get('creator', '') + pdf_metadata.get('producer', '')).lower():
+                pdf_context_parts.append("Image editing software used: Adobe Photoshop processed content")
+        
+        # Combine original searchable text with enhanced context
+        enhanced_searchable_text = f"{original_searchable_text} | {' | '.join(pdf_context_parts)}"
+        enhanced_result["searchable_text"] = enhanced_searchable_text
+        
+        # Add PDF-specific metadata
+        enhanced_result["pdf_enhancement"] = {
+            "enhanced_for_pdf": True,
+            "additional_tags_count": len(pdf_tags),
+            "pdf_metadata_available": bool(pdf_metadata),
+            "enhancement_timestamp": time.time()
+        }
+        
+        return enhanced_result
+
     def _generate_searchable_text(self, s3_key: str, description: str, tags: List[str], 
                                  objects: List[str], categories: List[str], method: str) -> str:
         """Generate comprehensive searchable text from image analysis."""
         
         # Extract filename without extension for context
         filename = s3_key.split('/')[-1]
-        for ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif']:
-            filename = filename.replace(ext, '').replace(ext.upper(), '')
+        original_ext = None
+        for ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.pdf']:
+            if ext.lower() in filename.lower():
+                original_ext = ext
+                filename = filename.replace(ext, '').replace(ext.upper(), '')
+                break
+        
         filename_words = filename.replace('_', ' ').replace('-', ' ')
         
         searchable_parts = [
-            f"Image file: {filename_words}",
-            f"Image description: {description}",
+            f"Document file: {filename_words}",
+            f"Visual content description: {description}",
         ]
         
+        # Add specific context for PDF files that were converted from images
+        if original_ext == '.pdf':
+            searchable_parts.append("PDF document containing scanned or image-based content")
+            searchable_parts.append("Image-based PDF document processed with visual analysis")
+        
         if tags:
-            searchable_parts.append(f"Image contains: {', '.join(tags)}")
+            searchable_parts.append(f"Visual elements: {', '.join(tags)}")
         
         if objects:
-            searchable_parts.append(f"Objects detected: {', '.join(objects)}")
+            searchable_parts.append(f"Detected objects: {', '.join(objects)}")
         
         if categories:
-            searchable_parts.append(f"Categories: {', '.join(categories)}")
+            searchable_parts.append(f"Content categories: {', '.join(categories)}")
         
-        # Add analysis metadata
-        searchable_parts.append(f"Content type: Digital image analyzed with {method}")
-        searchable_parts.append("Visual content analysis")
+        # Add analysis metadata with PDF context
+        if original_ext == '.pdf':
+            searchable_parts.append(f"Document type: Image-based PDF analyzed with {method}")
+            searchable_parts.append("Scanned document content visual analysis")
+        else:
+            searchable_parts.append(f"Content type: Digital image analyzed with {method}")
+            searchable_parts.append("Visual content analysis")
         
         return " | ".join(searchable_parts)
 

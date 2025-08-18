@@ -146,9 +146,17 @@ The EPIC.search Embedder supports multiple document formats for text extraction 
 ### Microsoft Word Documents
 
 - **DOCX Files**: Modern Word format with rich text and formatting support
-- **DOC Files**: Legacy Word format support via docx2txt
+- **DOC Files**: Legacy Word format - **NOT SUPPORTED** (requires conversion to DOCX)
 - **Text Extraction**: Preserves document structure while extracting clean text
 - **Chunk Processing**: Simulates page-based chunking for consistent processing pipeline
+
+### Image Files and Analysis
+
+- **Image Support**: PNG, JPG, JPEG, BMP, TIFF, GIF formats
+- **Image Analysis**: Azure Computer Vision integration for content description
+- **OCR Integration**: Tesseract and Azure Document Intelligence for text extraction
+- **Size Requirements**: Images must be at least 50x50 pixels for Azure analysis
+- **Smart Processing**: Automatic fallback from OCR to image analysis when no text is found
 
 ### Configuration Options
 
@@ -163,6 +171,20 @@ WORD_CHUNK_SIZE=2000
 
 # Preserve formatting in text extraction (experimental)
 WORD_PRESERVE_FORMATTING=false
+```
+
+Image analysis can be configured via environment variables:
+
+```bash
+# Enable/disable image content analysis
+IMAGE_ANALYSIS_ENABLED=true
+
+# Azure Computer Vision settings
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# Confidence threshold for analysis results (0.0-1.0)
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5
 ```
 
 ### Processing Pipeline Consistency

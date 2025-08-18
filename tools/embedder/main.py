@@ -221,6 +221,11 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     # Only shallow_mode needs sequential processing due to per-project limits
     use_cross_project_processing = len(projects) > 1 and not shallow_mode
     
+    print(f"[DEBUG] Processing mode determination:")
+    print(f"[DEBUG]   - Number of projects: {len(projects)}")
+    print(f"[DEBUG]   - Shallow mode: {shallow_mode}")
+    print(f"[DEBUG]   - Use cross-project processing: {use_cross_project_processing}")
+    
     if use_cross_project_processing:
         mode_type = "NORMAL"
         if retry_failed_only and retry_skipped_only:
@@ -396,7 +401,15 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                     )
                     
                     # Handle retry modes
-                    if retry_failed_only:
+                    if retry_failed_only and retry_skipped_only:
+                        # Combined mode: process both failed and skipped documents
+                        if not is_processed or (status != "failed" and status != "skipped"):
+                            continue
+                        
+                        status_type = "failed" if status == "failed" else "skipped"
+                        print(f"Retrying {status_type} document: {doc_name}")
+                        
+                    elif retry_failed_only:
                         # Only process files that previously failed
                         if not is_processed or status != "failed":
                             continue
@@ -428,7 +441,11 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
 
                 if s3_file_keys:
                     files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
-                    if retry_failed_only:
+                    if retry_failed_only and retry_skipped_only:
+                        print(
+                            f"Found {len(s3_file_keys)} failed/skipped file(s) to retry for {project_name}. Processing with {files_concurrency_size} workers..."
+                        )
+                    elif retry_failed_only:
                         print(
                             f"Found {len(s3_file_keys)} failed file(s) to retry for {project_name}. Processing with {files_concurrency_size} workers..."
                         )
@@ -500,7 +517,9 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                             print(f"[SHALLOW MODE] Reached {shallow_success_count} processed documents for {project_name} (limit: {shallow_limit}).")
                             break
                 else:
-                    if retry_failed_only:
+                    if retry_failed_only and retry_skipped_only:
+                        print(f"No failed or skipped files found to retry for {project_name}")
+                    elif retry_failed_only:
                         print(f"No failed files found to retry for {project_name}")
                     elif retry_skipped_only:
                         print(f"No skipped files found to retry for {project_name}")
@@ -539,14 +558,18 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         else:
             print(f"TIMED MODE COMPLETED: Finished all work in {total_elapsed_minutes:.1f} minutes (limit: {time_limit_minutes} minutes)")
         
-        if retry_failed_only:
+        if retry_failed_only and retry_skipped_only:
+            print(f"Processed failed and skipped documents for {len(results)} project(s)")
+        elif retry_failed_only:
             print(f"Processed failed documents for {len(results)} project(s)")
         elif retry_skipped_only:
             print(f"Processed skipped documents for {len(results)} project(s)")
         else:
             print(f"Processed new documents for {len(results)} project(s)")
     else:
-        if retry_failed_only:
+        if retry_failed_only and retry_skipped_only:
+            print(f"RETRY COMPLETED: Finished retrying failed and skipped documents for {len(results)} project(s)")
+        elif retry_failed_only:
             print(f"RETRY COMPLETED: Finished retrying failed documents for {len(results)} project(s)")
         elif retry_skipped_only:
             print(f"RETRY COMPLETED: Finished retrying skipped documents for {len(results)} project(s)")
@@ -557,6 +580,8 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     reason = "Completed"
     if timed_mode and time_limit_reached:
         reason = f"Time limit reached ({time_limit_minutes} minutes)"
+    elif retry_failed_only and retry_skipped_only:
+        reason = "Retry failed and skipped mode completed"
     elif retry_failed_only:
         reason = "Retry failed mode completed"
     elif retry_skipped_only:
@@ -720,11 +745,12 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
     # Process documents in optimized batches across all projects
     files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
     
-    # Calculate optimal batch size for cross-project processing
-    # Use larger batches to reduce overhead, but keep reasonable for progress tracking
-    optimal_batch_size = max(files_concurrency_size, min(100, total_documents // 10))
+    # For cross-project processing, use the worker count as batch size to maximize parallelism
+    # This ensures all workers stay busy with documents from different projects
+    optimal_batch_size = files_concurrency_size
     
     print(f"Processing {total_documents} documents with {files_concurrency_size} workers in batches of {optimal_batch_size}")
+    print(f"This ensures all {files_concurrency_size} workers stay busy across different projects")
     
     documents_processed = 0
     batch_number = 1
