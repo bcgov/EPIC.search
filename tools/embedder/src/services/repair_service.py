@@ -190,6 +190,60 @@ def cleanup_document_data(document_id: str, project_id: str):
     finally:
         session.close()
 
+
+def cleanup_document_content_for_retry(document_id: str, project_id: str):
+    """
+    Clean up document content (chunks and records) for retry processing.
+    
+    This removes chunks and document records but preserves processing logs
+    so that the retry status is maintained until successful reprocessing.
+    
+    Args:
+        document_id (str): The document ID to clean up
+        project_id (str): The project ID the document belongs to
+        
+    Returns:
+        dict: Summary of what was cleaned up
+    """
+    session = get_session()
+    
+    try:
+        cleanup_summary = {
+            'chunks_deleted': 0,
+            'document_records_deleted': 0,
+            'processing_logs_preserved': 0
+        }
+        
+        # Delete chunks
+        chunks_deleted = session.query(DocumentChunk).filter_by(
+            document_id=document_id, 
+            project_id=project_id
+        ).delete(synchronize_session=False)
+        cleanup_summary['chunks_deleted'] = chunks_deleted
+        
+        # Delete document record
+        docs_deleted = session.query(Document).filter_by(
+            document_id=document_id
+        ).delete(synchronize_session=False)
+        cleanup_summary['document_records_deleted'] = docs_deleted
+        
+        # Count processing logs (preserved, not deleted)
+        logs_count = session.query(ProcessingLog).filter_by(
+            document_id=document_id,
+            project_id=project_id
+        ).count()
+        cleanup_summary['processing_logs_preserved'] = logs_count
+        
+        session.commit()
+        return cleanup_summary
+        
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
 def cleanup_project_data(project_id: str):
     """
     Clean up ALL data for a project (complete reset).

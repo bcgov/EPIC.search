@@ -18,6 +18,7 @@ import tempfile
 import traceback
 import strip_markdown
 import time
+import json
 import numpy as np
 
 from typing import List, Dict, Any, Tuple
@@ -30,6 +31,7 @@ from .tag_extractor import extract_tags_from_chunks
 from .embedding import get_embedding
 from .file_validation import validate_file
 from .markdown_reader import read_as_pages
+from .word_reader import read_word_as_pages, is_word_supported
 from .bert_keyword_extractor import extract_keywords_from_chunks
 from .fast_keyword_extractor import extract_keywords_from_chunks_fast
 from .ocr.ocr_factory import initialize_ocr, is_ocr_available
@@ -41,6 +43,50 @@ setup_paths()
 from src.config.settings import get_settings
 from src.config.document_types import get_document_type, resolve_document_type
 settings = get_settings()
+
+def sanitize_text_for_postgres(text):
+    """
+    Sanitize text to remove null bytes that PostgreSQL cannot handle.
+    
+    Args:
+        text (str): Input text that may contain null bytes.
+        
+    Returns:
+        str: Sanitized text with null bytes removed.
+    """
+    if not text:
+        return text
+    return text.replace('\x00', '')
+
+def sanitize_metadata_for_postgres(metadata):
+    """
+    Recursively sanitize metadata dictionary to remove null bytes from string values.
+    
+    Args:
+        metadata (dict): Input metadata that may contain null bytes in string values.
+        
+    Returns:
+        dict: Sanitized metadata with null bytes removed from string values.
+    """
+    if not isinstance(metadata, dict):
+        return metadata
+    
+    sanitized = {}
+    for key, value in metadata.items():
+        if isinstance(value, str):
+            sanitized[key] = sanitize_text_for_postgres(value)
+        elif isinstance(value, dict):
+            sanitized[key] = sanitize_metadata_for_postgres(value)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                sanitize_text_for_postgres(item) if isinstance(item, str)
+                else sanitize_metadata_for_postgres(item) if isinstance(item, dict)
+                else item
+                for item in value
+            ]
+        else:
+            sanitized[key] = value
+    return sanitized
 
 def build_document_embedding(tags, keywords, headings, document_metadata, embedding_fn):
     """
@@ -139,6 +185,9 @@ def chunk_and_embed_pages(
             chunk_text = strip_markdown.strip_markdown(chunk.page_content).strip()
             if not chunk_text:
                 continue
+            
+            # Sanitize chunk text to remove null bytes that PostgreSQL cannot handle
+            chunk_text = sanitize_text_for_postgres(chunk_text)
             chunk_data = chunk.metadata if chunk.metadata else {}
             headings = [chunk_data.get(h, "") for h in headers]
             all_headings.update([h for h in headings if h])
@@ -291,14 +340,15 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             temp.flush()
             temp_path = temp.name
         
-        # Extract PDF metadata
-        try:
-            doc = pymupdf.open(temp_path)
-            doc_info["metadata"] = doc.metadata
-            doc_info["page_count"] = doc.page_count
-            doc.close()
-        except Exception as pdf_meta_err:
-            print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
+        # Extract PDF metadata only for PDF files
+        if original_ext.lower() == '.pdf':
+            try:
+                doc = pymupdf.open(temp_path)
+                doc_info["metadata"] = doc.metadata
+                doc_info["page_count"] = doc.page_count
+                doc.close()
+            except Exception as pdf_meta_err:
+                print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
         
         is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key)
         doc_info["validation_status"] = "valid" if is_valid else "invalid"
@@ -314,6 +364,8 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
                     print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Will be marked as skipped.")
                 else:  # ocr_failed
                     print(f"[FAIL] File {s3_key} OCR processing failed. Will be marked as failure.")
+            elif reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed"]:
+                print(f"[FAIL] File {s3_key} image processing failed: {reason}. Will be marked as failure.")
             elif reason == "precheck_failed":
                 print(f"[SKIP] File {s3_key} is not a valid PDF or unsupported format. Will be marked as skipped.")
             else:
@@ -339,6 +391,31 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             }
             doc_info["ocr_summary"] = ocr_summary
             doc_info["ocr_pages"] = ocr_pages  # Keep for processing, but this won't be logged
+        
+        # If image analysis was used (including image PDFs), store summary information
+        elif reason in ["image_analysis_processed", "image_pdf_analysis_processed", "image_pdf_ocr_processed"] and ocr_pages:
+            # Create image processing summary with metadata
+            processing_summary = {
+                "total_pages": len(ocr_pages),
+                "pages_with_content": sum(1 for page in ocr_pages if page.get("text", "").strip()),
+                "total_characters": sum(len(page.get("text", "")) for page in ocr_pages),
+                "processing_method": reason,
+                "content_type": ocr_pages[0].get("content_type") if ocr_pages else None
+            }
+            
+            # Add image analysis specific information if available
+            if ocr_pages and "image_analysis" in ocr_pages[0]:
+                image_analysis = ocr_pages[0]["image_analysis"]
+                processing_summary["image_analysis"] = {
+                    "method": image_analysis.get("method", "unknown"),
+                    "confidence": image_analysis.get("confidence", 0.0),
+                    "tags_count": len(image_analysis.get("tags", [])),
+                    "objects_count": len(image_analysis.get("objects", [])),
+                    "description_available": bool(image_analysis.get("description", "").strip())
+                }
+            
+            doc_info["image_processing_summary"] = processing_summary
+            doc_info["ocr_pages"] = ocr_pages  # Keep for processing
         
         return temp_path, doc_info
         
@@ -368,10 +445,15 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
         # Convert numpy ndarray to list for DB insert (not JSON string)
         if isinstance(embedding, np.ndarray):
             embedding = embedding.tolist()
+        
+        # Sanitize content and metadata to remove null bytes that PostgreSQL cannot handle
+        content = sanitize_text_for_postgres(record["content"])
+        metadata = sanitize_metadata_for_postgres(record["metadata"])
+        
         chunk_obj = DocumentChunk(
             embedding=embedding,  # assign as list, not JSON string
-            chunk_metadata=record["metadata"],
-            content=record["content"],
+            chunk_metadata=metadata,
+            content=content,
             document_id=doc_id,
             project_id=project_id
         )
@@ -417,6 +499,13 @@ def _upsert_document_record(session, doc_id, all_tags, all_keywords, all_heading
     # Convert ndarray to list for JSON serialization
     if isinstance(semantic_embedding, np.ndarray):
         semantic_embedding = semantic_embedding.tolist()
+    
+    # Sanitize text fields to remove null bytes
+    all_tags = [sanitize_text_for_postgres(tag) for tag in all_tags] if all_tags else all_tags
+    all_keywords = [sanitize_text_for_postgres(keyword) for keyword in all_keywords] if all_keywords else all_keywords
+    all_headings = [sanitize_text_for_postgres(heading) for heading in all_headings] if all_headings else all_headings
+    document_metadata = sanitize_metadata_for_postgres(document_metadata) if document_metadata else document_metadata
+    
     doc = session.query(Document).filter_by(document_id=doc_id).first()
     if doc:
         doc.document_tags = all_tags
@@ -555,7 +644,8 @@ def load_data(
     s3_key: str,
     base_metadata: Dict[str, Any],
     temp_dir: str = None,
-    api_doc: Dict[str, Any] = None
+    api_doc: Dict[str, Any] = None,
+    is_retry: bool = False
 ) -> str:
     """
     Orchestrate the loading and processing of a document from S3 into the vector store.
@@ -566,6 +656,7 @@ def load_data(
         base_metadata: Metadata to attach to chunks
         temp_dir: Temporary directory for file processing
         api_doc: API document object to store as document metadata
+        is_retry: If True, cleanup existing document content before processing
     """
     doc_id = base_metadata.get("document_id") or os.path.basename(s3_key)
     project_id = base_metadata.get("project_id", "")
@@ -607,7 +698,8 @@ def load_data(
         connect_args={
             "sslmode": "prefer",
             "connect_timeout": WORKER_CONNECT_TIMEOUT,
-            "application_name": f"epic_embedder_worker_{process_id}"
+            "application_name": f"epic_embedder_worker_{process_id}",
+            "prepare_threshold": None   # Disable prepared statements to avoid P03 errors
         }
     )
     
@@ -623,6 +715,42 @@ def load_data(
     session = Session()
     
     try:
+        # PRE-FILTER: Check if file should be processed before downloading from S3
+        from ..services.file_type_filter import should_skip_file_early
+        should_skip, skip_reason, suggested_status = should_skip_file_early(s3_key)
+        
+        if should_skip:
+            print(f"[EARLY_SKIP] File {s3_key} skipped before S3 download: {skip_reason}")
+            
+            # Update metrics with the skip information
+            metrics["document_info"]["validation_status"] = "skipped_early"
+            metrics["document_info"]["validation_reason"] = skip_reason
+            metrics["download_and_validate_pdf"] = 0  # No download time
+            
+            # Log the early skip
+            log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+            if log:
+                log.metrics = sanitize_metadata_for_postgres(metrics)
+                log.status = suggested_status
+            else:
+                log = ProcessingLog(
+                    document_id=doc_id, 
+                    project_id=project_id, 
+                    status=suggested_status, 
+                    metrics=sanitize_metadata_for_postgres(metrics)
+                )
+                session.add(log)
+            
+            try:
+                session.commit()
+                print(f"[DEBUG] Successfully committed {suggested_status} status for early skipped file {s3_key}")
+            except Exception as commit_err:
+                print(f"[ERROR] Failed to commit {suggested_status} status for {s3_key}: {commit_err}")
+                session.rollback()
+                raise
+            
+            return None  # Early return, no further processing needed
+        
         # Ensure we have basic document info even for early failures
         if not metrics.get("document_info"):
             metrics["document_info"] = {
@@ -656,6 +784,12 @@ def load_data(
             if api_derived_names.get("display_name"):
                 metrics["document_info"]["display_name"] = api_derived_names["display_name"]
         
+        # Clean up existing document content if this is a retry (do this after validation but before processing)
+        if is_retry:
+            print(f"[RETRY] Cleaning up existing content for document {doc_id} before reprocessing...")
+            from ..services.repair_service import cleanup_document_content_for_retry
+            cleanup_document_content_for_retry(doc_id, project_id)
+        
         if not temp_path:
             # Determine status based on validation reason - distinguish between failures and skipped files
             validation_reason = doc_info.get("validation_reason") if doc_info else None
@@ -669,6 +803,10 @@ def load_data(
                 # Scanned PDFs without OCR should be marked as skipped
                 status = "skipped"
                 print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Marking as skipped.")
+            elif validation_reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed", "no_content_analysis_available"]:
+                # Image processing failures should be marked as failure
+                status = "failure"
+                print(f"[FAIL] File {s3_key} failed image processing: {validation_reason}. Marking as failure.")
             else:
                 # Actual processing failures (OCR failed, etc.) should be marked as failure
                 status = "failure"
@@ -677,10 +815,10 @@ def load_data(
             # Log with appropriate status
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
-                log.status = status
+                log.metrics = sanitize_metadata_for_postgres(metrics)
+                log.status = sanitize_text_for_postgres(status)
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status=status, metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status=sanitize_text_for_postgres(status), metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             
             try:
@@ -697,18 +835,40 @@ def load_data(
 
         t1 = time.perf_counter()
         
+        # Determine file type for appropriate processing
+        file_ext = s3_key.lower().split('.')[-1] if '.' in s3_key else ''
+        is_word = file_ext in ['docx', 'doc']
+        
         # Check if we have OCR data from validation, otherwise read normally
         if doc_info and doc_info.get("ocr_pages"):
             print(f"[OCR] Using OCR-extracted pages for {s3_key}")
             pages = doc_info["ocr_pages"]
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "ocr_tesseract"
+        elif is_word:
+            print(f"[WORD] Processing Word document: {s3_key}")
+            pages = read_word_as_pages(temp_path)
+            metrics["read_as_pages"] = time.perf_counter() - t1
+            metrics["extraction_method"] = "word_document"
         else:
             pages = read_as_pages(temp_path)
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "standard_pdf"
         
-        if not any(page.get("text", "").strip() for page in pages):
+        # Normalize page format - ensure all pages have 'text' field for consistency
+        for page in pages:
+            if 'content' in page and 'text' not in page:
+                page['text'] = page['content']
+        
+        # Check for readable text content (handle both PDF 'text' field and Word 'content' field)
+        has_text = False
+        for page in pages:
+            text_content = page.get("text", "") or page.get("content", "")
+            if text_content.strip():
+                has_text = True
+                break
+        
+        if not has_text:
             print(f"[WARN] No readable text found in any page of file {s3_key}. Skipping file.")
             try:
                 os.remove(temp_path)
@@ -718,10 +878,10 @@ def load_data(
             # Log failure with document info
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
+                log.metrics = sanitize_metadata_for_postgres(metrics)
                 log.status = "failure"
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             session.commit()
             return None
@@ -755,10 +915,10 @@ def load_data(
             # Log failure with document info
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
+                log.metrics = sanitize_metadata_for_postgres(metrics)
                 log.status = "failure"
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             session.commit()
             return None
@@ -774,10 +934,10 @@ def load_data(
         # Insert metrics into processing_logs table (assumes metrics column exists and is JSONB)
         log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
         if log:
-            log.metrics = metrics
+            log.metrics = sanitize_metadata_for_postgres(metrics)
             log.status = "success"
         else:
-            log = ProcessingLog(document_id=doc_id, project_id=project_id, status="success", metrics=metrics)
+            log = ProcessingLog(document_id=doc_id, project_id=project_id, status="success", metrics=sanitize_metadata_for_postgres(metrics))
             session.add(log)
         session.commit()
         
@@ -830,10 +990,10 @@ def load_data(
         try:
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
             if log:
-                log.metrics = metrics
+                log.metrics = sanitize_metadata_for_postgres(metrics)
                 log.status = "failure"
             else:
-                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=metrics)
+                log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
                 session.add(log)
             session.commit()
         except Exception as log_err:

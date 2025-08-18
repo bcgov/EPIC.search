@@ -21,6 +21,58 @@ The system now includes sophisticated OCR capabilities for processing scanned PD
 - **Quality Processing**: High-DPI image conversion and advanced text extraction
 - **Structured Output**: Maintains document metadata and page structure consistency
 
+### 🆕 Cross-Project Parallel Processing
+
+The system now includes intelligent cross-project parallel processing to maximize worker utilization:
+
+- **Automatic Mode Selection**: Detects when to use cross-project vs sequential processing
+- **Unified Worker Pool**: All workers stay busy across multiple projects simultaneously
+- **Bottleneck Elimination**: Prevents single slow files from blocking entire project queues
+- **Maximum Throughput**: Up to 48x performance improvement for multi-project scenarios
+
+**Cross-Project Mode (Automatic)**:
+
+- Multiple projects in any processing mode (normal, retry-failed, retry-skipped, repair)
+- Creates unified document queue across all projects
+- Workers process documents from any project in optimized batches
+- Example: `python main.py --project_id proj1 proj2 proj3 --retry-failed`
+
+**Sequential Mode (Automatic)**:
+
+- Single project processing
+- Shallow mode: `--shallow` (due to per-project limits)
+- Maintains compatibility with existing processing logic
+
+### 🆕 Smart File Type Pre-Filtering
+
+The system now includes intelligent file type filtering to optimize processing performance and avoid unnecessary S3 download failures:
+
+- **Pre-Download Filtering**: Checks file extensions before S3 download to skip unsupported types
+- **DRY Code Design**: Centralized file type logic prevents duplication across services
+- **Helpful User Guidance**: Provides specific recommendations for unsupported file types
+- **Performance Optimization**: Eliminates wasted bandwidth and processing time on incompatible files
+
+**Supported File Types**:
+
+- **PDF**: All PDF variants (text, scanned, image-based)
+- **Word**: DOCX files (DOC legacy format not supported)
+- **Images**: PNG, JPG, JPEG, BMP, TIFF, GIF
+- **Text**: TXT, MD, CSV, TSV, LOG, RTF
+
+**Auto-Skipped File Types**:
+
+- **Legacy Office**: DOC, XLS, XLSX, PPT, PPTX
+- **Archives**: ZIP, RAR, 7Z, TAR, GZ
+- **Media**: MP4, AVI, MOV, MP3, WAV
+- **CAD/Database**: DWG, DXF, MDB, ACCDB, ODT, ODS, ODP
+
+**Example Behavior**:
+
+```text
+[SKIP] File report.xlsx: Excel files are not supported for text processing
+[SKIP] File legacy.doc: Please convert DOC files to DOCX format for processing
+```
+
 ### System Flow Diagram
 
 ```mermaid
@@ -101,14 +153,80 @@ graph TB
 3. Documents are processed in batches using parallel execution.
 4. Each document is:
    - Downloaded from S3
-   - **Validated for text content** (routes scanned/image-based PDFs to OCR processing)
-   - Processed via standard extraction or OCR (Tesseract/Azure Document Intelligence)
-   - Converted from PDF to markdown
+   - **Validated for format and content** (routes files to appropriate processing pipeline)
+   - Processed via format-specific extraction (PDF text, OCR, or Word document processing)
+   - Converted to markdown format
    - Chunked into smaller text segments
    - Embedded using a configurable vector model
    - Tagged/keyworded using parallelized KeyBERT extraction
    - Stored in a unified PostgreSQL+pgvector database
    - Metrics and logs are collected and stored as JSONB
+
+## Supported Document Types
+
+The EPIC.search Embedder supports multiple document formats for text extraction and embedding:
+
+### PDF Documents
+
+- **Native Text PDFs**: Direct text extraction with high accuracy
+- **Scanned/Image PDFs**: OCR processing using Tesseract or Azure Document Intelligence
+- **Mixed Content PDFs**: Automatic detection and routing to appropriate processing pipeline
+- **Format Support**: All standard PDF versions and encodings
+
+### Microsoft Word Documents
+
+- **DOCX Files**: Modern Word format with rich text and formatting support
+- **DOC Files**: Legacy Word format - **NOT SUPPORTED** (requires conversion to DOCX)
+- **Text Extraction**: Preserves document structure while extracting clean text
+- **Chunk Processing**: Simulates page-based chunking for consistent processing pipeline
+
+### Image Files and Analysis
+
+- **Image Support**: PNG, JPG, JPEG, BMP, TIFF, GIF formats
+- **Image Analysis**: Azure Computer Vision integration for content description
+- **OCR Integration**: Tesseract and Azure Document Intelligence for text extraction
+- **Size Requirements**: Images must be at least 50x50 pixels for Azure analysis
+- **Smart Processing**: Automatic fallback from OCR to image analysis when no text is found
+
+### Configuration Options
+
+Word document processing can be customized via environment variables:
+
+```bash
+# Enable/disable Word document processing
+WORD_PROCESSING_ENABLED=true
+
+# Size of text chunks (simulates pages for consistency with PDF processing)
+WORD_CHUNK_SIZE=2000
+
+# Preserve formatting in text extraction (experimental)
+WORD_PRESERVE_FORMATTING=false
+```
+
+Image analysis can be configured via environment variables:
+
+```bash
+# Enable/disable image content analysis
+IMAGE_ANALYSIS_ENABLED=true
+
+# Azure Computer Vision settings
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# Confidence threshold for analysis results (0.0-1.0)
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5
+```
+
+### Processing Pipeline Consistency
+
+Both PDF and Word documents follow the same processing pipeline:
+
+1. **File Validation**: Format detection and content verification
+2. **Text Extraction**: Format-specific extraction methods
+3. **Chunking**: Division into manageable text segments
+4. **Embedding**: Vector generation using sentence transformers
+5. **Metadata Extraction**: Keywords and tags using BERT-based models
+6. **Storage**: Unified PostgreSQL+pgvector database storage
 
 ## OCR Processing Architecture
 
@@ -261,7 +379,7 @@ The system automatically triggers OCR processing in these scenarios:
 - **⚠️ Skipped**: Scanned documents when OCR is not available (status: `"skipped"`)
 - **❌ Failed**: OCR was attempted but failed to extract meaningful text (status: `"failure"`)
 
-> 💡 **Retry Tip**: Use `--retry-skipped` to reprocess documents that were skipped due to missing OCR, and `--retry-failed` to retry documents where OCR processing failed. This is useful when enabling OCR or fixing configuration issues.
+> 💡 **Retry Tip**: Use `--retry-skipped` to reprocess documents that were skipped due to missing OCR, `--retry-failed` to retry documents where OCR processing failed, or both flags together (`--retry-failed --retry-skipped`) for comprehensive reprocessing. This is useful when enabling OCR or fixing configuration issues.
 
 #### **Known Scanning Device Detection**
 
@@ -312,6 +430,97 @@ Documents from these devices automatically trigger OCR processing:
 - Clear error messages guide users to alternative providers
 - Validation ensures provider dependencies are available
 
+## 🆕 Image Analysis for Pure Images
+
+The system now includes AI-powered image analysis for pure images (photos, graphics, etc.) that don't contain readable text. When OCR fails to extract meaningful text from image files, the system automatically attempts to analyze and describe the visual content.
+
+### How It Works
+
+1. **Image Validation**: Verify the file can be opened as a valid image format
+2. **OCR Attempt**: First try to extract any text content using OCR
+3. **Image Analysis Fallback**: If OCR fails or finds no text, analyze visual content
+4. **Description Generation**: Create searchable text describing the image content
+5. **Indexing**: Store the generated description for semantic search
+
+### Supported Image Formats
+
+- **JPEG/JPG**: Digital photos and graphics
+- **PNG**: Screenshots and graphics with transparency
+- **BMP**: Bitmap images
+- **TIFF/TIF**: High-quality scanned images
+- **GIF**: Animated and static graphics
+
+### Analysis Providers
+
+**Azure Computer Vision**:
+
+- Advanced object detection and categorization
+- High-quality image descriptions
+- Confidence scores for detected elements
+- Supports: objects, categories, tags, faces, landmarks
+
+**OpenAI GPT-4 Vision**:
+
+- Natural language descriptions
+- Context-aware analysis
+- Detailed visual element identification
+- Excellent for complex scenes
+
+### Image Analysis Configuration
+
+```env
+# Image Analysis Configuration
+IMAGE_ANALYSIS_ENABLED=true              # Enable/disable image content analysis
+IMAGE_ANALYSIS_PREFERRED_PROVIDER=azure  # 'azure' or 'openai'
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5  # Minimum confidence (0.0-1.0)
+
+# Azure Computer Vision
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# OpenAI GPT-4 Vision
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### Example: Badger Photo Processing
+
+**Input**: `wildlife_photos/badger_in_meadow.jpg` (pure image file)
+
+**Processing Flow**:
+
+1. OCR attempts text extraction → **Fails** (no text in image)
+2. Image analysis activates → **Success**
+3. Azure Vision analyzes content
+
+**Generated Content**:
+
+```json
+Description: "A brown and white badger standing in tall grass near rocks in a natural outdoor setting"
+Tags: ["badger", "animal", "wildlife", "grass", "outdoors", "mammal", "nature"]
+Objects: ["badger", "grass", "rocks"]
+```
+
+**Searchable Text**:
+
+```text
+Image file: badger in meadow | Image description: A brown and white badger standing in tall grass near rocks in a natural outdoor setting | Image contains: badger, animal, wildlife, grass, outdoors, mammal, nature | Objects detected: badger, grass, rocks | Content type: Digital image analyzed with azure | Visual content analysis
+```
+
+**Search Queries That Find This Image**:
+
+- "badger wildlife"
+- "animals in grass"
+- "outdoor mammal photos"
+- "badger nature pictures"
+
+### Status Outcomes
+
+- **✅ Success + Image Analysis**: Pure image processed with AI-generated description, marked with `content_type: "image_with_analysis"`
+- **⚠️ Skipped**: Image analysis not available or disabled (status: `"image_analysis_unavailable"`)
+- **❌ Failed**: Both OCR and image analysis failed (status: `"image_analysis_failed"`)
+
+> 💡 **Discovery Tip**: Pure images become discoverable through natural language search. Users can find visual content by describing what they're looking for, even when images contain no text.
+
 ## NLP Model Architecture
 
 The system uses two distinct models for different NLP tasks, both configurable and independently scalable:
@@ -359,10 +568,15 @@ The embedder supports selective reprocessing of documents based on their status:
 - **`--retry-skipped`**: Reprocesses documents that were previously skipped
   - Targets documents with status `"skipped"` (e.g., scanned PDFs without OCR, unsupported formats)
   - Useful when enabling OCR or adding support for new document types
+
+- **Combined Retry Mode**: Use both `--retry-failed` and `--retry-skipped` together
+  - Reprocesses both failed and skipped documents in a single run
+  - Maximizes cross-project throughput by processing all problematic documents together
+  - Example: `python main.py --retry-failed --retry-skipped`
   
 - **Normal mode**: Only processes new documents (skips any with existing status)
 
-These retry modes can be combined with other flags like `--shallow` for limited reprocessing and `--project_id` for targeted project-specific retries. Only one retry mode can be used at a time.
+These retry modes can be combined with other flags like `--shallow` for limited reprocessing and `--project_id` for targeted project-specific retries. Multiple retry modes can now be used together for comprehensive reprocessing.
 
 ### Timed Mode Processing
 

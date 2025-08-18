@@ -5,7 +5,7 @@ from .logger import log_processing_result
 from .loader import load_data
 from src.utils.progress_tracker import progress_tracker
 
-def process_files(project_id, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None):
+def process_files(project_id, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False):
     """
     Process files concurrently using a thread/process pool pattern.
     As soon as a worker is free, it picks up the next file, maximizing throughput.
@@ -17,6 +17,7 @@ def process_files(project_id, file_keys, metadata_list, api_docs_list, batch_siz
         api_docs_list (list): List of API document objects corresponding to each file
         batch_size (int, optional): Number of files to process in parallel. Defaults to 4.
         temp_dir (str, optional): Temporary directory for processing files. Passed to load_data.
+        is_retry (bool, optional): If True, cleanup existing document content before processing.
         
     Raises:
         ValueError: If file_keys, metadata_list, and api_docs_list have different lengths
@@ -57,7 +58,7 @@ def process_files(project_id, file_keys, metadata_list, api_docs_list, batch_siz
             # Estimate page count from file size (rough estimate: ~50KB per page for PDFs)
             estimated_pages = max(1, int(file_size_bytes / 50000)) if file_size_bytes > 0 else None
             
-            future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc)
+            future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc, is_retry)
             future_to_task[future] = (file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb)
             
             # Only register the first batch_size documents as active (they start immediately)

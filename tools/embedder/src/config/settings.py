@@ -183,6 +183,36 @@ class AzureOCRSettings(BaseModel):
     api_key: str = Field(default_factory=lambda: os.environ.get("AZURE_DOCUMENT_INTELLIGENCE_KEY", ""))
 
 
+class WordDocumentSettings(BaseModel):
+    """
+    Configuration for Word document processing (DOCX/DOC files).
+    
+    Attributes:
+        enabled (bool): Whether Word document processing is enabled
+        chunk_size (int): Size of Word document chunks in characters (simulates pages)
+        preserve_formatting (bool): Whether to preserve formatting in text extraction
+    """
+    enabled: bool = Field(default_factory=lambda: os.environ.get("WORD_PROCESSING_ENABLED", "true").lower() == "true")
+    chunk_size: int = Field(default_factory=lambda: int(os.environ.get("WORD_CHUNK_SIZE", "2000")))
+    preserve_formatting: bool = Field(default_factory=lambda: os.environ.get("WORD_PRESERVE_FORMATTING", "false").lower() == "true")
+
+
+class ImageAnalysisSettings(BaseModel):
+    """
+    Configuration for image analysis and description generation using Azure Computer Vision.
+    
+    Attributes:
+        enabled (bool): Whether image analysis is enabled for pure images
+        confidence_threshold (float): Minimum confidence threshold for image analysis results
+        azure_endpoint (str): Azure Computer Vision endpoint URL
+        azure_key (str): Azure Computer Vision subscription key
+    """
+    enabled: bool = Field(default_factory=lambda: os.environ.get("IMAGE_ANALYSIS_ENABLED", "true").lower() == "true")
+    confidence_threshold: float = Field(default_factory=lambda: float(os.environ.get("IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD", "0.5")))
+    azure_endpoint: str = Field(default_factory=lambda: os.environ.get("AZURE_VISION_ENDPOINT", ""))
+    azure_key: str = Field(default_factory=lambda: os.environ.get("AZURE_VISION_KEY", ""))
+
+
 class Settings(BaseModel):
     """
     Main settings class that combines all configuration categories.
@@ -199,6 +229,9 @@ class Settings(BaseModel):
         chunk_settings (ChunkSettings): Settings for document chunking
         logging_db_settings (LoggingDatabaseSettings): Settings for the logging database
         document_search_settings (DocumentSearchSettings): Settings for the document search API
+        api_pagination_settings (ApiPaginationSettings): Settings for API pagination
+        ocr_settings (OCRSettings): Settings for OCR processing
+        word_document_settings (WordDocumentSettings): Settings for Word document processing
     """
     embedding_model_settings: EmbeddingModelSettings = Field(
         default_factory=EmbeddingModelSettings
@@ -224,6 +257,8 @@ class Settings(BaseModel):
         default_factory=ApiPaginationSettings
     )
     ocr_settings: OCRSettings = Field(default_factory=OCRSettings)
+    word_document_settings: WordDocumentSettings = Field(default_factory=WordDocumentSettings)
+    image_analysis_settings: ImageAnalysisSettings = Field(default_factory=ImageAnalysisSettings)
 
 
 @lru_cache()

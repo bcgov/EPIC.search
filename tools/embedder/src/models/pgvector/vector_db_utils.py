@@ -76,7 +76,8 @@ engine = create_engine(
     connect_args={
         "sslmode": "prefer",        # Use SSL when available but don't require it
         "connect_timeout": DB_CONNECT_TIMEOUT,  # Main connection timeout
-        "application_name": "epic_embedder_main"  # Identify main process in database logs
+        "application_name": "epic_embedder_main",  # Identify main process in database logs
+        "prepare_threshold": None   # Disable prepared statements to avoid P03 errors
     }
 )
 

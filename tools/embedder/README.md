@@ -173,21 +173,82 @@ docker build -t epic-search-embedder \
 
 The preloaded model approach is recommended for production deployments as it eliminates the download delay when containers start.
 
+## Supported File Types
+
+### ✅ Supported Formats
+
+#### PDF Documents
+
+- **📄 Native Text PDFs**: Direct text extraction with high accuracy
+- **🔍 Scanned/Image PDFs**: OCR processing using Tesseract or Azure Document Intelligence
+- **🖼️ Image-based PDFs**: Automatic detection and fallback to image content analysis
+- **📋 Mixed Content PDFs**: Intelligent routing to appropriate processing pipeline
+
+#### Microsoft Word Documents
+
+- **✅ DOCX Files**: Modern Word format with full support
+- **❌ DOC Files**: Legacy format **NOT SUPPORTED** - requires conversion to DOCX format
+
+#### Images
+
+- **🖼️ Image Files**: PNG, JPG, JPEG, BMP, TIFF, GIF formats
+- **🤖 AI Analysis**: Azure Computer Vision integration for content description and tagging
+- **📐 Size Requirements**: Images must be at least 50x50 pixels for analysis
+- **🔄 Smart Fallback**: OCR attempts followed by image content analysis
+
+#### Text Files
+
+- **📝 Plain Text**: TXT, LOG, MD files with encoding detection
+- **📊 Structured Data**: CSV, TSV files with proper parsing
+
+### ❌ Unsupported Formats (Automatically Skipped)
+
+The system now **pre-filters files before S3 download** to avoid unnecessary processing failures:
+
+#### Microsoft Office (Legacy/Unsupported)
+
+- **DOC** - Legacy Word format (convert to DOCX)
+- **XLS, XLSX** - Excel spreadsheets
+- **PPT, PPTX** - PowerPoint presentations
+
+#### Archives & Compressed Files
+
+- **ZIP, RAR, 7Z, TAR, GZ** - Archive formats
+
+#### Media Files
+
+- **MP4, AVI, MOV** - Video files
+- **MP3, WAV** - Audio files
+
+#### Other Document Formats
+
+- **ODT, ODS, ODP** - OpenDocument formats
+- **DWG, DXF** - CAD files
+- **MDB, ACCDB** - Database files
+
+> **💡 Smart Processing**: Unsupported files are automatically marked as "skipped" with helpful guidance messages, preventing unnecessary S3 download attempts and improving performance.
+
+### Processing Intelligence
+
+- **🔍 Automatic Detection**: File type identification and routing to appropriate processor
+- **🚫 Graceful Handling**: Clear error messages for unsupported formats
+- **💡 User Guidance**: Recommendations for format conversion when needed
+
 ## Overview
 
 The Embedder performs the following operations:
 
 - Retrieves documents from S3 storage
-- **Validates PDF content** and processes scanned/image-based documents with OCR
-- Converts PDF content to searchable text using standard extraction or Tesseract OCR
+- **Validates document content** and processes various file types with intelligent routing
+- Converts content to searchable text using format-specific extraction methods
 - Splits documents into manageable chunks
 - Creates vector embeddings for each chunk
 - Stores embeddings in a vector database with rich metadata (including S3 keys)
 - Extracts and indexes document tags and keywords (5 per chunk for focused results)
 - Stores complete project metadata as JSONB for analytics
-- **Comprehensive failure tracking**: Captures complete document metadata (PDF title, author, creator, creation date, page count, file size) even for failed processing
+- **Comprehensive failure tracking**: Captures complete document metadata even for failed processing
 - Tracks processing status and detailed metrics for each document
-- **OCR Support**: Automatically detects and processes scanned PDFs using Tesseract OCR when available
+- **Multi-format Support**: PDF, Word, images, and text files with intelligent processing
 
 ## Environment Variables
 
@@ -625,7 +686,19 @@ Use `--retry-skipped` when:
 - Previously unsupported document formats are now supported
 - Documents were skipped due to validation issues that have been fixed
 
-> **Note**: You cannot use `--retry-failed` and `--retry-skipped` together. Choose the appropriate retry mode based on the status of documents you want to reprocess.
+#### Retry Both Failed and Skipped Documents
+
+```bash
+# Retry all failed AND skipped documents across all projects
+python main.py --retry-failed --retry-skipped
+
+# Retry both failed and skipped documents for specific project(s)
+python main.py --retry-failed --retry-skipped --project_id <project_id>
+```
+
+Use both flags together when you want to reprocess all documents that didn't complete successfully, regardless of whether they failed or were skipped.
+
+> **Note**: When using both `--retry-failed` and `--retry-skipped` together, the system will process all documents that either failed processing or were skipped due to missing dependencies (like OCR).
 
 ### Timed Mode Processing
 
