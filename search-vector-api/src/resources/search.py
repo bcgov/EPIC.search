@@ -124,13 +124,14 @@ class SearchRequestSchema(Schema):
 
 
 API = Namespace("vector-search", description="Endpoints for semantic and keyword vector search operations")
+SIMILARITY_API = Namespace("document-similarity", description="Endpoints for document similarity search operations")
 
 search_request_model = ApiHelper.convert_ma_schema_to_restx_model(
     API, SearchRequestSchema(), "Vector Search Request"
 )
 
 document_similarity_request_model = ApiHelper.convert_ma_schema_to_restx_model(
-    API, DocumentSimilarityRequestSchema(), "Document Similarity Request"
+    SIMILARITY_API, DocumentSimilarityRequestSchema(), "Document Similarity Request"
 )
 
 
@@ -230,7 +231,7 @@ class Search(Resource):
         )
 
 
-@API.route("/similar", methods=["POST", "OPTIONS"])
+@SIMILARITY_API.route("", methods=["POST", "OPTIONS"])
 class DocumentSimilarity(Resource):
     """REST resource for document similarity search operations.
     
@@ -245,8 +246,8 @@ class DocumentSimilarity(Resource):
     """
 
     @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a given document using document-level embeddings")
-    @API.expect(document_similarity_request_model)
+    @ApiHelper.swagger_decorators(SIMILARITY_API, endpoint_description="Find documents similar to a given document using document-level embeddings")
+    @SIMILARITY_API.expect(document_similarity_request_model)
     @API.response(400, "Bad Request")
     @API.response(404, "Document Not Found")
     @API.response(200, "Similarity search successful")

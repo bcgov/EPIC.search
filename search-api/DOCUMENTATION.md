@@ -223,9 +223,9 @@ Finds documents similar to a given document using document-level embeddings.
 }
 ```
 
-### GET/POST /api/stats/processing
+### GET /api/stats/processing
 
-Returns processing statistics for all projects (GET) or for specific projects (POST with `projectIds`).
+Returns processing statistics for all projects.
 
 **Response:**
 
@@ -393,6 +393,82 @@ All search strategies include detailed timing metrics in the response:
 - Per-component timing (document filtering, semantic search, keyword search, re-ranking)
 - Filtering statistics (total chunks, excluded chunks, score ranges)
 - Inference timing and breakdown
+
+## Complete API Coverage
+
+The Search API implements a comprehensive set of endpoints supporting both UI-driven and agentic workflows. This section provides complete coverage of all available endpoints.
+
+### Coverage Statistics
+
+- **Total Coverage**: 12/16 MCP tools (75%)
+- **Search Operations**: 2/5 (40%)
+- **Discovery Operations**: 5/6 (83%)
+- **Statistics Operations**: 3/4 (75%)
+- **Intelligence Operations**: 0/1 (0%) - Planned for agentic workflows
+
+### 🔍 Search Endpoints
+
+#### POST /api/search/query
+Primary search endpoint with LLM synthesis. Supports inference, ranking, and multiple search strategies.
+
+#### POST /api/search/document-similarity
+Document-level similarity search using document embeddings. Replaces the deprecated `/similar` endpoint.
+
+### 📋 Discovery Endpoints (Tools)
+
+#### GET /api/tools/projects
+Returns lightweight list of all projects with IDs and names.
+
+#### GET /api/tools/document-types
+Returns all document types with metadata and aliases.
+
+#### GET /api/tools/document-types/{type_id}
+Returns detailed information for a specific document type.
+
+#### GET /api/tools/search-strategies
+Returns available search strategies for query configuration. Used by UI for strategy selection.
+
+#### GET /api/tools/inference-options
+Returns ML inference capabilities and options. Used by UI for inference configuration.
+
+### 📊 Statistics Endpoints
+
+#### GET /api/stats/processing
+Returns processing statistics for all projects.
+
+#### GET /api/stats/project/{project_id}
+Returns detailed processing logs for a specific project.
+
+#### GET /api/stats/summary
+Returns high-level processing summary across the entire system.
+
+#### GET /api/stats/document-type-mappings *(Legacy)*
+Returns document type mappings grouped by Act year (2002 and 2018) for backward compatibility.
+
+### 🚀 Missing Endpoints (Agentic Workflows)
+
+The following endpoints are designed for agentic workflows where AI clients perform intelligent operations:
+
+- `POST /api/inference-search` - Smart search with ML inference
+- `POST /api/agentic-search` - Multi-strategy intelligent search  
+- `GET /api/capabilities` - Complete API metadata
+- `POST /api/suggest-filters` - AI-powered filter recommendations
+- `GET /api/stats/health[/{id}]` - Project health analysis
+
+### Response Patterns
+
+All endpoints follow consistent response patterns:
+- **Success**: JSON with `result` wrapper and performance `metrics`
+- **Error**: JSON with `error` field and appropriate HTTP status codes
+- **Caching**: Discovery endpoints cached for 1 hour
+- **Logging**: Comprehensive request/response logging for debugging
+
+### Performance Features
+
+- **Caching**: 1-hour TTL for discovery and metadata endpoints
+- **Metrics**: Detailed timing information in all responses
+- **Error Handling**: Comprehensive error catching with fallback responses
+- **CORS**: Configurable CORS support for web applications
 
 ## Configuration
 

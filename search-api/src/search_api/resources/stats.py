@@ -7,7 +7,6 @@ import json
 from ..services.stats_service import StatsService
 from .apihelper import Api as ApiHelper
 from search_api.utils.util import cors_preflight
-from search_api.schemas.stats import StatsRequestSchema
 
 import json
 
@@ -15,12 +14,8 @@ API = Namespace("stats", description="Endpoints for Search")
 """Custom exception messages
 """
 
-search_request_model = ApiHelper.convert_ma_schema_to_restx_model(
-    API, StatsRequestSchema(), "Stats"
-)
-
-@cors_preflight("GET, OPTIONS, POST")
-@API.route("/processing", methods=["GET", "POST", "OPTIONS"])
+@cors_preflight("GET, OPTIONS")
+@API.route("/processing", methods=["GET", "OPTIONS"])
 class StatsProcessing(Resource):
     @staticmethod
     @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for all or specific projects including successful, failed, and skipped file counts")
@@ -45,38 +40,6 @@ class StatsProcessing(Resource):
             import traceback
             current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
             current_app.logger.error("=== Stats processing GET request ended with error ===")
-            return Response(json.dumps({"error": "Failed to get processing stats"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
-
-    @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for specific projects including successful, failed, and skipped file counts")
-    def post():
-        current_app.logger.info("=== Stats processing POST request started ===")
-        current_app.logger.info(f"Request URL: {request.url}")
-        current_app.logger.info(f"Request headers: {dict(request.headers)}")
-        
-        try:
-            data = request.get_json(force=True)
-            current_app.logger.info(f"Request payload: {data}")
-            
-            project_ids = data.get("projectIds", None)
-            current_app.logger.info(f"Stats parameters - Project IDs: {project_ids}")
-            
-            current_app.logger.info("Calling StatsService.get_processing_stats with project filter")
-            start_time = time.time()
-            result = StatsService.get_processing_stats(project_ids)
-            end_time = time.time()
-            
-            current_app.logger.info(f"StatsService.get_processing_stats completed in {(end_time - start_time):.2f} seconds")
-            current_app.logger.info(f"Processing stats result count: {len(result) if isinstance(result, (list, dict)) else 'Unknown'}")
-            current_app.logger.info("=== Stats processing POST request completed successfully ===")
-            
-            return Response(json.dumps(result), status=HTTPStatus.OK, mimetype='application/json')
-        except Exception as e:
-            current_app.logger.error(f"Stats processing POST error: {str(e)}")
-            current_app.logger.error(f"Error type: {type(e).__name__}")
-            import traceback
-            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
-            current_app.logger.error("=== Stats processing POST request ended with error ===")
             return Response(json.dumps({"error": "Failed to get processing stats"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
 
 @cors_preflight("GET, OPTIONS")
@@ -140,7 +103,7 @@ class StatsSummary(Resource):
 @API.route("/document-type-mappings", methods=["GET", "OPTIONS"])
 class DocumentTypeMappings(Resource):
     @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Get document type mappings grouped by Act year (2002 and 2018)")
+    @ApiHelper.swagger_decorators(API, endpoint_description="Get document type mappings from vector API, grouped by Act year (2002 and 2018) with caching")
     def get():
         current_app.logger.info("=== Document type mappings GET request started ===")
         current_app.logger.info(f"Request URL: {request.url}")

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from flask import current_app
 from .synthesizer_resolver import get_synthesizer
-from .vector_search_client import VectorSearchClient
+from search_api.clients.vector_search_client import VectorSearchClient
 
 
 class SearchService:
@@ -214,21 +214,20 @@ class SearchService:
         }
 
     @classmethod
-    def get_similar_documents(cls, document_id, project_ids=None, limit=10):
-        """Find documents similar to a given document.
+    def get_document_similarity(cls, document_id, project_ids=None, limit=10):
+        """Find documents similar to a given document using document-level embeddings.
         
         Args:
-            document_id (str): The ID of the document to find similarities for
-            project_ids (list, optional): List of project IDs to filter by
+            document_id (str): The document ID to find similar documents for
+            project_ids (list, optional): Optional list of project IDs to filter similar documents by
             limit (int): Maximum number of similar documents to return
             
         Returns:
             dict: A dictionary containing:
-                - source_document_id (str): The ID of the source document
                 - documents (list): Similar documents with similarity scores
                 - metrics (dict): Performance metrics
         """
-        current_app.logger.info("=== SearchService.get_similar_documents started ===")
+        current_app.logger.info("=== SearchService.get_document_similarity started ===")
         current_app.logger.info(f"Document ID: {document_id}")
         current_app.logger.info(f"Project IDs: {project_ids}")
         current_app.logger.info(f"Limit: {limit}")
@@ -237,27 +236,25 @@ class SearchService:
         start_time = time.time()
         metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
 
-        # Call vector search API for similar documents
-        current_app.logger.info("Calling VectorSearchClient.find_similar_documents...")
+        # Call vector search API for document similarity
+        current_app.logger.info("Calling VectorSearchClient.document_similarity_search...")
         search_start = time.time()
-        source_document_id, documents, search_metrics = VectorSearchClient.find_similar_documents(
+        result = VectorSearchClient.document_similarity_search(
             document_id, project_ids, limit
         )
         
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
-        current_app.logger.info(f"Similar documents search completed in {metrics['search_time_ms']}ms")
-        current_app.logger.info(f"Found {len(documents) if documents else 0} similar documents")
+        current_app.logger.info(f"Document similarity search completed in {metrics['search_time_ms']}ms")
+        current_app.logger.info(f"Found {len(result.get('documents', [])) if isinstance(result, dict) and result.get('documents') else 0} similar documents")
         
-        metrics["search_breakdown"] = search_metrics
         metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
         
-        current_app.logger.info(f"SearchService.get_similar_documents completed in {metrics['total_time_ms']}ms")
-        current_app.logger.info("=== SearchService.get_similar_documents completed ===")
+        current_app.logger.info(f"SearchService.get_document_similarity completed in {metrics['total_time_ms']}ms")
+        current_app.logger.info("=== SearchService.get_document_similarity completed ===")
 
         return {
             "result": {
-                "source_document_id": source_document_id,
-                "documents": documents,
+                "documents": result.get("documents", []),
                 "metrics": metrics
             }
         }

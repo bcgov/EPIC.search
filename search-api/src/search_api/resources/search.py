@@ -98,44 +98,43 @@ class Search(Resource):
 
 
 @cors_preflight("POST, OPTIONS")
-@API.route("/similar", methods=["POST", "OPTIONS"])
-class SearchSimilar(Resource):
+@API.route("/document-similarity", methods=["POST", "OPTIONS"])
+class DocumentSimilaritySearch(Resource):
     @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a given document using document-level embeddings.")
+    @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a specific document using document-level embeddings (new endpoint).")
     @API.expect(similar_request_model)
-    @API.response(400, "Bad Request")
-    @API.response(500, "Internal Server Error")
     def post():
-        current_app.logger.info("=== Search similar request started ===")
+        """Document-level embedding similarity search - Maps to document_similarity_search MCP tool"""
+        current_app.logger.info("=== Document similarity search request started ===")
         current_app.logger.info(f"Request URL: {request.url}")
-        current_app.logger.info(f"Request payload: {API.payload}")
+        current_app.logger.info(f"Request headers: {dict(request.headers)}")
         
         try:
             request_data = SimilaritySearchRequestSchema().load(API.payload)
-            current_app.logger.info("Schema validation successful")
+            current_app.logger.info(f"Request payload: {request_data}")
             
-            document_id = request_data.get("document_id")
+            document_id = request_data["documentId"]
             project_ids = request_data.get("projectIds", None)
             limit = request_data.get("limit", 10)
             
-            current_app.logger.info(f"Similar search parameters - Document ID: {document_id}")
-            current_app.logger.info(f"Similar search parameters - Project IDs: {project_ids}")
-            current_app.logger.info(f"Similar search parameters - Limit: {limit}")
+            current_app.logger.info(f"Document similarity parameters - Document ID: {document_id}")
+            current_app.logger.info(f"Document similarity parameters - Project IDs: {project_ids}")
+            current_app.logger.info(f"Document similarity parameters - Limit: {limit}")
             
-            current_app.logger.info("Calling SearchService.get_similar_documents")
+            current_app.logger.info("Calling SearchService.get_document_similarity")
             start_time = time.time()
-            result = SearchService.get_similar_documents(document_id, project_ids, limit)
+            result = SearchService.get_document_similarity(document_id, project_ids, limit)
             end_time = time.time()
             
-            current_app.logger.info(f"SearchService.get_similar_documents completed in {(end_time - start_time):.2f} seconds")
-            current_app.logger.info(f"Similar search results: {len(result.get('documents', [])) if isinstance(result, dict) else 'Unknown count'} documents returned")
-            current_app.logger.info("=== Search similar request completed successfully ===")
+            current_app.logger.info(f"SearchService.get_document_similarity completed in {(end_time - start_time):.2f} seconds")
+            current_app.logger.info(f"Document similarity results: {len(result.get('documents', [])) if isinstance(result, dict) else 'Unknown count'} documents returned")
+            current_app.logger.info("=== Document similarity search request completed successfully ===")
             
             return Response(json.dumps(result), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:
-            current_app.logger.error(f"Search similar POST error: {str(e)}")
+            current_app.logger.error(f"Document similarity POST error: {str(e)}")
             current_app.logger.error(f"Error type: {type(e).__name__}")
             import traceback
             current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
-            current_app.logger.error("=== Search similar request ended with error ===")
-            return Response(json.dumps({"error": "Failed to get similar documents"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
+            current_app.logger.error("=== Document similarity search request ended with error ===")
+            return Response(json.dumps({"error": "Failed to get document similarity"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')

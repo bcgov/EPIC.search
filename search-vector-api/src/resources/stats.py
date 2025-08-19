@@ -22,24 +22,6 @@ from services.stats_service import StatsService
 from .apihelper import Api as ApiHelper
 
 
-class ProcessingStatsRequestSchema(Schema):
-    """Schema for validating processing statistics requests.
-    
-    Defines the structure and validation rules for processing statistics requests,
-    which retrieve aggregated processing metrics by project.
-    
-    Attributes:
-        projectIds: Optional list of project IDs to filter results
-    """
-
-    class Meta:  # pylint: disable=too-few-public-methods
-        """Exclude unknown fields in the deserialized output."""
-        unknown = EXCLUDE
-
-    projectIds = fields.List(fields.Str(), data_key="projectIds", required=False, 
-                           metadata={"description": "Optional list of project IDs to filter results. If not provided, returns stats for all projects."})
-
-
 class ProjectDetailsRequestSchema(Schema):
     """Schema for validating project details requests.
     
@@ -60,16 +42,12 @@ class ProjectDetailsRequestSchema(Schema):
 
 API = Namespace("stats", description="Endpoints for document processing statistics and metrics")
 
-processing_stats_request_model = ApiHelper.convert_ma_schema_to_restx_model(
-    API, ProcessingStatsRequestSchema(), "Processing Statistics Request"
-)
-
 project_details_request_model = ApiHelper.convert_ma_schema_to_restx_model(
     API, ProjectDetailsRequestSchema(), "Project Details Request"
 )
 
 
-@API.route("/processing", methods=["GET", "POST", "OPTIONS"])
+@API.route("/processing", methods=["GET", "OPTIONS"])
 class ProcessingStats(Resource):
     """Processing statistics endpoint.
     
@@ -132,51 +110,8 @@ class ProcessingStats(Resource):
                 mimetype="application/json"
             )
 
-    @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for specific projects")
-    @API.expect(processing_stats_request_model)
-    @API.response(400, "Bad Request")
-    @API.response(200, "Statistics retrieved successfully")
-    def post():
-        """Get processing statistics filtered by project IDs.
-        
-        Retrieves aggregated processing statistics for specified projects only.
-        This allows filtering the statistics to focus on specific projects
-        of interest while maintaining the same comprehensive metrics structure.
-        
-        The request body should contain:
-        {
-            "projectIds": ["project-uuid-1", "project-uuid-2"]
-        }
-        
-        Returns:
-            Response: JSON containing filtered processing statistics with the
-                     same structure as the GET endpoint but limited to the
-                     specified projects
-        """
-        try:
-            request_data = ProcessingStatsRequestSchema().load(API.payload)
-            project_ids = request_data.get("projectIds", None)
-            
-            result = StatsService.get_processing_stats(project_ids)
-            return Response(
-                response=json.dumps(result),
-                status=HTTPStatus.OK,
-                mimetype="application/json"
-            )
-        except Exception as e:
-            error_response = {
-                "error": "Failed to retrieve processing statistics",
-                "details": str(e)
-            }
-            return Response(
-                response=json.dumps(error_response),
-                status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                mimetype="application/json"
-            )
 
-
-@API.route("/project/<project_id>", methods=["GET", "OPTIONS"])
+@API.route("/processing/<project_id>", methods=["GET", "OPTIONS"])
 class ProjectProcessingDetails(Resource):
     """Project processing details endpoint.
     

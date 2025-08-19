@@ -27,6 +27,7 @@ from .search import API as SEARCH_API
 from .ops import API as OPS_API
 from .document import API as DOCUMENT_API
 from .stats import API as STATS_API
+from .tools import API as TOOLS_API
 
 import logging
 logger = logging.getLogger(__name__)
@@ -69,10 +70,14 @@ HEALTH = Api(
 API.add_namespace(SEARCH_API)
 API.add_namespace(DOCUMENT_API)
 API.add_namespace(STATS_API)
+API.add_namespace(TOOLS_API)
 HEALTH.add_namespace(OPS_API)
 
 logger.info("API namespaces registered:")
 logger.info(f"- SEARCH_API: {SEARCH_API.name}")
+logger.info(f"- DOCUMENT_API: {DOCUMENT_API.name}")
+logger.info(f"- STATS_API: {STATS_API.name}")
+logger.info(f"- TOOLS_API: {TOOLS_API.name}")
 logger.info(f"- DOCUMENT_API: {DOCUMENT_API.name}")
 logger.info(f"- STATS_API: {STATS_API.name}")
 logger.info(f"- OPS_API: {OPS_API.name}")

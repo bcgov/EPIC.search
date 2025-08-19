@@ -20,6 +20,25 @@ OpenAI service
 
 For detailed documentation, see [DOCUMENTATION.md](./DOCUMENTATION.md).
 
+## API Coverage Status
+
+The Search API exposes **12/16 MCP tools (75% coverage)** across multiple categories:
+
+- **Search Operations**: 2/5 (40%) - Query, Document similarity 
+- **Discovery Operations**: 5/6 (83%) - Projects, Document types, Search strategies, Inference options
+- **Statistics Operations**: 3/4 (75%) - Processing stats, Project details, System summary
+- **Intelligence Operations**: 0/1 (0%) - Agentic workflows (planned)
+
+### Key Endpoints
+- `POST /api/search/query` - Main search with LLM synthesis
+- `POST /api/search/document-similarity` - Document-level similarity
+- `GET /api/tools/*` - Discovery endpoints for UI metadata
+- `GET /api/stats/*` - Processing statistics and health
+
+Missing endpoints are primarily for agentic workflows and advanced AI capabilities.
+
+See [DOCUMENTATION.md](./DOCUMENTATION.md) for complete API coverage, endpoint details, and implementation status.
+
 ## Getting Started
 
 ### Development Environment
