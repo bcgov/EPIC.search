@@ -3,7 +3,7 @@
 # Use with VS Code REST Client extension or similar HTTP client
 ###
 
-@baseUrl = http://localhost:5000/api
+@baseUrl = http://localhost:8081/api
 @contentType = application/json
 
 ###
@@ -148,7 +148,7 @@ Accept: application/json
 
 ###
 # Get Specific Project Details
-GET {{baseUrl}}/stats/project/project-123
+GET {{baseUrl}}/stats/processing/project-123
 Accept: application/json
 
 ###
@@ -163,17 +163,12 @@ Accept: application/json
 
 ###
 # Health Check
-GET http://localhost:5000/healthz
+GET http://localhost:8081/healthz
 Accept: application/json
 
 ###
 # Readiness Check
-GET http://localhost:5000/readyz
-Accept: application/json
-
-###
-# Get Document Type Mappings (Legacy)
-GET {{baseUrl}}/stats/document-type-mappings
+GET http://localhost:8081/readyz
 Accept: application/json
 
 ###
@@ -307,7 +302,7 @@ Accept: application/json
 
 ###
 # Test Non-existent Project
-GET {{baseUrl}}/stats/project/non-existent-project
+GET {{baseUrl}}/stats/processing/non-existent-project
 Accept: application/json
 
 ###
@@ -383,7 +378,7 @@ Content-Type: {{contentType}}
 #    - Statistics: 100-500ms
 #
 # 6. Test with different base URLs:
-#    - Local: http://localhost:5000/api
+#    - Local: http://localhost:8081/api
 #    - Development: https://dev-search-api.example.com/api
 #    - Production: https://search-api.example.com/api
 #

@@ -460,7 +460,7 @@ class VectorSearchClient:
         """Get detailed processing information for a specific project.
         
         MCP Tool: get_project_details
-        Endpoint: GET /stats/projects/{project_id}
+        Endpoint: GET /stats/processing/{project_id}
         
         Args:
             project_id (str): The project ID to get details for
@@ -470,7 +470,7 @@ class VectorSearchClient:
         """
         try:
             base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
-            vector_search_url = f"{base_url}/stats/project/{project_id}"
+            vector_search_url = f"{base_url}/stats/processing/{project_id}"
             
             current_app.logger.info(f"Calling vector search project details API at: {vector_search_url}")
             response = requests.get(vector_search_url, timeout=300)
@@ -627,7 +627,7 @@ class VectorSearchClient:
             },
             "get_project_details": {
                 "method": "get_project_details",
-                "endpoint": "GET /stats/projects/{project_id}",
+                "endpoint": "GET /stats/processing/{project_id}",
                 "description": "Get detailed processing information for a specific project"
             },
             "get_system_summary": {

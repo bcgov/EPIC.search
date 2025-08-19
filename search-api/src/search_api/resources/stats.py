@@ -43,7 +43,7 @@ class StatsProcessing(Resource):
             return Response(json.dumps({"error": "Failed to get processing stats"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
 
 @cors_preflight("GET, OPTIONS")
-@API.route("/project/<string:project_id>", methods=["GET", "OPTIONS"])
+@API.route("/processing/<string:project_id>", methods=["GET", "OPTIONS"])
 class StatsProject(Resource):
     @staticmethod
     @ApiHelper.swagger_decorators(API, endpoint_description="Get detailed processing logs for a specific project")
@@ -98,31 +98,3 @@ class StatsSummary(Resource):
             current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
             current_app.logger.error("=== Stats summary GET request ended with error ===")
             return Response(json.dumps({"error": "Failed to get system summary"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
-        
-@cors_preflight("GET, OPTIONS")
-@API.route("/document-type-mappings", methods=["GET", "OPTIONS"])
-class DocumentTypeMappings(Resource):
-    @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Get document type mappings from vector API, grouped by Act year (2002 and 2018) with caching")
-    def get():
-        current_app.logger.info("=== Document type mappings GET request started ===")
-        current_app.logger.info(f"Request URL: {request.url}")
-        
-        try:
-            current_app.logger.info("Calling StatsService.get_document_type_mappings()")
-            start_time = time.time()
-            result = StatsService.get_document_type_mappings()
-            end_time = time.time()
-            
-            current_app.logger.info(f"StatsService.get_document_type_mappings completed in {(end_time - start_time):.2f} seconds")
-            current_app.logger.info(f"Document type mappings result: {len(result) if isinstance(result, (list, dict)) else 'Unknown'} mappings")
-            current_app.logger.info("=== Document type mappings GET request completed successfully ===")
-            
-            return Response(json.dumps(result), status=HTTPStatus.OK, mimetype='application/json')
-        except Exception as e:
-            current_app.logger.error(f"Document type mappings GET error: {str(e)}")
-            current_app.logger.error(f"Error type: {type(e).__name__}")
-            import traceback
-            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
-            current_app.logger.error("=== Document type mappings GET request ended with error ===")
-            return Response(json.dumps({"error": "Failed to get document type mappings"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
