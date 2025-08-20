@@ -699,6 +699,24 @@ Use both flags together when you want to reprocess all documents that didn't com
 
 > **Note**: When using both `--retry-failed` and `--retry-skipped` together, the system will process all documents that either failed processing or were skipped due to missing dependencies (like OCR).
 
+#### What Happens During Retry Operations
+
+**Data Cleanup and Recreation:**
+
+- **`--retry-failed`**:
+  - **Deletes** processing logs for failed documents
+  - **Cleans up** any partial data (chunks, document records) from incomplete processing
+  - **Recreates** all data from scratch by reprocessing the original documents
+  
+- **`--retry-skipped`**:
+  - **Deletes** processing logs for skipped documents  
+  - **Recreates** processing logs with new processing results
+  - No cleanup of chunks/documents needed (skipped files weren't processed initially)
+
+- **Combined Mode**: Applies the appropriate cleanup for each document type
+
+This approach ensures data consistency and eliminates any corrupt or partial processing artifacts that might have been left behind from previous failed attempts.
+
 ### Timed Mode Processing
 
 For scheduled processing windows or resource-constrained environments, use timed mode to run processing for a specific duration:

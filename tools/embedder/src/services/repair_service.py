@@ -63,7 +63,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
     session = Session()
     
     try:
-        print("🗑️  BULK CLEANUP: Starting cleanup of all failed documents...")
+        print("BULK CLEANUP: Starting cleanup of all failed documents...")
         
         # Build project filter
         project_filter = ""
@@ -84,10 +84,10 @@ def bulk_cleanup_failed_documents(project_ids=None):
         failed_docs = session.execute(failed_docs_query).fetchall()
         
         if not failed_docs:
-            print("✅ No failed documents found to clean up.")
+            print("No failed documents found to clean up.")
             return {'documents_cleaned': 0, 'chunks_deleted': 0, 'document_records_deleted': 0}
         
-        print(f"🗑️  Found {len(failed_docs)} failed documents to clean up")
+        print(f"Found {len(failed_docs)} failed documents to clean up")
         
         cleanup_summary = {
             'documents_cleaned': 0,
@@ -102,7 +102,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
         for i in range(0, len(failed_docs), batch_size):
             batch = failed_docs[i:i + batch_size]
             
-            print(f"🗑️  Cleaning batch {i//batch_size + 1}/{(len(failed_docs) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
+            print(f"Cleaning batch {i//batch_size + 1}/{(len(failed_docs) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
             
             # Extract document IDs for this batch
             doc_ids = [doc.document_id for doc in batch]
@@ -112,8 +112,8 @@ def bulk_cleanup_failed_documents(project_ids=None):
             for doc in batch:
                 cleanup_summary['cleaned_files'].append({
                     'project_id': doc.project_id,
-                    'document_id': doc.document_id,
-                    's3_key': doc.s3_key
+                    'document_id': doc.document_id
+                    # Note: s3_key will be retrieved from API during queueing
                 })
                 cleanup_summary['projects_affected'].add(doc.project_id)
             
@@ -134,22 +134,152 @@ def bulk_cleanup_failed_documents(project_ids=None):
             cleanup_summary['document_records_deleted'] += docs_deleted
             cleanup_summary['projects_affected'].update(project_ids_batch)
             
-            print(f"  ✅ Batch complete: {chunks_deleted} chunks, {docs_deleted} document records deleted")
+            print(f"  Batch complete: {chunks_deleted} chunks, {docs_deleted} document records deleted")
         
         # Convert set to count for final summary
         cleanup_summary['projects_affected'] = len(cleanup_summary['projects_affected'])
         
-        print(f"🗑️  BULK CLEANUP COMPLETE:")
-        print(f"   📄 Documents cleaned: {cleanup_summary['documents_cleaned']}")
-        print(f"   🧩 Chunks deleted: {cleanup_summary['chunks_deleted']}")
-        print(f"   📋 Document records deleted: {cleanup_summary['document_records_deleted']}")
-        print(f"   📁 Projects affected: {cleanup_summary['projects_affected']}")
+        print(f"BULK CLEANUP COMPLETE:")
+        print(f"   Documents cleaned: {cleanup_summary['documents_cleaned']}")
+        print(f"   Chunks deleted: {cleanup_summary['chunks_deleted']}")
+        print(f"   Document records deleted: {cleanup_summary['document_records_deleted']}")
+        print(f"   Projects affected: {cleanup_summary['projects_affected']}")
         
         return cleanup_summary
         
     except Exception as e:
         session.rollback()
-        print(f"❌ Error during bulk cleanup: {e}")
+        print(f"Error during bulk cleanup: {e}")
+        raise
+    finally:
+        try:
+            session.close()
+            engine.dispose()
+        except:
+            pass
+
+
+def bulk_cleanup_skipped_documents(project_ids=None):
+    """
+    Bulk cleanup of ALL skipped documents upfront, before processing starts.
+    
+    This removes processing logs for all skipped documents in one
+    sequential operation, allowing them to be reprocessed.
+    
+    Args:
+        project_ids (list, optional): List of project IDs to clean up. If None, cleans all projects.
+        
+    Returns:
+        dict: Summary of cleanup operations
+    """
+    import os
+    from src.config.settings import get_settings
+    from sqlalchemy import create_engine, event, text
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.exc import OperationalError
+    import time
+    
+    settings = get_settings()
+    process_id = os.getpid()
+    
+    # Use main database connection for bulk operations
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    # Single connection for bulk cleanup
+    engine = create_engine(
+        database_url,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=60,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": "30",
+        }
+    )
+    
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    session = SessionLocal()
+    
+    try:
+        print("BULK CLEANUP: Starting cleanup of all skipped documents...")
+        
+        # Build project filter
+        project_filter = ""
+        if project_ids:
+            project_ids_str = "', '".join(project_ids)
+            project_filter = f"AND pl.project_id IN ('{project_ids_str}')"
+        
+        # Get all skipped document IDs
+        skipped_docs_query = text(f"""
+            SELECT DISTINCT pl.document_id, pl.project_id, 
+                   pl.metrics->'document_info'->>'document_name' as doc_name
+            FROM processing_logs pl 
+            WHERE pl.status = 'skipped' {project_filter}
+            ORDER BY pl.project_id, pl.document_id
+        """)
+        
+        skipped_docs = session.execute(skipped_docs_query).fetchall()
+        
+        if not skipped_docs:
+            print("No skipped documents found to clean up.")
+            return {'documents_cleaned': 0, 'processing_logs_deleted': 0}
+        
+        print(f"Found {len(skipped_docs)} skipped documents to clean up")
+        
+        cleanup_summary = {
+            'documents_cleaned': 0,
+            'processing_logs_deleted': 0,
+            'projects_affected': set(),
+            'cleaned_files': []
+        }
+        
+        # Process in batches to avoid overwhelming the database
+        batch_size = 100
+        for i in range(0, len(skipped_docs), batch_size):
+            batch = skipped_docs[i:i + batch_size]
+            
+            print(f"Cleaning batch {i//batch_size + 1}/{(len(skipped_docs) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
+            
+            doc_ids = [doc.document_id for doc in batch]
+            project_ids_batch = [doc.project_id for doc in batch]
+            
+            # Track the files we're cleaning up for the return value
+            for doc in batch:
+                cleanup_summary['cleaned_files'].append({
+                    'project_id': doc.project_id,
+                    'document_id': doc.document_id
+                    # Note: s3_key will be retrieved from API during queueing
+                })
+                cleanup_summary['projects_affected'].add(doc.project_id)
+            
+            # Delete processing logs only (no chunks or document records for skipped files)
+            logs_deleted = session.query(ProcessingLog).filter(
+                ProcessingLog.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+            
+            cleanup_summary['documents_cleaned'] += len(batch)
+            cleanup_summary['processing_logs_deleted'] += logs_deleted
+            
+            print(f"  Batch complete: {logs_deleted} processing logs deleted")
+        
+        cleanup_summary['projects_affected'] = len(cleanup_summary['projects_affected'])
+        
+        print(f"BULK CLEANUP COMPLETE:")
+        print(f"   Documents cleaned: {cleanup_summary['documents_cleaned']}")
+        print(f"   Processing logs deleted: {cleanup_summary['processing_logs_deleted']}")
+        print(f"   Projects affected: {cleanup_summary['projects_affected']}")
+        
+        return cleanup_summary
+        
+    except Exception as e:
+        session.rollback()
+        print(f"Error during bulk cleanup: {e}")
         raise
     finally:
         try:
@@ -172,16 +302,16 @@ def bulk_cleanup_repair_candidates(project_ids=None):
     Returns:
         dict: Summary of cleanup operations
     """
-    print("🔧 REPAIR MODE: Analyzing database for inconsistent document states...")
+    print("REPAIR MODE: Analyzing database for inconsistent document states...")
     
     # Get repair candidates that need cleanup and reprocessing
     repair_candidates = get_repair_candidates_for_processing(project_ids[0] if project_ids else None)
     
     if not repair_candidates:
-        print("✅ No repair candidates found. Database is in good condition.")
+        print("No repair candidates found. Database is in good condition.")
         return {'documents_cleaned': 0, 'chunks_deleted': 0, 'document_records_deleted': 0}
     
-    print(f"🔧 Found {len(repair_candidates)} documents needing repair:")
+    print(f"Found {len(repair_candidates)} documents needing repair:")
     for candidate in repair_candidates[:5]:  # Show first 5
         print(f"  • {candidate['document_id'][:12]}... - {candidate['repair_reason']}")
     if len(repair_candidates) > 5:
@@ -238,7 +368,7 @@ def bulk_cleanup_repair_candidates(project_ids=None):
         for i in range(0, len(repair_candidates), batch_size):
             batch = repair_candidates[i:i + batch_size]
             
-            print(f"🔧 Cleaning repair batch {i//batch_size + 1}/{(len(repair_candidates) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
+            print(f"Cleaning repair batch {i//batch_size + 1}/{(len(repair_candidates) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
             
             doc_ids = [candidate['document_id'] for candidate in batch]
             project_ids_batch = [candidate['project_id'] for candidate in batch]
@@ -247,8 +377,8 @@ def bulk_cleanup_repair_candidates(project_ids=None):
             for candidate in batch:
                 cleanup_summary['cleaned_files'].append({
                     'project_id': candidate['project_id'],
-                    'document_id': candidate['document_id'],
-                    's3_key': candidate['document_id']  # For repair, s3_key == document_id
+                    'document_id': candidate['document_id']
+                    # Note: s3_key will be retrieved from API during queueing
                 })
             
             # Delete chunks
@@ -274,22 +404,22 @@ def bulk_cleanup_repair_candidates(project_ids=None):
             cleanup_summary['processing_logs_deleted'] += logs_deleted
             cleanup_summary['projects_affected'].update(project_ids_batch)
             
-            print(f"  ✅ Repair batch complete: {chunks_deleted} chunks, {docs_deleted} docs, {logs_deleted} logs deleted")
+            print(f"  Repair batch complete: {chunks_deleted} chunks, {docs_deleted} docs, {logs_deleted} logs deleted")
         
         cleanup_summary['projects_affected'] = len(cleanup_summary['projects_affected'])
         
-        print(f"🔧 REPAIR CLEANUP COMPLETE:")
-        print(f"   📄 Documents cleaned: {cleanup_summary['documents_cleaned']}")
-        print(f"   🧩 Chunks deleted: {cleanup_summary['chunks_deleted']}")
-        print(f"   📋 Document records deleted: {cleanup_summary['document_records_deleted']}")
-        print(f"   📝 Processing logs deleted: {cleanup_summary['processing_logs_deleted']}")
-        print(f"   📁 Projects affected: {cleanup_summary['projects_affected']}")
+        print(f"REPAIR CLEANUP COMPLETE:")
+        print(f"   Documents cleaned: {cleanup_summary['documents_cleaned']}")
+        print(f"   Chunks deleted: {cleanup_summary['chunks_deleted']}")
+        print(f"   Document records deleted: {cleanup_summary['document_records_deleted']}")
+        print(f"   Processing logs deleted: {cleanup_summary['processing_logs_deleted']}")
+        print(f"   Projects affected: {cleanup_summary['projects_affected']}")
         
         return cleanup_summary
         
     except Exception as e:
         session.rollback()
-        print(f"❌ Error during repair cleanup: {e}")
+        print(f"Error during repair cleanup: {e}")
         raise
     finally:
         try:
@@ -810,13 +940,13 @@ def print_repair_analysis(project_id=None):
     """
     repair_analysis = analyze_repair_candidates(project_id)
     
-    print("\n🔧 REPAIR MODE ANALYSIS")
+    print("\nREPAIR MODE ANALYSIS")
     print("=" * 80)
     
     total_issues = sum(len(issues) for issues in repair_analysis.values())
     
     if total_issues == 0:
-        print("✅ No inconsistent document states found. Database is in good condition.")
+        print("No inconsistent document states found. Database is in good condition.")
         return
     
     print(f"Found {total_issues} documents with inconsistent states:")
@@ -828,11 +958,11 @@ def print_repair_analysis(project_id=None):
             continue
             
         category_names = {
-            'partial_failures': '📄 Partial Processing Failures',
-            'incomplete_processing': '⏸️  Incomplete Processing',
-            'orphaned_chunks': '🗑️  Orphaned Chunks', 
-            'missing_document_records': '📋 Missing Document Records',
-            'inconsistent_success': '❌ Inconsistent Success Status'
+            'partial_failures': 'Partial Processing Failures',
+            'incomplete_processing': 'Incomplete Processing',
+            'orphaned_chunks': 'Orphaned Chunks', 
+            'missing_document_records': 'Missing Document Records',
+            'inconsistent_success': 'Inconsistent Success Status'
         }
         
         print(f"{category_names.get(category, category)}: {len(documents)} documents")
@@ -848,5 +978,5 @@ def print_repair_analysis(project_id=None):
     
     # Count documents that will be reprocessed
     reprocess_candidates = get_repair_candidates_for_processing(project_id)
-    print(f"🔄 Will clean up and reprocess: {len(reprocess_candidates)} documents")
+    print(f"Will clean up and reprocess: {len(reprocess_candidates)} documents")
     print("=" * 80)

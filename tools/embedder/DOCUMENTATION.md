@@ -563,11 +563,14 @@ The embedder supports selective reprocessing of documents based on their status:
 - **`--retry-failed`**: Reprocesses documents that previously failed during processing
   - Targets documents with status `"failure"` (e.g., OCR failures, processing errors)
   - **Performs upfront bulk cleanup** of all failed documents before processing starts
+  - **Deletes**: Processing logs, chunks, and document records from failed attempts
+  - **Recreates**: All data from scratch by reprocessing the original documents
   - Useful for fixing documents after resolving configuration or infrastructure issues
   
 - **`--retry-skipped`**: Reprocesses documents that were previously skipped
   - Targets documents with status `"skipped"` (e.g., scanned PDFs without OCR, unsupported formats)
-  - **No cleanup needed** - skipped files were intentionally not processed
+  - **Deletes**: Processing logs for skipped documents (no chunks/documents to clean up)
+  - **Recreates**: New processing logs with successful processing results
   - Useful when enabling OCR or adding support for new document types
 
 - **Combined Retry Mode**: Use both `--retry-failed` and `--retry-skipped` together
@@ -595,7 +598,7 @@ The retry modes now use an improved **bulk cleanup with targeted queueing** appr
 ```bash
 🗑️ BULK CLEANUP: Found 150 failed documents to clean up
 🗑️ Cleaning batch 1/2 (100 documents)...
-✅ Batch complete: 245 chunks, 100 document records deleted
+✅ Batch complete: 245 chunks, 100 document records, 100 processing logs deleted
 🗑️ BULK CLEANUP COMPLETE: 150 documents cleaned
 �️ Files to reprocess: 150
 �🚀 Starting targeted processing - cleaned failed documents will be queued for reprocessing
