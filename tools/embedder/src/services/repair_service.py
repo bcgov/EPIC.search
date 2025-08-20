@@ -145,6 +145,8 @@ def cleanup_document_data(document_id: str, project_id: str):
     Removes chunks, document records, and processing logs for the specified document
     to ensure a clean reprocessing attempt.
     
+    Uses a worker-specific database engine to avoid SSL connection issues.
+    
     Args:
         document_id (str): The document ID to clean up
         project_id (str): The project ID the document belongs to
@@ -152,43 +154,118 @@ def cleanup_document_data(document_id: str, project_id: str):
     Returns:
         dict: Summary of what was cleaned up
     """
-    session = get_session()
+    import os
+    from src.config.settings import get_settings
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.exc import OperationalError
+    import time
     
-    try:
-        cleanup_summary = {
-            'chunks_deleted': 0,
-            'document_records_deleted': 0,
-            'processing_logs_deleted': 0
+    settings = get_settings()
+    process_id = os.getpid()
+    
+    # Worker-specific database settings for cleanup operations
+    WORKER_POOL_SIZE = int(os.getenv('WORKER_POOL_SIZE', '1'))
+    WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))
+    WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))
+    WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30'))
+    
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    # Create process-specific engine for cleanup
+    engine_to_use = create_engine(
+        database_url,
+        pool_size=WORKER_POOL_SIZE,
+        max_overflow=WORKER_MAX_OVERFLOW,
+        pool_timeout=WORKER_POOL_TIMEOUT,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": WORKER_CONNECT_TIMEOUT,
+            "application_name": f"epic_embedder_cleanup_full_{process_id}",
+            "prepare_threshold": None
         }
-        
-        # Delete chunks
-        chunks_deleted = session.query(DocumentChunk).filter_by(
-            document_id=document_id, 
-            project_id=project_id
-        ).delete(synchronize_session=False)
-        cleanup_summary['chunks_deleted'] = chunks_deleted
-        
-        # Delete document record
-        docs_deleted = session.query(Document).filter_by(
-            document_id=document_id
-        ).delete(synchronize_session=False)
-        cleanup_summary['document_records_deleted'] = docs_deleted
-        
-        # Delete processing logs
-        logs_deleted = session.query(ProcessingLog).filter_by(
-            document_id=document_id,
-            project_id=project_id
-        ).delete(synchronize_session=False)
-        cleanup_summary['processing_logs_deleted'] = logs_deleted
-        
-        session.commit()
-        return cleanup_summary
-        
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+    )
+    
+    @event.listens_for(engine_to_use, "connect")
+    def set_cleanup_timeouts(dbapi_connection, connection_record):
+        """Set statement and lock timeouts for cleanup connections."""
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '300s'")
+            cursor.execute("SET lock_timeout = '60s'")
+    
+    Session = sessionmaker(bind=engine_to_use)
+    session = Session()
+    
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            cleanup_summary = {
+                'chunks_deleted': 0,
+                'document_records_deleted': 0,
+                'processing_logs_deleted': 0
+            }
+            
+            print(f"[CLEANUP] Attempt {attempt + 1}/{max_retries}: Full cleanup of document {document_id}...")
+            
+            # Delete chunks
+            chunks_deleted = session.query(DocumentChunk).filter_by(
+                document_id=document_id, 
+                project_id=project_id
+            ).delete(synchronize_session=False)
+            cleanup_summary['chunks_deleted'] = chunks_deleted
+            
+            # Delete document record
+            docs_deleted = session.query(Document).filter_by(
+                document_id=document_id
+            ).delete(synchronize_session=False)
+            cleanup_summary['document_records_deleted'] = docs_deleted
+            
+            # Delete processing logs
+            logs_deleted = session.query(ProcessingLog).filter_by(
+                document_id=document_id,
+                project_id=project_id
+            ).delete(synchronize_session=False)
+            cleanup_summary['processing_logs_deleted'] = logs_deleted
+            
+            session.commit()
+            print(f"[CLEANUP] Successfully completed full cleanup: {cleanup_summary}")
+            return cleanup_summary
+            
+        except OperationalError as e:
+            session.rollback()
+            if "SSL error" in str(e) or "EOF detected" in str(e) or "consuming input failed" in str(e):
+                print(f"[CLEANUP] SSL/Connection error on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"[CLEANUP] Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    
+                    try:
+                        session.close()
+                    except:
+                        pass
+                    session = Session()
+                    continue
+                else:
+                    print(f"[CLEANUP] Failed full cleanup after {max_retries} attempts due to connection issues")
+                    raise
+            else:
+                print(f"[CLEANUP] Non-connection error: {e}")
+                raise
+        except Exception as e:
+            session.rollback()
+            print(f"[CLEANUP] Unexpected error during full cleanup: {e}")
+            raise
+        finally:
+            try:
+                session.close()
+            except:
+                pass
 
 
 def cleanup_document_content_for_retry(document_id: str, project_id: str):
@@ -198,6 +275,8 @@ def cleanup_document_content_for_retry(document_id: str, project_id: str):
     This removes chunks and document records but preserves processing logs
     so that the retry status is maintained until successful reprocessing.
     
+    Uses a worker-specific database engine to avoid SSL connection issues.
+    
     Args:
         document_id (str): The document ID to clean up
         project_id (str): The project ID the document belongs to
@@ -205,43 +284,122 @@ def cleanup_document_content_for_retry(document_id: str, project_id: str):
     Returns:
         dict: Summary of what was cleaned up
     """
-    session = get_session()
+    import os
+    from src.config.settings import get_settings
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.exc import OperationalError
+    import time
     
-    try:
-        cleanup_summary = {
-            'chunks_deleted': 0,
-            'document_records_deleted': 0,
-            'processing_logs_preserved': 0
+    settings = get_settings()
+    process_id = os.getpid()
+    
+    # Worker-specific database settings for cleanup operations
+    WORKER_POOL_SIZE = int(os.getenv('WORKER_POOL_SIZE', '1'))
+    WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))
+    WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))
+    WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30'))
+    
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    # Create process-specific engine with worker settings for cleanup
+    engine_to_use = create_engine(
+        database_url,
+        pool_size=WORKER_POOL_SIZE,
+        max_overflow=WORKER_MAX_OVERFLOW,
+        pool_timeout=WORKER_POOL_TIMEOUT,
+        pool_recycle=1800,     # 30 minutes
+        pool_pre_ping=True,    # Verify connections before use
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": WORKER_CONNECT_TIMEOUT,
+            "application_name": f"epic_embedder_cleanup_{process_id}",
+            "prepare_threshold": None   # Disable prepared statements to avoid P03 errors
         }
-        
-        # Delete chunks
-        chunks_deleted = session.query(DocumentChunk).filter_by(
-            document_id=document_id, 
-            project_id=project_id
-        ).delete(synchronize_session=False)
-        cleanup_summary['chunks_deleted'] = chunks_deleted
-        
-        # Delete document record
-        docs_deleted = session.query(Document).filter_by(
-            document_id=document_id
-        ).delete(synchronize_session=False)
-        cleanup_summary['document_records_deleted'] = docs_deleted
-        
-        # Count processing logs (preserved, not deleted)
-        logs_count = session.query(ProcessingLog).filter_by(
-            document_id=document_id,
-            project_id=project_id
-        ).count()
-        cleanup_summary['processing_logs_preserved'] = logs_count
-        
-        session.commit()
-        return cleanup_summary
-        
-    except Exception as e:
-        session.rollback()
-        raise e
-    finally:
-        session.close()
+    )
+    
+    # Set timeouts after connection establishment for cleanup worker's engine
+    @event.listens_for(engine_to_use, "connect")
+    def set_cleanup_timeouts(dbapi_connection, connection_record):
+        """Set statement and lock timeouts for cleanup connections."""
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '300s'")  # 5 minute query timeout
+            cursor.execute("SET lock_timeout = '60s'")        # 1 minute lock timeout
+    
+    Session = sessionmaker(bind=engine_to_use)
+    session = Session()
+    
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            cleanup_summary = {
+                'chunks_deleted': 0,
+                'document_records_deleted': 0,
+                'processing_logs_preserved': 0
+            }
+            
+            print(f"[CLEANUP] Attempt {attempt + 1}/{max_retries}: Cleaning up document {document_id} for retry...")
+            
+            # Delete chunks with retry logic
+            chunks_deleted = session.query(DocumentChunk).filter_by(
+                document_id=document_id, 
+                project_id=project_id
+            ).delete(synchronize_session=False)
+            cleanup_summary['chunks_deleted'] = chunks_deleted
+            
+            # Delete document record
+            docs_deleted = session.query(Document).filter_by(
+                document_id=document_id
+            ).delete(synchronize_session=False)
+            cleanup_summary['document_records_deleted'] = docs_deleted
+            
+            # Count processing logs (preserved, not deleted)
+            logs_count = session.query(ProcessingLog).filter_by(
+                document_id=document_id,
+                project_id=project_id
+            ).count()
+            cleanup_summary['processing_logs_preserved'] = logs_count
+            
+            session.commit()
+            print(f"[CLEANUP] Successfully cleaned up: {cleanup_summary}")
+            return cleanup_summary
+            
+        except OperationalError as e:
+            session.rollback()
+            if "SSL error" in str(e) or "EOF detected" in str(e) or "consuming input failed" in str(e):
+                print(f"[CLEANUP] SSL/Connection error on attempt {attempt + 1}/{max_retries}: {e}")
+                if attempt < max_retries - 1:
+                    # Wait before retry with exponential backoff
+                    wait_time = 2 ** attempt
+                    print(f"[CLEANUP] Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    
+                    # Close and recreate session for next attempt
+                    try:
+                        session.close()
+                    except:
+                        pass
+                    session = Session()
+                    continue
+                else:
+                    print(f"[CLEANUP] Failed cleanup after {max_retries} attempts due to connection issues")
+                    raise
+            else:
+                # Non-connection error, re-raise immediately
+                print(f"[CLEANUP] Non-connection error: {e}")
+                raise
+        except Exception as e:
+            session.rollback()
+            print(f"[CLEANUP] Unexpected error during cleanup: {e}")
+            raise
+        finally:
+            try:
+                session.close()
+            except:
+                pass
 
 
 def cleanup_project_data(project_id: str):

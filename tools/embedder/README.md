@@ -416,6 +416,7 @@ For servers with 16+ CPU cores processing large document sets:
 FILES_CONCURRENCY_SIZE=16            # Number of concurrent document processing workers
 KEYWORD_EXTRACTION_WORKERS=2         # Number of keyword extraction threads per worker
 CHUNK_INSERT_BATCH_SIZE=50           # Number of chunks per database batch
+DEBUG_FILE_SIZE_ISSUES=true          # Log debug info when file size/page info is missing
 
 # Database pool configuration for high-compute environments
 DB_POOL_SIZE=20                      # More connections for main operations
@@ -424,6 +425,8 @@ DB_POOL_RECYCLE=600                  # 10 minutes - shorter for stability on lon
 DB_POOL_TIMEOUT=300                  # 5 minutes for patient connection waiting
 DB_CONNECT_TIMEOUT=120               # 2 minutes for network delays
 ```
+
+**Note**: The `DEBUG_FILE_SIZE_ISSUES` setting helps identify documents with missing or invalid file size information in your API data. Set to `false` to reduce log verbosity in production.
 
 ## Architecture
 

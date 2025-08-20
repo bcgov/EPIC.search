@@ -200,20 +200,9 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     if not projects:
         return {"message": "No projects returned by API."}
 
-    # Calculate total documents for progress tracking
-    total_documents = 0
-    for project in projects:
-        try:
-            project_id = project["_id"]
-            files_count = get_files_count_for_project(project_id)
-            total_documents += files_count
-        except Exception as e:
-            print(f"Warning: Could not get file count for project {project.get('name', 'unknown')}: {e}")
+    # Note: We'll initialize progress tracking after building the document queue
+    # so we have the accurate count of documents that will actually be processed
     
-    # Start progress tracking
-    print(f"TIMED MODE: {time_limit_minutes} minutes limit" if timed_mode else "")
-    progress_tracker.start(len(projects), total_documents)
-
     results = []
     embedder_temp_dir = get_embedder_temp_dir()
     
@@ -256,6 +245,11 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         # This branch should never be reached now since use_dynamic_processing is always True
         print(f"\n=== FALLBACK SEQUENTIAL PROCESSING ===")
         print(f"This should not happen - please report as a bug")
+        
+        # Initialize progress tracker for fallback mode (should never be reached)
+        # Use estimated total since we don't have the exact queue built yet
+        estimated_total = sum(get_files_count_for_project(p["_id"]) for p in projects if "_id" in p)
+        progress_tracker.start(len(projects), estimated_total)
         
         # Original sequential project processing loop
         for project in projects:
@@ -626,6 +620,16 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
     time_limit_reached = False
     documents_processed = 0
     
+    # Determine project mode for progress tracking
+    if len(set(task.project_name for task in document_tasks)) > 1:
+        progress_tracker.update_current_project("Cross-Project Processing")
+        print(f"[PROGRESS] Set project mode: Cross-Project Processing ({len(set(task.project_name for task in document_tasks))} projects)")
+    else:
+        # Single project mode
+        single_project_name = document_tasks[0].project_name if document_tasks else "Unknown Project"
+        progress_tracker.update_current_project(single_project_name)
+        print(f"[PROGRESS] Set project mode: {single_project_name}")
+    
     with ProcessPoolExecutor(max_workers=batch_size) as executor:
         future_to_task = {}
         document_index = 0
@@ -651,22 +655,31 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
             doc_id = base_meta.get("document_id") or os.path.basename(file_key)
             doc_name = api_doc.get('name', doc_id)
             
-            # File size handling
-            file_size_raw = api_doc.get('internalSize', '0')
+            # File size handling with fallbacks and debug info
+            file_size_raw = api_doc.get('internalSize', '0') or api_doc.get('fileSize', '0')
             try:
                 file_size_bytes = int(file_size_raw) if file_size_raw else 0
             except (ValueError, TypeError):
                 file_size_bytes = 0
+                if settings.multiprocessing.debug_file_size_issues:
+                    print(f"[DEBUG] Invalid file size for {doc_name}: internalSize='{api_doc.get('internalSize')}', fileSize='{api_doc.get('fileSize')}'")
             
-            size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes > 0 else None
-            estimated_pages = max(1, int(file_size_bytes / 50000)) if file_size_bytes > 0 else None
+            # Calculate size and pages with better defaults
+            if file_size_bytes > 0:
+                size_mb = file_size_bytes / (1024 * 1024)
+                estimated_pages = max(1, int(file_size_bytes / 50000))  # ~50KB per page estimate
+            else:
+                # Fallback when size is unknown - use conservative estimates for display
+                size_mb = None
+                estimated_pages = None
+                if file_size_bytes == 0 and settings.multiprocessing.debug_file_size_issues:
+                    print(f"[DEBUG] No file size info for {doc_name}, will show as processing without size/page info")
             
             # Submit work and track it
             future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc, is_retry)
             future_to_task[future] = (task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, document_index)
             
-            # Update progress tracker
-            progress_tracker.update_current_project(task.project_name)
+            # Update progress tracker (no need to update current_project repeatedly in cross-project mode)
             progress_tracker.start_document_processing(worker_id, doc_name, estimated_pages, size_mb)
             
             document_index += 1
@@ -741,22 +754,30 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                 next_doc_id = next_base_meta.get("document_id") or os.path.basename(next_file_key)
                 next_doc_name = next_api_doc.get('name', next_doc_id)
                 
-                # File size handling for next document
-                next_file_size_raw = next_api_doc.get('internalSize', '0')
+                # File size handling for next document with fallbacks and debug info
+                next_file_size_raw = next_api_doc.get('internalSize', '0') or next_api_doc.get('fileSize', '0')
                 try:
                     next_file_size_bytes = int(next_file_size_raw) if next_file_size_raw else 0
                 except (ValueError, TypeError):
                     next_file_size_bytes = 0
+                    if settings.multiprocessing.debug_file_size_issues:
+                        print(f"[DEBUG] Invalid file size for {next_doc_name}: internalSize='{next_api_doc.get('internalSize')}', fileSize='{next_api_doc.get('fileSize')}'")
                 
-                next_size_mb = next_file_size_bytes / (1024 * 1024) if next_file_size_bytes > 0 else None
-                next_estimated_pages = max(1, int(next_file_size_bytes / 50000)) if next_file_size_bytes > 0 else None
+                # Calculate size and pages for next document
+                if next_file_size_bytes > 0:
+                    next_size_mb = next_file_size_bytes / (1024 * 1024)
+                    next_estimated_pages = max(1, int(next_file_size_bytes / 50000))
+                else:
+                    next_size_mb = None
+                    next_estimated_pages = None
+                    if next_file_size_bytes == 0 and settings.multiprocessing.debug_file_size_issues:
+                        print(f"[DEBUG] No file size info for {next_doc_name}, will show as processing without size/page info")
                 
                 # Submit next document immediately 
                 next_future = executor.submit(load_data, next_file_key, next_base_meta, temp_dir, next_api_doc, is_retry)
                 future_to_task[next_future] = (next_task, next_file_key, next_base_meta, next_api_doc, worker_id, next_doc_name, next_estimated_pages, next_size_mb, document_index)
                 
-                # Update progress tracker for new document
-                progress_tracker.update_current_project(next_task.project_name)
+                # Update progress tracker for new document (no need to update current_project repeatedly)
                 progress_tracker.start_document_processing(worker_id, next_doc_name, next_estimated_pages, next_size_mb)
                 
                 print(f"[DYNAMIC] Worker {worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
@@ -931,6 +952,24 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
     
     total_documents = len(document_queue)
     print(f"\n=== Unified queue built: {total_documents} documents across {len(projects)} projects ===")
+    
+    # Initialize progress tracking with accurate document count
+    if timed_mode:
+        print(f"TIMED MODE: {time_limit_seconds / 60:.1f} minutes limit")
+    
+    # Show processing mode for clarity
+    if retry_failed_only and retry_skipped_only:
+        print(f"RETRY MODE: Processing {total_documents} failed and skipped documents")
+    elif retry_failed_only:
+        print(f"RETRY MODE: Processing {total_documents} failed documents")
+    elif retry_skipped_only:
+        print(f"RETRY MODE: Processing {total_documents} skipped documents")
+    elif repair_mode:
+        print(f"REPAIR MODE: Processing {total_documents} documents needing repair")
+    else:
+        print(f"NORMAL MODE: Processing {total_documents} new documents")
+    
+    progress_tracker.start(len(projects), total_documents)
     
     if total_documents == 0:
         print(f"No {mode_desc} to process across all projects")

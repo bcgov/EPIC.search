@@ -169,14 +169,20 @@ class ProgressTracker:
                     
                     # Add page count and size info if available
                     extra_info = ""
-                    if doc_info.get('pages') is not None:
+                    has_page_info = doc_info.get('pages') is not None
+                    has_size_info = doc_info.get('size_mb') is not None
+                    
+                    if has_page_info:
                         extra_info += f" ({doc_info['pages']}p"
-                        if doc_info.get('size_mb') is not None:
+                        if has_size_info:
                             extra_info += f", {doc_info['size_mb']:.1f}MB)"
                         else:
                             extra_info += ")"
-                    elif doc_info.get('size_mb') is not None:
+                    elif has_size_info:
                         extra_info += f" ({doc_info['size_mb']:.1f}MB)"
+                    else:
+                        # No size or page info available
+                        extra_info += " (processing...)"
                     
                     print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}")
             else:
