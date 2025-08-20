@@ -340,6 +340,18 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             temp.flush()
             temp_path = temp.name
         
+        # Check if downloaded file is empty (this causes workers to hang)
+        file_size = os.path.getsize(temp_path)
+        if file_size == 0:
+            print(f"[ERROR] Downloaded file is empty (0 bytes): {s3_key}")
+            try:
+                os.unlink(temp_path)  # Clean up empty file
+            except:
+                pass
+            raise ValueError(f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues.")
+        
+        print(f"[DEBUG] Downloaded {s3_key}: {file_size} bytes to {temp_path}")
+        
         # Extract PDF metadata only for PDF files
         if original_ext.lower() == '.pdf':
             try:
