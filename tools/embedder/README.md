@@ -720,15 +720,15 @@ python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 
 - Gracefully stops after the specified time limit
 - Completes any documents currently being processed
-- Does not start new projects or fetch new document batches after time limit
+- Does not start new projects or fetch new documents after time limit
 - Provides elapsed and remaining time updates during processing
-- Perfect for scheduled maintenance windows or batch processing jobs
+- Perfect for scheduled maintenance windows or continuous processing jobs
 
 **Use Cases:**
 
 - Scheduled overnight processing windows
 - Resource-limited environments with time constraints  
-- Batch processing jobs with SLA requirements
+- Continuous processing jobs with SLA requirements
 - Testing and development with controlled run times
 
 ## Development

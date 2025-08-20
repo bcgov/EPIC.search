@@ -4,7 +4,7 @@ Loader module for document processing, chunking, embedding, and database upsert.
 This module orchestrates the full document processing pipeline:
 - Downloads and validates files
 - Splits documents into pages and chunks
-- Extracts tags and keywords (batched and parallelized)
+- Extracts tags and keywords (parallel processing within documents)
 - Generates chunk and document-level embeddings
 - Stores all data using SQLAlchemy ORM and pgvector
 - Collects and stores structured processing metrics
@@ -256,7 +256,7 @@ def chunk_and_embed_pages(
                     chunk_id = chunk_dict["id"]
                     tags = chunk_id_to_tags.get(chunk_id, [])
                     chunk_metadatas[i]["tags"] = tags
-            # Batch keyword extraction for all chunks on this page with configurable mode
+            # Parallel keyword extraction for all chunks on this page with configurable mode
             t_kw = time.perf_counter() if chunk_metrics is not None else None
             
             # Choose extraction method based on configuration

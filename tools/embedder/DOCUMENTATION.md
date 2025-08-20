@@ -7,7 +7,7 @@ The EPIC.search Embedder is a robust, production-grade document processing pipel
 ### Core Components
 
 1. **Main Processor (`main.py`)** - Entry point for project and document processing workflow.
-2. **Processor Service (`processor.py`)** - Manages batch processing of files with parallel execution.
+2. **Processor Service (`processor.py`)** - Manages continuous queue processing of files with parallel execution.
 3. **Loader Service (`loader.py`)** - Handles document loading, validation, text extraction, chunking, embedding, and tag extraction.
 4. **Logger Service (`logger.py`)** - Tracks document processing status and metrics in the unified database.
 5. **OCR Module (`src/services/ocr/`)** - Advanced OCR processing for scanned PDF documents with provider abstraction.
@@ -34,7 +34,7 @@ The system now includes intelligent cross-project parallel processing to maximiz
 
 - Multiple projects in any processing mode (normal, retry-failed, retry-skipped, repair)
 - Creates unified document queue across all projects
-- Workers process documents from any project in optimized batches
+- Workers process documents from any project in continuous queue for optimal utilization
 - Example: `python main.py --project_id proj1 proj2 proj3 --retry-failed`
 
 **Sequential Mode (Automatic)**:
@@ -115,7 +115,7 @@ graph TB
 
     %% Flow connections
     API -->|Get Document IDs| MP
-    MP -->|Batch Process| PS
+    MP -->|Continuous Queue| PS
     PS -->|Process Files| LS
     S3 -->|Download PDFs| LS
     LS --> VAL
@@ -150,7 +150,7 @@ graph TB
 
 1. Document IDs are fetched from the API for a specific project.
 2. Document processing status is checked to avoid re-processing.
-3. Documents are processed in batches using parallel execution.
+3. Documents are processed using continuous queue with parallel execution.
 4. Each document is:
    - Downloaded from S3
    - **Validated for format and content** (routes files to appropriate processing pipeline)

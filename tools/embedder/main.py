@@ -115,7 +115,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     2. Fetches project information from the API
     3. For each project, retrieves its documents
     4. Filters out already processed documents (or includes only failed/skipped ones in retry mode)
-    5. Processes new documents in batches
+    5. Processes documents using continuous queue with dynamic worker allocation
     
     Args:
         project_ids (list or str, optional): Process specific project(s). Can be a single ID string or list of IDs. If None, all projects are processed.
@@ -217,16 +217,17 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     results = []
     embedder_temp_dir = get_embedder_temp_dir()
     
-    # Determine processing mode: cross-project or sequential
-    # Only shallow_mode needs sequential processing due to per-project limits
-    use_cross_project_processing = len(projects) > 1 and not shallow_mode
+    # Determine processing mode: dynamic queuing or sequential
+    # Use dynamic queuing for all cases - even shallow mode can benefit from continuous queue
+    # within the per-project limits
+    use_dynamic_processing = True  # Always use dynamic processing for maximum efficiency
     
     print(f"[DEBUG] Processing mode determination:")
     print(f"[DEBUG]   - Number of projects: {len(projects)}")
     print(f"[DEBUG]   - Shallow mode: {shallow_mode}")
-    print(f"[DEBUG]   - Use cross-project processing: {use_cross_project_processing}")
+    print(f"[DEBUG]   - Use dynamic processing: {use_dynamic_processing}")
     
-    if use_cross_project_processing:
+    if use_dynamic_processing:
         mode_type = "NORMAL"
         if retry_failed_only and retry_skipped_only:
             mode_type = "RETRY FAILED & SKIPPED"
@@ -237,16 +238,24 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         elif repair_mode:
             mode_type = "REPAIR"
             
-        print(f"\n=== CROSS-PROJECT {mode_type} PROCESSING MODE ===")
-        print(f"Processing {len(projects)} projects with unified worker pool to maximize throughput")
-        print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy across projects")
-        print(f"MIXED-PROJECT BATCHING: Documents from different projects will be processed together in each batch")
-        results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, repair_mode)
-    else:
-        # Use original sequential processing for shallow mode or single project
+        print(f"\n=== DYNAMIC {mode_type} PROCESSING MODE ===")
         if len(projects) > 1:
-            print(f"\n=== SEQUENTIAL PROJECT PROCESSING ===")
-            print(f"Using sequential processing due to: shallow_mode (per-project limits)")
+            print(f"Processing {len(projects)} projects with unified worker pool to maximize throughput")
+            print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy across projects")
+            print(f"CROSS-PROJECT QUEUE: Documents from different projects will be processed in continuous queue for optimal worker utilization")
+        elif shallow_mode:
+            print(f"Processing {len(projects)} projects with shallow limits using continuous queue")
+            print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy within per-project limits")
+            print(f"SHALLOW + DYNAMIC: Up to {shallow_limit} documents per project, but processed with full worker utilization")
+        else:
+            print(f"Processing single project with dynamic worker queuing to maximize throughput")
+            print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy with continuous document queuing")
+            print(f"DYNAMIC QUEUING: Workers immediately get next document when they finish current one")
+        results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, repair_mode, shallow_mode, shallow_limit)
+    else:
+        # This branch should never be reached now since use_dynamic_processing is always True
+        print(f"\n=== FALLBACK SEQUENTIAL PROCESSING ===")
+        print(f"This should not happen - please report as a bug")
         
         # Original sequential project processing loop
         for project in projects:
@@ -459,57 +468,39 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
                             f"Found {len(s3_file_keys)} new file(s) for {project_name}. Processing with {files_concurrency_size} workers..."
                         )
                     
-                    # Process files in batches for timed mode, or all at once for normal mode
-                    if timed_mode:
-                        # Process in batches using the configured concurrency size for time checks
-                        batch_size = files_concurrency_size  # Use configured concurrency as batch size
-                        total_files = len(s3_file_keys)
-                        files_processed = 0
-                        
-                        for i in range(0, total_files, batch_size):
-                            # Check time limit before each batch
-                            time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
-                            if time_limit_reached:
-                                print(f"[TIMED MODE] Time limit reached. Processed {files_processed}/{total_files} files for {project_name}.")
-                                break
-                            
-                            # Get batch of files
-                            end_idx = min(i + batch_size, total_files)
-                            batch_s3_keys = s3_file_keys[i:end_idx]
-                            batch_metadata = metadata_list[i:end_idx]
-                            batch_api_docs = api_docs_list[i:end_idx]
-                            
-                            print(f"[TIMED MODE] Processing batch {i//batch_size + 1}: files {i+1}-{end_idx} of {total_files} (batch size: {batch_size})")
-                            
-                            process_files(
-                                project_id,
-                                batch_s3_keys,
-                                batch_metadata,
-                                batch_api_docs,
-                                batch_size=files_concurrency_size,
-                                temp_dir=embedder_temp_dir,
-                                is_retry=False,
-                            )
-                            
-                            files_processed = end_idx
-                            
-                            # Update shallow count if in shallow mode
-                            if shallow_mode:
-                                shallow_success_count += len(batch_s3_keys)
-                                if shallow_success_count >= shallow_limit:
-                                    print(f"[SHALLOW MODE] Reached {shallow_success_count} processed documents for {project_name} (limit: {shallow_limit}).")
-                                    break
-                    else:
-                        # Normal mode: process all files at once for maximum efficiency
-                        process_files(
-                            project_id,
-                            s3_file_keys,
-                            metadata_list,
-                            api_docs_list,
-                            batch_size=files_concurrency_size,
-                            temp_dir=embedder_temp_dir,
-                            is_retry=False,
+                    # This fallback code is obsolete - all processing now uses continuous queue
+                    # The following code should never execute as process_projects_in_parallel handles all modes
+                    print(f"[WARNING] Fallback processing detected - this should not happen. Using continuous queue anyway.")
+                    
+                    # Convert to dynamic processing format and delegate to the unified processor
+                    from collections import namedtuple
+                    DocumentTask = namedtuple('DocumentTask', ['project_id', 'project_name', 's3_key', 'metadata', 'api_doc'])
+                    document_queue = []
+                    
+                    for i, s3_key in enumerate(s3_file_keys):
+                        task = DocumentTask(
+                            project_id=project_id,
+                            project_name=project_name,
+                            s3_key=s3_key,
+                            metadata=metadata_list[i],
+                            api_doc=api_docs_list[i]
                         )
+                        document_queue.append(task)
+                    
+                    # Use the unified continuous queue processor
+                    from src.services.loader import load_data
+                    processing_result = process_mixed_project_files(
+                        document_queue,
+                        [task.s3_key for task in document_queue],
+                        [task.metadata for task in document_queue],
+                        [task.api_doc for task in document_queue],
+                        batch_size=files_concurrency_size,
+                        temp_dir=embedder_temp_dir,
+                        is_retry=False,
+                        timed_mode=timed_mode,
+                        time_limit_seconds=time_limit_seconds,
+                        start_time=start_time,
+                    )
                         
                     # Update shallow count for normal mode
                     if not timed_mode and shallow_mode:
@@ -593,117 +584,195 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     return {"message": "Processing completed", "results": results}
 
 
-def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False):
+def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False, timed_mode=False, time_limit_seconds=None, start_time=None):
     """
-    Process files from multiple projects concurrently using a unified worker pool.
-    This enables true cross-project processing where all workers stay busy regardless of individual project sizes.
+    Process files from multiple projects concurrently using a unified worker pool with dynamic queuing.
+    Workers continuously pull new documents as they finish, maximizing CPU utilization.
     
     Args:
         document_tasks (list): List of DocumentTask namedtuples containing project info for each document
         file_keys (list): List of file keys or paths to be processed
         metadata_list (list): List of metadata dictionaries corresponding to each file  
         api_docs_list (list): List of API document objects corresponding to each file
-        batch_size (int, optional): Number of files to process in parallel. Defaults to 4.
+        batch_size (int, optional): Number of worker processes to run in parallel. Defaults to 4.
         temp_dir (str, optional): Temporary directory for processing files. Passed to load_data.
         is_retry (bool, optional): If True, cleanup existing document content before processing.
+        timed_mode (bool, optional): If True, check time limits and stop gracefully when reached.
+        time_limit_seconds (int, optional): Time limit in seconds for timed mode.
+        start_time (datetime, optional): Start time for timed mode calculations.
         
     Returns:
-        None: Results are logged through the logging system
+        dict: Processing results including time_limit_reached status
     """
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from src.services.logger import log_processing_result
     from src.services.loader import load_data
+    from datetime import datetime
+    import os
     
     if len(file_keys) != len(metadata_list) or len(file_keys) != len(api_docs_list) or len(file_keys) != len(document_tasks):
         raise ValueError("document_tasks, file_keys, metadata_list, and api_docs_list must have the same length.")
 
     if not file_keys:
         print("No files to process.")
-        return
-
-    # Create tasks list with project info
-    tasks = []
-    for i, (task, file_key, base_meta, api_doc) in enumerate(zip(document_tasks, file_keys, metadata_list, api_docs_list)):
-        worker_id = i % batch_size + 1
-        doc_id = base_meta.get("document_id") or os.path.basename(file_key)
-        doc_name = api_doc.get('name', doc_id)
-        
-        # File size is stored in 'internalSize' field as a string, convert to int
-        file_size_raw = api_doc.get('internalSize', '0')
-        try:
-            file_size_bytes = int(file_size_raw) if file_size_raw else 0
-        except (ValueError, TypeError):
-            file_size_bytes = 0
-        
-        size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes > 0 else None
-        
-        # Estimate page count from file size (rough estimate: ~50KB per page for PDFs)
-        estimated_pages = max(1, int(file_size_bytes / 50000)) if file_size_bytes > 0 else None
-        
-        tasks.append((task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb))
+        return {"time_limit_reached": False, "documents_processed": 0}
 
     print(f"Starting ProcessPoolExecutor with max_workers={batch_size}")
+    print(f"DYNAMIC QUEUING: Workers will continuously pull new documents as they finish")
+    
+    if timed_mode and time_limit_seconds and start_time:
+        print(f"TIMED MODE: Will stop gracefully when {time_limit_seconds/60:.1f} minute limit is reached")
+    
+    time_limit_reached = False
+    documents_processed = 0
     
     with ProcessPoolExecutor(max_workers=batch_size) as executor:
         future_to_task = {}
-        
-        # Submit all tasks
-        for task_info in tasks:
-            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb = task_info
-            future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc, is_retry)
-            future_to_task[future] = task_info
-            
-            # Only register the first batch_size documents as active (they start immediately)
-            if len(future_to_task) <= batch_size:
-                # Update progress tracker to show current project being processed
-                progress_tracker.update_current_project(task.project_name)
-                progress_tracker.start_document_processing(worker_id, doc_name, estimated_pages, size_mb)
-        
+        document_index = 0
+        total_documents = len(document_tasks)
         completed_count = 0
         
-        # Process completed tasks
-        for future in as_completed(future_to_task):
-            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb = future_to_task[future]
+        # Submit initial worker pool (up to worker_count workers)
+        while document_index < min(batch_size, total_documents):
+            # Check time limit before submitting initial work
+            if timed_mode and time_limit_seconds and start_time:
+                elapsed_time = datetime.now() - start_time
+                if elapsed_time.total_seconds() >= time_limit_seconds:
+                    print(f"[TIMED MODE] Time limit reached before processing could begin. Stopping gracefully.")
+                    time_limit_reached = True
+                    break
+            
+            task = document_tasks[document_index]
+            file_key = file_keys[document_index]
+            base_meta = metadata_list[document_index]
+            api_doc = api_docs_list[document_index]
+            
+            worker_id = document_index % batch_size + 1
             doc_id = base_meta.get("document_id") or os.path.basename(file_key)
-            project_id = task.project_id  # Get project_id from the task
+            doc_name = api_doc.get('name', doc_id)
+            
+            # File size handling
+            file_size_raw = api_doc.get('internalSize', '0')
+            try:
+                file_size_bytes = int(file_size_raw) if file_size_raw else 0
+            except (ValueError, TypeError):
+                file_size_bytes = 0
+            
+            size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes > 0 else None
+            estimated_pages = max(1, int(file_size_bytes / 50000)) if file_size_bytes > 0 else None
+            
+            # Submit work and track it
+            future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc, is_retry)
+            future_to_task[future] = (task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, document_index)
+            
+            # Update progress tracker
+            progress_tracker.update_current_project(task.project_name)
+            progress_tracker.start_document_processing(worker_id, doc_name, estimated_pages, size_mb)
+            
+            document_index += 1
+        
+        if not time_limit_reached:
+            print(f"Submitted initial {len(future_to_task)} documents to workers. Queue contains {total_documents - document_index} more documents.")
+        
+        # Process completed tasks and dynamically submit new work
+        for future in as_completed(future_to_task):
+            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, doc_index = future_to_task[future]
+            doc_id = base_meta.get("document_id") or os.path.basename(file_key)
+            project_id = task.project_id
             
             try:
                 result = future.result()
                 
-                # Register completion
                 if result is None:
-                    print(f"File {doc_id} processing completed with None result (status already logged internally).")
+                    print(f"[{completed_count + 1}/{total_documents}] File {doc_id} processing completed with None result (status already logged internally).")
                     progress_tracker.finish_document_processing(worker_id, success=False, skipped=True)
                 else:
-                    print(f"Successfully processed: {result}")
+                    print(f"[{completed_count + 1}/{total_documents}] Successfully processed: {result}")
                     log_processing_result(project_id, doc_id, "success")
-                    # For successful processing, pass the page/size info
                     progress_tracker.finish_document_processing(worker_id, success=True, pages=estimated_pages, size_mb=size_mb)
                     
             except Exception as e:
-                print(f"Failed to process {doc_id}: {e}")
+                print(f"[{completed_count + 1}/{total_documents}] Failed to process {doc_id}: {e}")
                 log_processing_result(project_id, doc_id, "failure")
                 progress_tracker.finish_document_processing(worker_id, success=False, skipped=False)
                 
             completed_count += 1
+            documents_processed += 1
             
-            # When a worker finishes, start the next queued document if there is one
-            next_index = completed_count + batch_size - 1  # Index of next document to start
-            if next_index < len(tasks):
-                # Find the next task to start
-                if next_index < len(list(future_to_task.keys())):
-                    # Get the next task info
-                    next_task_info = tasks[next_index]
-                    next_task, _, _, _, next_worker_id, next_doc_name, next_pages, next_size_mb = next_task_info
+            # Check time limit after each document completes
+            if timed_mode and time_limit_seconds and start_time:
+                elapsed_time = datetime.now() - start_time
+                elapsed_minutes = elapsed_time.total_seconds() / 60
+                remaining_seconds = max(0, time_limit_seconds - elapsed_time.total_seconds())
+                remaining_minutes = remaining_seconds / 60
+                
+                if elapsed_time.total_seconds() >= time_limit_seconds:
+                    print(f"[TIMED MODE] Time limit of {time_limit_seconds/60:.1f} minutes reached after processing {completed_count} documents.")
+                    print(f"[TIMED MODE] Elapsed: {elapsed_minutes:.1f}min. Stopping gracefully.")
+                    print(f"[TIMED MODE] Cancelling remaining {total_documents - completed_count} documents in queue.")
+                    time_limit_reached = True
                     
-                    # Update progress tracker for the next document's project
-                    progress_tracker.update_current_project(next_task.project_name)
-                    progress_tracker.start_document_processing(next_worker_id, next_doc_name, next_pages, next_size_mb)
+                    # Cancel any remaining futures that haven't started yet
+                    for remaining_future in future_to_task:
+                        if not remaining_future.done():
+                            remaining_future.cancel()
+                    
+                    break
+                
+                # Show time status every 10 documents
+                if completed_count % 10 == 0:
+                    print(f"[TIMED MODE] Elapsed: {elapsed_minutes:.1f}min, Remaining: {remaining_minutes:.1f}min ({completed_count}/{total_documents} processed)")
+            
+            # DYNAMIC QUEUING: Only submit next document if time limit not reached
+            if not time_limit_reached and document_index < total_documents:
+                # Final time check before submitting new work
+                if timed_mode and time_limit_seconds and start_time:
+                    elapsed_time = datetime.now() - start_time
+                    if elapsed_time.total_seconds() >= time_limit_seconds:
+                        print(f"[TIMED MODE] Time limit reached. Not submitting additional documents.")
+                        time_limit_reached = True
+                        break
+                
+                next_task = document_tasks[document_index]
+                next_file_key = file_keys[document_index]
+                next_base_meta = metadata_list[document_index]
+                next_api_doc = api_docs_list[document_index]
+                
+                next_doc_id = next_base_meta.get("document_id") or os.path.basename(next_file_key)
+                next_doc_name = next_api_doc.get('name', next_doc_id)
+                
+                # File size handling for next document
+                next_file_size_raw = next_api_doc.get('internalSize', '0')
+                try:
+                    next_file_size_bytes = int(next_file_size_raw) if next_file_size_raw else 0
+                except (ValueError, TypeError):
+                    next_file_size_bytes = 0
+                
+                next_size_mb = next_file_size_bytes / (1024 * 1024) if next_file_size_bytes > 0 else None
+                next_estimated_pages = max(1, int(next_file_size_bytes / 50000)) if next_file_size_bytes > 0 else None
+                
+                # Submit next document immediately 
+                next_future = executor.submit(load_data, next_file_key, next_base_meta, temp_dir, next_api_doc, is_retry)
+                future_to_task[next_future] = (next_task, next_file_key, next_base_meta, next_api_doc, worker_id, next_doc_name, next_estimated_pages, next_size_mb, document_index)
+                
+                # Update progress tracker for new document
+                progress_tracker.update_current_project(next_task.project_name)
+                progress_tracker.start_document_processing(worker_id, next_doc_name, next_estimated_pages, next_size_mb)
+                
+                print(f"[DYNAMIC] Worker {worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
+                document_index += 1
+            elif document_index >= total_documents:
+                print(f"[DYNAMIC] Worker {worker_id} finished. No more documents to assign. ({total_documents - completed_count} workers still active)")
 
-    print("All possible files processed for mixed-project batch.")
+    if time_limit_reached:
+        print(f"[TIMED MODE] Graceful shutdown completed. Processed {documents_processed} documents before time limit.")
+    else:
+        print(f"All {total_documents} documents processed with dynamic queuing.")
+    
+    return {"time_limit_reached": time_limit_reached, "documents_processed": documents_processed}
 
 
-def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, repair_mode=False):
+def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, shallow_mode=False, shallow_limit=None):
     """Process multiple projects in parallel using a unified document queue across all projects"""
     from collections import namedtuple
     
@@ -744,6 +813,15 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         already_skipped = load_skipped_files(project_id)
         
         documents_queued = 0
+        
+        # For shallow mode, track how many successful documents this project already has
+        if shallow_mode:
+            successful_count = len(already_completed)
+            if successful_count >= shallow_limit:
+                print(f"  Skipping {project_name} - already has {successful_count} successful documents (limit: {shallow_limit})")
+                continue
+            remaining_quota = shallow_limit - successful_count
+            print(f"  {project_name} has {successful_count}/{shallow_limit} successful documents. Will queue up to {remaining_quota} more.")
         
         # Handle repair mode differently - get repair candidates
         if repair_mode:
@@ -828,6 +906,11 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                         # Normal mode: skip already processed files
                         if is_processed:
                             continue
+                    
+                    # Shallow mode: check if we've reached the quota for this project
+                    if shallow_mode and documents_queued >= remaining_quota:
+                        print(f"  Reached shallow limit for {project_name} ({documents_queued}/{remaining_quota} documents queued)")
+                        break
                         
                     s3_key = doc.get("internalURL")
                     if not s3_key:
@@ -853,73 +936,35 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         print(f"No {mode_desc} to process across all projects")
         return list(project_results.values())
     
-    # Process documents in optimized batches across all projects
+    # Process documents using true continuous queue (no batching)
     files_concurrency_size = settings.multi_processing_settings.files_concurrency_size
     
-    # For cross-project processing, use the worker count as batch size to maximize parallelism
-    # This ensures all workers stay busy with documents from different projects
-    optimal_batch_size = files_concurrency_size
+    print(f"Processing {total_documents} documents with {files_concurrency_size} workers using continuous queue")
+    print(f"Workers will continuously pull from queue - no batching, no idle time")
     
-    print(f"Processing {total_documents} documents with {files_concurrency_size} workers in batches of {optimal_batch_size}")
-    print(f"This ensures all {files_concurrency_size} workers stay busy across different projects")
+    # Use the mixed-project processor with all documents at once
+    # This creates a true continuous queue where workers pull documents as they finish
+    processing_result = process_mixed_project_files(
+        document_queue,  # Pass all documents as one big queue
+        [task.s3_key for task in document_queue],
+        [task.metadata for task in document_queue],
+        [task.api_doc for task in document_queue],
+        batch_size=files_concurrency_size,
+        temp_dir=embedder_temp_dir,
+        is_retry=(retry_failed_only or retry_skipped_only),
+        timed_mode=timed_mode,
+        time_limit_seconds=time_limit_seconds,
+        start_time=start_time,
+    )
     
-    documents_processed = 0
-    batch_number = 1
-    
-    # Process documents in batches
-    for i in range(0, total_documents, optimal_batch_size):
-        # Check time limit before each batch
-        if timed_mode:
-            time_limit_reached, elapsed_minutes, remaining_minutes = check_time_limit(start_time, time_limit_seconds)
-            if time_limit_reached:
-                print(f"[TIMED MODE] Time limit reached. Processed {documents_processed}/{total_documents} total documents.")
-                break
+    # Handle timed mode results
+    if timed_mode and processing_result.get("time_limit_reached"):
+        print(f"\n[TIMED MODE] Processing stopped due to time limit.")
+        print(f"[TIMED MODE] Documents processed: {processing_result.get('documents_processed', 0)}")
         
-        # Get batch of documents
-        end_idx = min(i + optimal_batch_size, total_documents)
-        batch_tasks = document_queue[i:end_idx]
-        
-        # Extract batch data for mixed-project processing
-        batch_s3_keys = []
-        batch_metadata_list = []
-        batch_api_docs_list = []
-        project_names_in_batch = set()
-        
-        for task in batch_tasks:
-            batch_s3_keys.append(task.s3_key)
-            batch_metadata_list.append(task.metadata)
-            batch_api_docs_list.append(task.api_doc)
-            project_names_in_batch.add(task.project_name)
-        
-        print(f"\n[CROSS-PROJECT BATCH {batch_number}] Processing documents {i+1}-{end_idx} of {total_documents}")
-        print(f"  Batch spans {len(project_names_in_batch)} projects: {', '.join(sorted(project_names_in_batch))}")
-        print(f"  Processing all {len(batch_tasks)} documents together to maximize worker utilization")
-        
-        batch_start = datetime.now()
-        
-        # Process all documents in the batch together (mixed projects)
-        # Since process_files expects a single project_id, we'll use a special cross-project processor
-        process_mixed_project_files(
-            batch_tasks,  # Pass the full task list with project info
-            batch_s3_keys,
-            batch_metadata_list,
-            batch_api_docs_list,
-            batch_size=files_concurrency_size,
-            temp_dir=embedder_temp_dir,
-            is_retry=(retry_failed_only or retry_skipped_only),
-        )
-        
-        batch_end = datetime.now()
-        batch_duration = (batch_end - batch_start).total_seconds()
-        documents_processed = end_idx
-        
-        # Update progress tracking
-        for _ in range(len(batch_tasks)):
+        # Update progress tracking with actual processed count
+        for _ in range(processing_result.get('documents_processed', 0)):
             progress_tracker.increment_processed()
-        
-        print(f"  Batch {batch_number} completed in {batch_duration:.1f}s ({documents_processed}/{total_documents} total documents processed)")
-        
-        batch_number += 1
     
     # Calculate final results
     for project_id in project_results:

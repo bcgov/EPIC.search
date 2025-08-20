@@ -180,7 +180,7 @@ class ProgressTracker:
                     
                     print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}")
             else:
-                print("Active Workers: None (between batches)")
+                print("Active Workers: None (waiting for documents)")
             print(f"{'-'*80}")
     
     def _print_final_summary(self, reason="Completed"):
