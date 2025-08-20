@@ -500,12 +500,14 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                 print(f"[DYNAMIC] Worker {worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
                 document_index += 1
             elif document_index >= total_documents:
-                print(f"[DYNAMIC] Worker {worker_id} finished. No more documents to assign. ({total_documents - completed_count} workers still active)")
+                # Calculate how many futures are still running
+                remaining_futures = sum(1 for f in future_to_task if not f.done())
+                print(f"[DYNAMIC] Worker {worker_id} finished. No more documents to assign. ({remaining_futures} workers still active)")
 
     if time_limit_reached:
         print(f"[TIMED MODE] Graceful shutdown completed. Processed {documents_processed} documents before time limit.")
     else:
-        print(f"All {total_documents} documents processed with dynamic queuing.")
+        print(f"All queued documents completed. {completed_count} documents processed with dynamic queuing.")
     
     return {"time_limit_reached": time_limit_reached, "documents_processed": documents_processed}
 
@@ -579,10 +581,24 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
     elif repair_mode:
         mode_desc = "documents needing repair"
     
-    print(f"\n=== Building unified document queue across {len(projects)} projects ({mode_desc}) ===")
+    # OPTIMIZATION: Filter projects to only those that have documents to retry/repair
+    projects_to_process = projects
+    if cleanup_performed and cleaned_files_to_process:
+        # Extract unique project IDs from cleaned files
+        cleaned_project_ids = set(f['project_id'] for f in cleaned_files_to_process)
+        
+        # Filter projects list to only include those with documents to retry
+        projects_to_process = [p for p in projects if p["_id"] in cleaned_project_ids]
+        
+        print(f"\n🎯 OPTIMIZATION: Filtered to {len(projects_to_process)} projects with {mode_desc} (from {len(projects)} total projects)")
+        if len(projects_to_process) < len(projects):
+            projects_skipped = len(projects) - len(projects_to_process)
+            print(f"   Skipping {projects_skipped} projects with no {mode_desc} - avoiding unnecessary API calls")
+    
+    print(f"\n=== Building unified document queue across {len(projects_to_process)} projects ({mode_desc}) ===")
     
     # Build the unified document queue
-    for project in projects:
+    for project in projects_to_process:
         project_id = project["_id"]
         project_name = project["name"]
         project_results[project_id] = {"project_name": project_name, "duration_seconds": 0}

@@ -588,10 +588,16 @@ The retry modes now use an improved **bulk cleanup with targeted queueing** appr
 - **Sequential Cleanup Phase**: All failed documents are cleaned up upfront in batches before processing starts
 - **File Tracking**: The cleanup process tracks exactly which files were cleaned
 - **Targeted Queueing**: Only the cleaned files are queued for reprocessing (not rediscovered through normal API scan)
+- **Project Filtering**: Only processes projects that have documents to retry (avoids API calls to projects with no failed/skipped documents)
 - **No Per-Document Cleanup**: Eliminates database connection conflicts during processing
 - **Better Performance**: Workers stay focused on document processing without cleanup interruptions
 - **Accurate Progress**: Document counts reflect actual work after cleanup is complete
 - **Improved Reliability**: Single-threaded cleanup operations prevent SSL connection hangs
+
+**Performance Benefits:**
+
+- **Project Filtering**: Automatically skips projects with no failed/skipped documents, avoiding unnecessary API calls
+- **Example**: If only 12 out of 354 projects have failed documents, only those 12 projects are processed
 
 **Example Output:**
 
