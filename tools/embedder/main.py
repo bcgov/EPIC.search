@@ -106,7 +106,7 @@ def check_time_limit(start_time, time_limit_seconds):
     
     return elapsed_seconds >= time_limit_seconds, elapsed_minutes, remaining_minutes
 
-def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=False, time_limit_minutes=None):
+def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=False, time_limit_minutes=None):
     """
     Process documents for one or more specific projects, or all projects.
     
@@ -119,8 +119,6 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     
     Args:
         project_ids (list or str, optional): Process specific project(s). Can be a single ID string or list of IDs. If None, all projects are processed.
-        shallow_mode (bool, optional): If True, only process up to shallow_limit successful documents per project.
-        shallow_limit (int, optional): The maximum number of successful documents to process per project in shallow mode.
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
         retry_failed_only (bool, optional): If True, only process documents that previously failed processing.
         retry_skipped_only (bool, optional): If True, only process documents that were previously skipped.
@@ -207,13 +205,11 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     embedder_temp_dir = get_embedder_temp_dir()
     
     # Determine processing mode: dynamic queuing or sequential
-    # Use dynamic queuing for all cases - even shallow mode can benefit from continuous queue
-    # within the per-project limits
+    # Use dynamic queuing for all cases for maximum efficiency
     use_dynamic_processing = True  # Always use dynamic processing for maximum efficiency
     
     print(f"[DEBUG] Processing mode determination:")
     print(f"[DEBUG]   - Number of projects: {len(projects)}")
-    print(f"[DEBUG]   - Shallow mode: {shallow_mode}")
     print(f"[DEBUG]   - Use dynamic processing: {use_dynamic_processing}")
     
     if use_dynamic_processing:
@@ -232,19 +228,20 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
             print(f"Processing {len(projects)} projects with unified worker pool to maximize throughput")
             print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy across projects")
             print(f"CROSS-PROJECT QUEUE: Documents from different projects will be processed in continuous queue for optimal worker utilization")
-        elif shallow_mode:
-            print(f"Processing {len(projects)} projects with shallow limits using continuous queue")
-            print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy within per-project limits")
-            print(f"SHALLOW + DYNAMIC: Up to {shallow_limit} documents per project, but processed with full worker utilization")
+        elif len(projects) > 1:
+            print(f"Processing {len(projects)} projects with unified worker pool to maximize throughput")
+            print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy across projects")
+            print(f"CROSS-PROJECT QUEUE: Documents from different projects will be processed in continuous queue for optimal worker utilization")
         else:
             print(f"Processing single project with dynamic worker queuing to maximize throughput")
             print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy with continuous document queuing")
             print(f"DYNAMIC QUEUING: Workers immediately get next document when they finish current one")
-        results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, repair_mode, shallow_mode, shallow_limit)
+        results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, repair_mode)
     else:
         # This branch should never be reached now since use_dynamic_processing is always True
         print(f"\n=== FALLBACK SEQUENTIAL PROCESSING ===")
         print(f"This should not happen - please report as a bug")
+        return {"message": "Error: Fallback sequential processing triggered", "results": []}
         
         # Initialize progress tracker for fallback mode (should never be reached)
         # Use estimated total since we don't have the exact queue built yet
@@ -793,9 +790,55 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
     return {"time_limit_reached": time_limit_reached, "documents_processed": documents_processed}
 
 
-def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, shallow_mode=False, shallow_limit=None):
+def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, repair_mode=False):
     """Process multiple projects in parallel using a unified document queue across all projects"""
     from collections import namedtuple
+    
+    # Perform bulk cleanup ONLY when needed (before building document queue)
+    project_ids = [project["_id"] for project in projects]
+    cleanup_performed = False
+    cleaned_files_to_process = []  # Track specific files that were cleaned and need processing
+    
+    if retry_failed_only:
+        # Cleanup failed documents before retrying
+        from src.services.repair_service import bulk_cleanup_failed_documents
+        
+        print(f"\n{'='*80}")
+        print("🗑️  BULK CLEANUP MODE: Cleaning up ALL failed documents before retry...")
+        cleanup_result = bulk_cleanup_failed_documents(project_ids)
+        cleanup_performed = True
+        cleaned_files_to_process.extend(cleanup_result.get('cleaned_files', []))
+        print(f"🗑️  Failed documents cleaned: {cleanup_result['documents_cleaned']}")
+        print(f"🗑️  Failed files to reprocess: {len(cleanup_result.get('cleaned_files', []))}")
+        print(f"{'='*80}")
+        print("🚀 Starting targeted processing - cleaned failed documents will be queued for reprocessing")
+        print(f"{'='*80}\n")
+        
+    if repair_mode:
+        # Cleanup repair candidates before processing
+        from src.services.repair_service import bulk_cleanup_repair_candidates
+        
+        print(f"\n{'='*80}")
+        print("🔧 REPAIR MODE: Analyzing and cleaning up inconsistent document states...")
+        cleanup_result = bulk_cleanup_repair_candidates(project_ids)
+        cleanup_performed = True
+        cleaned_files_to_process.extend(cleanup_result.get('cleaned_files', []))
+        print(f"🔧 Repair candidates cleaned: {cleanup_result['documents_cleaned']}")
+        print(f"🔧 Repair files to reprocess: {len(cleanup_result.get('cleaned_files', []))}")
+        print(f"{'='*80}")
+        print("🚀 Starting targeted processing - repaired documents will be queued for reprocessing")
+        print(f"{'='*80}\n")
+        
+    # Note: retry_skipped_only does NOT perform cleanup
+    # Skipped files were intentionally not processed (XLSX, etc.) and don't need cleanup
+    if retry_skipped_only:
+        print(f"\n{'='*80}")
+        print("📋 SKIPPED RETRY MODE: Processing previously skipped documents")
+        print("ℹ️  No cleanup needed - skipped files were intentionally not processed")
+        if retry_failed_only:
+            print("ℹ️  Will combine with cleaned failed files for comprehensive retry")
+        print(f"{'='*80}\n")
+        print(f"{'='*80}\n")
     
     # Create a unified queue of all documents across all projects
     DocumentTask = namedtuple('DocumentTask', ['project_id', 'project_name', 's3_key', 'metadata', 'api_doc'])
@@ -835,17 +878,116 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         
         documents_queued = 0
         
-        # For shallow mode, track how many successful documents this project already has
-        if shallow_mode:
-            successful_count = len(already_completed)
-            if successful_count >= shallow_limit:
-                print(f"  Skipping {project_name} - already has {successful_count} successful documents (limit: {shallow_limit})")
-                continue
-            remaining_quota = shallow_limit - successful_count
-            print(f"  {project_name} has {successful_count}/{shallow_limit} successful documents. Will queue up to {remaining_quota} more.")
+        # Strategy: Handle different processing modes
+        # 1. If we have cleaned files from bulk cleanup, queue them first
+        # 2. If retry_skipped_only is enabled, also scan for skipped files
+        # 3. Otherwise, do normal discovery (new files, repair candidates, etc.)
+        
+        need_normal_discovery = True  # Will be set to False if we handle everything with targeted approaches
+        
+        # STEP 1: Handle cleaned files from bulk cleanup (failed or repair)
+        if cleaned_files_to_process:
+            # Filter cleaned files for this specific project
+            project_cleaned_files = [f for f in cleaned_files_to_process if f['project_id'] == project_id]
+            
+            if project_cleaned_files:
+                print(f"  Found {len(project_cleaned_files)} cleaned files to reprocess for {project_name}")
+                
+                # For each cleaned file, find it in the API and queue it for processing
+                for cleaned_file in project_cleaned_files:
+                    doc_id = cleaned_file['document_id']
+                    s3_key = cleaned_file['s3_key']
+                    
+                    # Find the document in the API to get full metadata
+                    doc_found = False
+                    for search_page in range(file_total_pages):
+                        search_files = get_files_for_project(project_id, search_page, page_size)
+                        for doc in search_files:
+                            if doc["_id"] == doc_id:
+                                doc_found = True
+                                doc_meta = format_metadata(project, doc)
+                                document_task = DocumentTask(
+                                    project_id=project_id,
+                                    project_name=project_name,
+                                    s3_key=s3_key,
+                                    metadata=doc_meta,
+                                    api_doc=doc
+                                )
+                                document_queue.append(document_task)
+                                documents_queued += 1
+                                break
+                        if doc_found:
+                            break
+                    
+                    if not doc_found:
+                        print(f"    Warning: Cleaned file {doc_id[:12]}... not found in API (may have been deleted from S3)")
+                
+                print(f"  ✅ Queued {len(project_cleaned_files)} cleaned documents from {project_name}")
+                
+                # If we only have retry_failed or repair mode, we're done - no need for normal discovery
+                if (retry_failed_only and not retry_skipped_only) or repair_mode:
+                    need_normal_discovery = False
+        
+        # STEP 2: Handle skipped files (if retry_skipped_only is enabled)
+        if retry_skipped_only and need_normal_discovery:
+            print(f"  🔍 Scanning for skipped documents in {project_name}...")
+            
+            initial_queued = documents_queued
+            
+            # Do normal API scan but only queue skipped files
+            for page_number in range(file_total_pages):
+                files_data = get_files_for_project(project_id, page_number, page_size)
+                
+                if not files_data:
+                    continue
+                    
+                for doc in files_data:
+                    doc_id = doc["_id"]
+                    doc_name = doc.get('name', doc_id)
+                    is_processed, status = is_document_already_processed(
+                        doc_id, already_completed, already_incomplete, already_skipped
+                    )
+                    
+                    # Only queue skipped documents
+                    if not is_processed or status != "skipped":
+                        continue
+                    
+                    # Skip if this file was already handled by cleanup (avoid duplicates)
+                    if any(f['document_id'] == doc_id for f in cleaned_files_to_process):
+                        continue
+                        
+                    print(f"    Queuing skipped document for retry: {doc_name}")
+                    
+                    s3_key = doc.get("internalURL")
+                    if s3_key:
+                        doc_meta = format_metadata(project, doc)
+                        document_task = DocumentTask(
+                            project_id=project_id,
+                            project_name=project_name,
+                            s3_key=s3_key,
+                            metadata=doc_meta,
+                            api_doc=doc
+                        )
+                        document_queue.append(document_task)
+                        documents_queued += 1
+                
+                # No more shallow limit checks needed
+                
+            skipped_count = documents_queued - initial_queued
+            if skipped_count > 0:
+                print(f"  ✅ Queued {skipped_count} skipped documents from {project_name}")
+            
+            # For skipped-only mode, we're done
+            if retry_skipped_only and not retry_failed_only and not repair_mode:
+                need_normal_discovery = False
+        
+        # If we handled everything with targeted approaches, continue to next project
+        if not need_normal_discovery:
+            print(f"  📊 Total queued for {project_name}: {documents_queued} documents")
+            continue
         
         # Handle repair mode differently - get repair candidates
-        if repair_mode:
+        elif repair_mode:
             repair_candidates = get_repair_candidates_for_processing(project_id)
             
             if not repair_candidates:
@@ -928,10 +1070,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                         if is_processed:
                             continue
                     
-                    # Shallow mode: check if we've reached the quota for this project
-                    if shallow_mode and documents_queued >= remaining_quota:
-                        print(f"  Reached shallow limit for {project_name} ({documents_queued}/{remaining_quota} documents queued)")
-                        break
+                    # No more shallow limit checks needed
                         
                     s3_key = doc.get("internalURL")
                     if not s3_key:
@@ -1029,9 +1168,6 @@ if __name__ == "__main__":
             "--project_id", type=str, nargs='+', help="The ID(s) of the project(s) to process. Can specify multiple: --project_id id1 id2 id3"
         )
         parser.add_argument(
-            "--shallow", "-s", type=int, metavar="LIMIT", help="Enable shallow mode: process up to LIMIT successful documents per project and then move to the next project. Example: --shallow 5"
-        )
-        parser.add_argument(
             "--skip-hnsw-indexes", action="store_true", help="Skip creation of HNSW vector indexes for semantic search (faster startup, less resource usage)."
         )
         parser.add_argument(
@@ -1051,11 +1187,6 @@ if __name__ == "__main__":
         )
         args = parser.parse_args()
 
-        # Custom check for missing shallow limit value
-        import sys
-        if any(arg in sys.argv for arg in ["--shallow", "-s"]) and args.shallow is None:
-            parser.error("Argument --shallow/-s requires an integer value. Example: --shallow 5")
-
         # Validate flag combinations
         # Note: --retry-failed and --retry-skipped can now be used together
         # to process both failed and skipped documents
@@ -1069,24 +1200,13 @@ if __name__ == "__main__":
                 parser.error("--reset requires --project_id to be specified. Reset mode can only be used with a specific project.")
             if len(args.project_id) > 1:
                 parser.error("--reset can only be used with a single project ID. Multiple projects are not allowed with reset mode.")
-            if args.retry_failed or args.retry_skipped or args.repair or args.shallow:
-                parser.error("--reset cannot be used with other processing modes (--retry-failed, --retry-skipped, --repair, --shallow). Reset mode can only be combined with --timed.")
+            if args.retry_failed or args.retry_skipped or args.repair:
+                parser.error("--reset cannot be used with other processing modes (--retry-failed, --retry-skipped, --repair). Reset mode can only be combined with --timed.")
         
         # Validate timed argument
         if args.timed is not None and args.timed <= 0:
             parser.error("Timed mode requires a positive number of minutes. Example: --timed 60")
-        
-        if args.retry_failed and args.shallow:
-            print("WARNING: Using --retry-failed with --shallow mode. Shallow limit will apply to failed files being retried.")
-        
-        if args.retry_skipped and args.shallow:
-            print("WARNING: Using --retry-skipped with --shallow mode. Shallow limit will apply to skipped files being retried.")
-        
-        if args.timed and args.shallow:
-            print("WARNING: Using --timed with --shallow mode. Both time limit and shallow limit will apply.")
 
-        shallow_mode = args.shallow is not None
-        shallow_limit = args.shallow if shallow_mode else None
         timed_mode = args.timed is not None
         time_limit_minutes = args.timed if timed_mode else None
 
@@ -1102,16 +1222,16 @@ if __name__ == "__main__":
                 
                 # Now process normally (fresh start)
                 print(f"[RESET] Beginning fresh processing for project {project_id}")
-                result = process_projects([project_id], shallow_mode=False, shallow_limit=None, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+                result = process_projects([project_id], skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
                 print(f"[RESET] Fresh processing complete: {result}")
             else:
                 # Run immediately if project_id(s) are provided (normal modes)
-                result = process_projects(args.project_id, shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+                result = process_projects(args.project_id, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
                 print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(shallow_mode=shallow_mode, shallow_limit=shallow_limit, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+            result = process_projects(skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
             print(result)
     finally:
         pass

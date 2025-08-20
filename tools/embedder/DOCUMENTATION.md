@@ -37,10 +37,9 @@ The system now includes intelligent cross-project parallel processing to maximiz
 - Workers process documents from any project in continuous queue for optimal utilization
 - Example: `python main.py --project_id proj1 proj2 proj3 --retry-failed`
 
-**Sequential Mode (Automatic)**:
+**Sequential Mode (Legacy)**:
 
-- Single project processing
-- Shallow mode: `--shallow` (due to per-project limits)
+- Single project processing only
 - Maintains compatibility with existing processing logic
 
 ### 🆕 Smart File Type Pre-Filtering
@@ -563,20 +562,48 @@ The embedder supports selective reprocessing of documents based on their status:
 
 - **`--retry-failed`**: Reprocesses documents that previously failed during processing
   - Targets documents with status `"failure"` (e.g., OCR failures, processing errors)
+  - **Performs upfront bulk cleanup** of all failed documents before processing starts
   - Useful for fixing documents after resolving configuration or infrastructure issues
   
 - **`--retry-skipped`**: Reprocesses documents that were previously skipped
   - Targets documents with status `"skipped"` (e.g., scanned PDFs without OCR, unsupported formats)
+  - **No cleanup needed** - skipped files were intentionally not processed
   - Useful when enabling OCR or adding support for new document types
 
 - **Combined Retry Mode**: Use both `--retry-failed` and `--retry-skipped` together
   - Reprocesses both failed and skipped documents in a single run
+  - **Bulk cleanup** applies only to failed documents, not skipped documents
   - Maximizes cross-project throughput by processing all problematic documents together
   - Example: `python main.py --retry-failed --retry-skipped`
   
 - **Normal mode**: Only processes new documents (skips any with existing status)
 
-These retry modes can be combined with other flags like `--shallow` for limited reprocessing and `--project_id` for targeted project-specific retries. Multiple retry modes can now be used together for comprehensive reprocessing.
+#### Bulk Cleanup Architecture
+
+The retry modes now use an improved **bulk cleanup with targeted queueing** approach for better performance and reliability:
+
+- **Sequential Cleanup Phase**: All failed documents are cleaned up upfront in batches before processing starts
+- **File Tracking**: The cleanup process tracks exactly which files were cleaned
+- **Targeted Queueing**: Only the cleaned files are queued for reprocessing (not rediscovered through normal API scan)
+- **No Per-Document Cleanup**: Eliminates database connection conflicts during processing
+- **Better Performance**: Workers stay focused on document processing without cleanup interruptions
+- **Accurate Progress**: Document counts reflect actual work after cleanup is complete
+- **Improved Reliability**: Single-threaded cleanup operations prevent SSL connection hangs
+
+**Example Output:**
+
+```bash
+🗑️ BULK CLEANUP: Found 150 failed documents to clean up
+🗑️ Cleaning batch 1/2 (100 documents)...
+✅ Batch complete: 245 chunks, 100 document records deleted
+🗑️ BULK CLEANUP COMPLETE: 150 documents cleaned
+�️ Files to reprocess: 150
+�🚀 Starting targeted processing - cleaned failed documents will be queued for reprocessing
+✅ Queued 47 cleaned documents from Project Alpha
+✅ Queued 103 cleaned documents from Project Beta
+```
+
+These retry modes can be combined with other flags like `--project_id` for targeted project-specific retries. Multiple retry modes can now be used together for comprehensive reprocessing.
 
 ### Timed Mode Processing
 
@@ -593,7 +620,7 @@ The embedder supports time-constrained processing for scheduled operations and r
 - Time tracking starts immediately after argument parsing and configuration
 - Time checks use `datetime.now()` for accurate elapsed time calculation
 - Processing stops at natural boundaries (project completion, document page completion)
-- Compatible with all other modes (`--shallow`, `--retry-failed`, `--retry-skipped`, etc.)
+- Compatible with all other modes (`--retry-failed`, `--retry-skipped`, etc.)
 - Final summary includes actual runtime vs. time limit for monitoring
 
 **Use Cases:**

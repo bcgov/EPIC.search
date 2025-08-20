@@ -9,6 +9,295 @@ This module provides functionality to detect and repair documents that are in
 inconsistent states due to interrupted processing, partial failures, or other issues.
 """
 
+def bulk_cleanup_failed_documents(project_ids=None):
+    """
+    Bulk cleanup of ALL failed documents upfront, before processing starts.
+    
+    This removes chunks and document records for all failed documents in one
+    sequential operation, avoiding concurrency issues during processing.
+    
+    Args:
+        project_ids (list, optional): List of project IDs to clean up. If None, cleans all projects.
+        
+    Returns:
+        dict: Summary of cleanup operations
+    """
+    import os
+    from src.config.settings import get_settings
+    from sqlalchemy import create_engine, event, text
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.exc import OperationalError
+    import time
+    
+    settings = get_settings()
+    process_id = os.getpid()
+    
+    # Use main database connection for bulk operations
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    # Single connection for bulk cleanup
+    engine = create_engine(
+        database_url,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=60,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": "30",
+            "application_name": f"epic_bulk_cleanup_{process_id}",
+        }
+    )
+    
+    @event.listens_for(engine, "connect")
+    def set_bulk_timeouts(dbapi_connection, connection_record):
+        """Set longer timeouts for bulk operations."""
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '600s'")  # 10 minutes for bulk ops
+            cursor.execute("SET lock_timeout = '120s'")       # 2 minute lock timeout
+    
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    try:
+        print("🗑️  BULK CLEANUP: Starting cleanup of all failed documents...")
+        
+        # Build project filter
+        project_filter = ""
+        if project_ids:
+            project_list = "', '".join(project_ids)
+            project_filter = f"AND pl.project_id IN ('{project_list}')"
+        
+        # Get all failed document IDs
+        failed_docs_query = text(f"""
+            SELECT DISTINCT pl.document_id, pl.project_id, 
+                   pl.metrics->'document_info'->>'document_name' as doc_name,
+                   pl.document_id as s3_key
+            FROM processing_logs pl 
+            WHERE pl.status = 'failure' {project_filter}
+            ORDER BY pl.project_id, pl.document_id
+        """)
+        
+        failed_docs = session.execute(failed_docs_query).fetchall()
+        
+        if not failed_docs:
+            print("✅ No failed documents found to clean up.")
+            return {'documents_cleaned': 0, 'chunks_deleted': 0, 'document_records_deleted': 0}
+        
+        print(f"🗑️  Found {len(failed_docs)} failed documents to clean up")
+        
+        cleanup_summary = {
+            'documents_cleaned': 0,
+            'chunks_deleted': 0,
+            'document_records_deleted': 0,
+            'projects_affected': set(),
+            'cleaned_files': []  # Track the actual files that were cleaned
+        }
+        
+        # Process in batches to avoid memory issues
+        batch_size = 100
+        for i in range(0, len(failed_docs), batch_size):
+            batch = failed_docs[i:i + batch_size]
+            
+            print(f"🗑️  Cleaning batch {i//batch_size + 1}/{(len(failed_docs) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
+            
+            # Extract document IDs for this batch
+            doc_ids = [doc.document_id for doc in batch]
+            project_ids_batch = [doc.project_id for doc in batch]
+            
+            # Track the files we're cleaning up for the return value
+            for doc in batch:
+                cleanup_summary['cleaned_files'].append({
+                    'project_id': doc.project_id,
+                    'document_id': doc.document_id,
+                    's3_key': doc.s3_key
+                })
+                cleanup_summary['projects_affected'].add(doc.project_id)
+            
+            # Bulk delete chunks for this batch
+            chunks_deleted = session.query(DocumentChunk).filter(
+                DocumentChunk.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
+            # Bulk delete document records for this batch  
+            docs_deleted = session.query(Document).filter(
+                Document.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+            
+            cleanup_summary['documents_cleaned'] += len(batch)
+            cleanup_summary['chunks_deleted'] += chunks_deleted
+            cleanup_summary['document_records_deleted'] += docs_deleted
+            cleanup_summary['projects_affected'].update(project_ids_batch)
+            
+            print(f"  ✅ Batch complete: {chunks_deleted} chunks, {docs_deleted} document records deleted")
+        
+        # Convert set to count for final summary
+        cleanup_summary['projects_affected'] = len(cleanup_summary['projects_affected'])
+        
+        print(f"🗑️  BULK CLEANUP COMPLETE:")
+        print(f"   📄 Documents cleaned: {cleanup_summary['documents_cleaned']}")
+        print(f"   🧩 Chunks deleted: {cleanup_summary['chunks_deleted']}")
+        print(f"   📋 Document records deleted: {cleanup_summary['document_records_deleted']}")
+        print(f"   📁 Projects affected: {cleanup_summary['projects_affected']}")
+        
+        return cleanup_summary
+        
+    except Exception as e:
+        session.rollback()
+        print(f"❌ Error during bulk cleanup: {e}")
+        raise
+    finally:
+        try:
+            session.close()
+            engine.dispose()
+        except:
+            pass
+
+
+def bulk_cleanup_repair_candidates(project_ids=None):
+    """
+    Bulk cleanup of repair candidates (documents with inconsistent states) upfront.
+    
+    This identifies and cleans up documents that are in inconsistent states due to
+    interrupted processing, partial failures, or other issues.
+    
+    Args:
+        project_ids (list, optional): List of project IDs to clean up. If None, cleans all projects.
+        
+    Returns:
+        dict: Summary of cleanup operations
+    """
+    print("🔧 REPAIR MODE: Analyzing database for inconsistent document states...")
+    
+    # Get repair candidates that need cleanup and reprocessing
+    repair_candidates = get_repair_candidates_for_processing(project_ids[0] if project_ids else None)
+    
+    if not repair_candidates:
+        print("✅ No repair candidates found. Database is in good condition.")
+        return {'documents_cleaned': 0, 'chunks_deleted': 0, 'document_records_deleted': 0}
+    
+    print(f"🔧 Found {len(repair_candidates)} documents needing repair:")
+    for candidate in repair_candidates[:5]:  # Show first 5
+        print(f"  • {candidate['document_id'][:12]}... - {candidate['repair_reason']}")
+    if len(repair_candidates) > 5:
+        print(f"  ... and {len(repair_candidates) - 5} more documents")
+    
+    # Now perform bulk cleanup of these candidates
+    import os
+    from src.config.settings import get_settings
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import sessionmaker
+    
+    settings = get_settings()
+    process_id = os.getpid()
+    
+    database_url = settings.vector_store_settings.db_url
+    if database_url and database_url.startswith('postgresql:'):
+        database_url = database_url.replace('postgresql:', 'postgresql+psycopg:')
+    
+    engine = create_engine(
+        database_url,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=60,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        connect_args={
+            "sslmode": "prefer",
+            "connect_timeout": "30",
+            "application_name": f"epic_repair_cleanup_{process_id}",
+        }
+    )
+    
+    @event.listens_for(engine, "connect")
+    def set_bulk_timeouts(dbapi_connection, connection_record):
+        with dbapi_connection.cursor() as cursor:
+            cursor.execute("SET statement_timeout = '600s'")
+            cursor.execute("SET lock_timeout = '120s'")
+    
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    try:
+        cleanup_summary = {
+            'documents_cleaned': 0,
+            'chunks_deleted': 0,
+            'document_records_deleted': 0,
+            'processing_logs_deleted': 0,
+            'projects_affected': set(),
+            'cleaned_files': []  # Track the actual files that were cleaned
+        }
+        
+        # Process in batches
+        batch_size = 100
+        for i in range(0, len(repair_candidates), batch_size):
+            batch = repair_candidates[i:i + batch_size]
+            
+            print(f"🔧 Cleaning repair batch {i//batch_size + 1}/{(len(repair_candidates) + batch_size - 1)//batch_size} ({len(batch)} documents)...")
+            
+            doc_ids = [candidate['document_id'] for candidate in batch]
+            project_ids_batch = [candidate['project_id'] for candidate in batch]
+            
+            # Track the files we're cleaning up for the return value
+            for candidate in batch:
+                cleanup_summary['cleaned_files'].append({
+                    'project_id': candidate['project_id'],
+                    'document_id': candidate['document_id'],
+                    's3_key': candidate['document_id']  # For repair, s3_key == document_id
+                })
+            
+            # Delete chunks
+            chunks_deleted = session.query(DocumentChunk).filter(
+                DocumentChunk.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
+            # Delete document records
+            docs_deleted = session.query(Document).filter(
+                Document.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
+            # For repair mode, also delete processing logs to start fresh
+            logs_deleted = session.query(ProcessingLog).filter(
+                ProcessingLog.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+            
+            cleanup_summary['documents_cleaned'] += len(batch)
+            cleanup_summary['chunks_deleted'] += chunks_deleted
+            cleanup_summary['document_records_deleted'] += docs_deleted
+            cleanup_summary['processing_logs_deleted'] += logs_deleted
+            cleanup_summary['projects_affected'].update(project_ids_batch)
+            
+            print(f"  ✅ Repair batch complete: {chunks_deleted} chunks, {docs_deleted} docs, {logs_deleted} logs deleted")
+        
+        cleanup_summary['projects_affected'] = len(cleanup_summary['projects_affected'])
+        
+        print(f"🔧 REPAIR CLEANUP COMPLETE:")
+        print(f"   📄 Documents cleaned: {cleanup_summary['documents_cleaned']}")
+        print(f"   🧩 Chunks deleted: {cleanup_summary['chunks_deleted']}")
+        print(f"   📋 Document records deleted: {cleanup_summary['document_records_deleted']}")
+        print(f"   📝 Processing logs deleted: {cleanup_summary['processing_logs_deleted']}")
+        print(f"   📁 Projects affected: {cleanup_summary['projects_affected']}")
+        
+        return cleanup_summary
+        
+    except Exception as e:
+        session.rollback()
+        print(f"❌ Error during repair cleanup: {e}")
+        raise
+    finally:
+        try:
+            session.close()
+            engine.dispose()
+        except:
+            pass
+
 def analyze_repair_candidates(project_id=None):
     """
     Analyze the database to identify documents that need repair.

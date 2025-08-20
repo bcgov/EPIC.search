@@ -107,6 +107,7 @@ python main.py --skip-hnsw-indexes
 python main.py --project_id <project_id> --skip-hnsw-indexes
 
 # Retry documents that previously failed processing
+# NOTE: Uses bulk cleanup to remove failed records upfront, then queues those specific files for reprocessing
 python main.py --retry-failed
 
 # Retry documents that were previously skipped (unsupported formats, missing OCR)
@@ -116,16 +117,14 @@ python main.py --retry-skipped
 python main.py --retry-failed --project_id <project_id>
 python main.py --retry-skipped --project_id <project_id>
 
-# Shallow mode: process limited number of documents per project
-python main.py --shallow 10 --project_id <project_id>
-python main.py --retry-failed --shallow 5
+# Repair mode: clean up database inconsistencies
+python main.py --repair
 
 # Timed mode: run for a specific time period then gracefully stop
 python main.py --timed 60  # Run for 60 minutes
 python main.py --timed 30 --project_id <project_id>  # 30 minutes for specific project
 
 # Combine timed mode with other options
-python main.py --timed 120 --shallow 10  # 2 hours with shallow limit
 python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 
 # High-performance server runs with optimized settings
@@ -662,9 +661,6 @@ python main.py --retry-failed
 
 # Retry failed documents for specific project(s)
 python main.py --retry-failed --project_id <project_id>
-
-# Retry failed documents with limited processing per project
-python main.py --retry-failed --shallow 10
 ```
 
 Use `--retry-failed` when:
@@ -715,7 +711,6 @@ python main.py --timed 120
 python main.py --timed 30 --project_id <project_id>
 
 # Combine with other modes
-python main.py --timed 60 --shallow 10  # 1 hour with shallow processing
 python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 ```
 

@@ -791,11 +791,13 @@ def load_data(
             if api_derived_names.get("display_name"):
                 metrics["document_info"]["display_name"] = api_derived_names["display_name"]
         
-        # Clean up existing document content if this is a retry (do this after validation but before processing)
+        # Cleanup is now done upfront in bulk to avoid database connection issues
+        # The bulk cleanup functions handle all failed documents before processing starts
+        # This eliminates per-document cleanup that was causing SSL hangs
         if is_retry:
-            print(f"[RETRY] Cleaning up existing content for document {doc_id} before reprocessing...")
-            from ..services.repair_service import cleanup_document_content_for_retry
-            cleanup_document_content_for_retry(doc_id, project_id)
+            print(f"[RETRY] Document {doc_id[:12]}... - cleanup was performed upfront in bulk mode")
+            # from ..services.repair_service import cleanup_document_content_for_retry
+            # cleanup_document_content_for_retry(doc_id, project_id)  # Now handled in bulk
         
         if not temp_path:
             # Determine status based on validation reason - distinguish between failures and skipped files
@@ -861,6 +863,25 @@ def load_data(
             pages = read_as_pages(temp_path)
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "standard_pdf"
+            
+            # Validate that we got usable pages from the markdown reader
+            if not pages or len(pages) == 0:
+                print(f"[ERROR] No pages extracted from {s3_key} (Doc ID: {doc_id}) - markdown reader returned empty result")
+                print(f"[ERROR] This may indicate a corrupted PDF or unsupported format")
+                # Log failure with document info
+                if not metrics.get("document_info"):
+                    metrics["document_info"] = {"s3_key": s3_key, "document_name": os.path.basename(s3_key)}
+                metrics["error_details"] = "markdown_reader_returned_empty_pages"
+                
+                log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+                if log:
+                    log.metrics = sanitize_metadata_for_postgres(metrics)
+                    log.status = "failure"
+                else:
+                    log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
+                    session.add(log)
+                session.commit()
+                return None
         
         # Normalize page format - ensure all pages have 'text' field for consistency
         for page in pages:

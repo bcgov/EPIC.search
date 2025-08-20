@@ -49,14 +49,6 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Retry Failed - Shallow Mode (5 files)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/main.py",
-            "args": ["--retry-failed", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
-            "console": "integratedTerminal"
-        },
-        {
             "name": "Retry Skipped - Specific Project",
             "type": "debugpy",
             "request": "launch",
@@ -78,14 +70,6 @@
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "args": ["--retry-skipped"],
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Retry Skipped - Shallow Mode (5 files)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/main.py",
-            "args": ["--retry-skipped", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
@@ -134,14 +118,6 @@
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "args": ["--timed", "30"],
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Timed + Shallow Mode",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/main.py",
-            "args": ["--timed", "10", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
@@ -198,14 +174,6 @@
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
             "args": ["--repair"],
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Repair + Shallow Mode (5 docs)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/main.py",
-            "args": ["--repair", "--shallow", "5", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
