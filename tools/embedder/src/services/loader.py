@@ -722,6 +722,13 @@ def load_data(
         if should_skip:
             print(f"[EARLY_SKIP] File {s3_key} skipped before S3 download: {skip_reason}")
             
+            # Initialize document_info if it doesn't exist yet
+            if metrics["document_info"] is None:
+                metrics["document_info"] = {
+                    "s3_key": s3_key,
+                    "document_name": os.path.basename(s3_key)
+                }
+            
             # Update metrics with the skip information
             metrics["document_info"]["validation_status"] = "skipped_early"
             metrics["document_info"]["validation_reason"] = skip_reason
