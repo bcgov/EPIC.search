@@ -368,7 +368,41 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
                         pdf_context = f"PDF document originally created as image file (creator: {s3_key.split('/')[-1]})"
                         enhanced_searchable_text = f"{pdf_context} | {searchable_text}"
                         
+                        # Extract key terms for headers and tags
+                        image_tags = analysis_result.get("tags", [])
+                        image_objects = analysis_result.get("objects", [])
+                        image_categories = analysis_result.get("categories", [])
+                        
+                        # Create meaningful headers from image content
+                        # Use the first few tags/objects as header content
+                        header_content = []
+                        if description:
+                            header_content.append(description)
+                        if image_tags:
+                            header_content.extend(image_tags[:3])  # Use top 3 tags
+                        if image_objects:
+                            header_content.extend(image_objects[:2])  # Use top 2 objects
+                        
                         # Create page data structure similar to OCR/PDF pages
+                        page_metadata = {
+                            "source_type": "image_pdf", 
+                            "original_format": "pdf_converted_to_image",
+                            "conversion_dpi": 300,
+                            "extraction_method": "image_analysis_from_pdf",
+                            "pdf_metadata": pdf_metadata,
+                            # Add header metadata that the loader expects
+                            "Header 1": header_content[0] if len(header_content) > 0 else "Image Content",
+                            "Header 2": header_content[1] if len(header_content) > 1 else "",
+                            "Header 3": header_content[2] if len(header_content) > 2 else "",
+                            "Header 4": header_content[3] if len(header_content) > 3 else "",
+                            "Header 5": header_content[4] if len(header_content) > 4 else "",
+                            "Header 6": header_content[5] if len(header_content) > 5 else "",
+                            # Add image analysis tags as pre-extracted tags
+                            "image_tags": image_tags,
+                            "image_objects": image_objects,
+                            "image_categories": image_categories
+                        }
+                        
                         page_data = [{
                             "page_number": 1,
                             "text": enhanced_searchable_text,
@@ -376,19 +410,13 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
                             "image_analysis": {
                                 "method": analysis_result.get("method", "unknown"),
                                 "description": description,
-                                "tags": analysis_result.get("tags", []),
-                                "objects": analysis_result.get("objects", []),
-                                "categories": analysis_result.get("categories", []),
+                                "tags": image_tags,
+                                "objects": image_objects,
+                                "categories": image_categories,
                                 "confidence": analysis_result.get("confidence", 0.0),
                                 "pdf_enhanced": analysis_result.get("pdf_enhancement", {}).get("enhanced_for_pdf", False)
                             },
-                            "metadata": {
-                                "source_type": "image_pdf",
-                                "original_format": "pdf_converted_to_image",
-                                "conversion_dpi": 300,
-                                "extraction_method": "image_analysis_from_pdf",
-                                "pdf_metadata": pdf_metadata
-                            },
+                            "metadata": page_metadata,
                             "content_type": "image_pdf_with_analysis"
                         }]
                         

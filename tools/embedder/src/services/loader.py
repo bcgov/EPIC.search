@@ -218,6 +218,32 @@ def chunk_and_embed_pages(
             page_chunk_count += 1
         if chunk_metrics is not None:
             chunk_metrics["chunks_per_page"].append(page_chunk_count)
+        
+        # Extract image analysis tags if present in page metadata
+        page_image_tags = set()
+        page_image_objects = set()
+        page_image_categories = set()
+        
+        if page_markdown.get("metadata", {}).get("image_tags"):
+            page_image_tags.update(page_markdown["metadata"]["image_tags"])
+        if page_markdown.get("metadata", {}).get("image_objects"):
+            page_image_objects.update(page_markdown["metadata"]["image_objects"])
+        if page_markdown.get("metadata", {}).get("image_categories"):
+            page_image_categories.update(page_markdown["metadata"]["image_categories"])
+        
+        # Add image analysis tags to document-level tags
+        all_tags.update(page_image_tags)
+        all_tags.update(page_image_objects)
+        all_tags.update(page_image_categories)
+        
+        # Add image analysis tags to each chunk on this page
+        if page_image_tags or page_image_objects or page_image_categories:
+            combined_image_tags = list(page_image_tags) + list(page_image_objects) + list(page_image_categories)
+            for i in range(len(chunk_metadatas)):
+                if "tags" not in chunk_metadatas[i]:
+                    chunk_metadatas[i]["tags"] = []
+                chunk_metadatas[i]["tags"].extend(combined_image_tags)
+        
         if chunk_texts:
             # Parallel tag extraction for all chunks on this page
             t_tag = time.perf_counter() if chunk_metrics is not None else None
