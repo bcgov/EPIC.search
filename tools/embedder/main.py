@@ -240,6 +240,7 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
         print(f"\n=== CROSS-PROJECT {mode_type} PROCESSING MODE ===")
         print(f"Processing {len(projects)} projects with unified worker pool to maximize throughput")
         print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy across projects")
+        print(f"MIXED-PROJECT BATCHING: Documents from different projects will be processed together in each batch")
         results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, repair_mode)
     else:
         # Use original sequential processing for shallow mode or single project
@@ -592,6 +593,116 @@ def process_projects(project_ids=None, shallow_mode=False, shallow_limit=None, s
     return {"message": "Processing completed", "results": results}
 
 
+def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False):
+    """
+    Process files from multiple projects concurrently using a unified worker pool.
+    This enables true cross-project processing where all workers stay busy regardless of individual project sizes.
+    
+    Args:
+        document_tasks (list): List of DocumentTask namedtuples containing project info for each document
+        file_keys (list): List of file keys or paths to be processed
+        metadata_list (list): List of metadata dictionaries corresponding to each file  
+        api_docs_list (list): List of API document objects corresponding to each file
+        batch_size (int, optional): Number of files to process in parallel. Defaults to 4.
+        temp_dir (str, optional): Temporary directory for processing files. Passed to load_data.
+        is_retry (bool, optional): If True, cleanup existing document content before processing.
+        
+    Returns:
+        None: Results are logged through the logging system
+    """
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from src.services.logger import log_processing_result
+    from src.services.loader import load_data
+    
+    if len(file_keys) != len(metadata_list) or len(file_keys) != len(api_docs_list) or len(file_keys) != len(document_tasks):
+        raise ValueError("document_tasks, file_keys, metadata_list, and api_docs_list must have the same length.")
+
+    if not file_keys:
+        print("No files to process.")
+        return
+
+    # Create tasks list with project info
+    tasks = []
+    for i, (task, file_key, base_meta, api_doc) in enumerate(zip(document_tasks, file_keys, metadata_list, api_docs_list)):
+        worker_id = i % batch_size + 1
+        doc_id = base_meta.get("document_id") or os.path.basename(file_key)
+        doc_name = api_doc.get('name', doc_id)
+        
+        # File size is stored in 'internalSize' field as a string, convert to int
+        file_size_raw = api_doc.get('internalSize', '0')
+        try:
+            file_size_bytes = int(file_size_raw) if file_size_raw else 0
+        except (ValueError, TypeError):
+            file_size_bytes = 0
+        
+        size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes > 0 else None
+        
+        # Estimate page count from file size (rough estimate: ~50KB per page for PDFs)
+        estimated_pages = max(1, int(file_size_bytes / 50000)) if file_size_bytes > 0 else None
+        
+        tasks.append((task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb))
+
+    print(f"Starting ProcessPoolExecutor with max_workers={batch_size}")
+    
+    with ProcessPoolExecutor(max_workers=batch_size) as executor:
+        future_to_task = {}
+        
+        # Submit all tasks
+        for task_info in tasks:
+            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb = task_info
+            future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc, is_retry)
+            future_to_task[future] = task_info
+            
+            # Only register the first batch_size documents as active (they start immediately)
+            if len(future_to_task) <= batch_size:
+                # Update progress tracker to show current project being processed
+                progress_tracker.update_current_project(task.project_name)
+                progress_tracker.start_document_processing(worker_id, doc_name, estimated_pages, size_mb)
+        
+        completed_count = 0
+        
+        # Process completed tasks
+        for future in as_completed(future_to_task):
+            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb = future_to_task[future]
+            doc_id = base_meta.get("document_id") or os.path.basename(file_key)
+            project_id = task.project_id  # Get project_id from the task
+            
+            try:
+                result = future.result()
+                
+                # Register completion
+                if result is None:
+                    print(f"File {doc_id} processing completed with None result (status already logged internally).")
+                    progress_tracker.finish_document_processing(worker_id, success=False, skipped=True)
+                else:
+                    print(f"Successfully processed: {result}")
+                    log_processing_result(project_id, doc_id, "success")
+                    # For successful processing, pass the page/size info
+                    progress_tracker.finish_document_processing(worker_id, success=True, pages=estimated_pages, size_mb=size_mb)
+                    
+            except Exception as e:
+                print(f"Failed to process {doc_id}: {e}")
+                log_processing_result(project_id, doc_id, "failure")
+                progress_tracker.finish_document_processing(worker_id, success=False, skipped=False)
+                
+            completed_count += 1
+            
+            # When a worker finishes, start the next queued document if there is one
+            next_index = completed_count + batch_size - 1  # Index of next document to start
+            if next_index < len(tasks):
+                # Find the next task to start
+                if next_index < len(list(future_to_task.keys())):
+                    # Get the next task info
+                    next_task_info = tasks[next_index]
+                    next_task, _, _, _, next_worker_id, next_doc_name, next_pages, next_size_mb = next_task_info
+                    
+                    # Update progress tracker for the next document's project
+                    progress_tracker.update_current_project(next_task.project_name)
+                    progress_tracker.start_document_processing(next_worker_id, next_doc_name, next_pages, next_size_mb)
+
+    print("All possible files processed for mixed-project batch.")
+
+
 def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, repair_mode=False):
     """Process multiple projects in parallel using a unified document queue across all projects"""
     from collections import namedtuple
@@ -768,42 +879,35 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         end_idx = min(i + optimal_batch_size, total_documents)
         batch_tasks = document_queue[i:end_idx]
         
-        # Group batch by project for process_files call
-        project_batches = {}
+        # Extract batch data for mixed-project processing
+        batch_s3_keys = []
+        batch_metadata_list = []
+        batch_api_docs_list = []
+        project_names_in_batch = set()
+        
         for task in batch_tasks:
-            if task.project_id not in project_batches:
-                project_batches[task.project_id] = {
-                    'project_name': task.project_name,
-                    's3_keys': [],
-                    'metadata_list': [],
-                    'api_docs_list': []
-                }
-            project_batches[task.project_id]['s3_keys'].append(task.s3_key)
-            project_batches[task.project_id]['metadata_list'].append(task.metadata)
-            project_batches[task.project_id]['api_docs_list'].append(task.api_doc)
+            batch_s3_keys.append(task.s3_key)
+            batch_metadata_list.append(task.metadata)
+            batch_api_docs_list.append(task.api_doc)
+            project_names_in_batch.add(task.project_name)
         
         print(f"\n[CROSS-PROJECT BATCH {batch_number}] Processing documents {i+1}-{end_idx} of {total_documents}")
-        print(f"  Batch spans {len(project_batches)} projects: {', '.join([p['project_name'] for p in project_batches.values()])}")
+        print(f"  Batch spans {len(project_names_in_batch)} projects: {', '.join(sorted(project_names_in_batch))}")
+        print(f"  Processing all {len(batch_tasks)} documents together to maximize worker utilization")
         
         batch_start = datetime.now()
         
-        # Process each project's portion of this batch
-        for project_id, batch_data in project_batches.items():
-            project_doc_count = len(batch_data['s3_keys'])
-            print(f"    Processing {project_doc_count} documents from {batch_data['project_name']}")
-            
-            # Update progress tracker for current project being processed
-            progress_tracker.update_current_project(batch_data['project_name'])
-            
-            process_files(
-                project_id,
-                batch_data['s3_keys'],
-                batch_data['metadata_list'],
-                batch_data['api_docs_list'],
-                batch_size=files_concurrency_size,
-                temp_dir=embedder_temp_dir,
-                is_retry=(retry_failed_only or retry_skipped_only),
-            )
+        # Process all documents in the batch together (mixed projects)
+        # Since process_files expects a single project_id, we'll use a special cross-project processor
+        process_mixed_project_files(
+            batch_tasks,  # Pass the full task list with project info
+            batch_s3_keys,
+            batch_metadata_list,
+            batch_api_docs_list,
+            batch_size=files_concurrency_size,
+            temp_dir=embedder_temp_dir,
+            is_retry=(retry_failed_only or retry_skipped_only),
+        )
         
         batch_end = datetime.now()
         batch_duration = (batch_end - batch_start).total_seconds()
