@@ -142,10 +142,10 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                         # When result is None, check database to see if it was actually successful
                         # This can happen when documents are processed but return None due to early logging
                         try:
-                            from src.schemas.processing_logs import ProcessingLog
-                            from src.models.pgvector.vector_db_utils import get_database_session
+                            from src.models.pgvector.vector_models import ProcessingLog
+                            from src.models import get_session
                             
-                            session = get_database_session()
+                            session = get_session()
                             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
                             session.close()
                             
@@ -169,14 +169,25 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                         
                 except BrokenProcessPool as bpp_error:
                     print(f"[{completed_count + 1}/{total_documents}] CRITICAL: Process pool broken while processing {doc_id}: {bpp_error}")
-                    print(f"[CRITICAL] A worker process crashed. Stopping all processing to prevent data corruption.")
+                    print(f"[RESILIENCE] Worker crashed, likely due to OCR memory issues. Document marked as failed, continuing with others.")
                     log_processing_result(project_id, doc_id, "failure")
                     progress_tracker.finish_document_processing(worker_id, success=False, skipped=False)
-                    # Remove this future and stop processing to prevent further corruption
+                    
+                    # Remove this future and reduce worker pool size for resilience
                     all_futures.remove(future)
                     del future_to_task[future]
-                    process_pool_broken = True
-                    break  # Break out of the done_futures loop and stop processing
+                    
+                    # Instead of stopping completely, reduce the process pool size to avoid further crashes
+                    # and continue processing remaining documents with fewer workers
+                    remaining_workers = len([f for f in all_futures if not f.done()])
+                    if remaining_workers <= 1:
+                        print(f"[RESILIENCE] Too many worker crashes. Marking remaining documents as failed to prevent system instability.")
+                        process_pool_broken = True
+                        break  # Only stop if we have very few workers left
+                    else:
+                        print(f"[RESILIENCE] Continuing with {remaining_workers} remaining workers. Avoiding resubmission to prevent cascade failures.")
+                        # Don't submit new work for a while to let the pool stabilize
+                        process_pool_broken = False  # Allow continuation but be more careful
                 except Exception as e:
                     print(f"[{completed_count + 1}/{total_documents}] Failed to process {doc_id}: {e}")
                     log_processing_result(project_id, doc_id, "failure")

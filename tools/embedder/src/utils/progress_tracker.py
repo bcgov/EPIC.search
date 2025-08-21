@@ -14,6 +14,8 @@ class ProgressTracker:
         self.skipped_documents = 0
         self.current_project_ids = []  # Track project IDs for this run
         self.start_processing_log_id = None  # Track the highest ID before run starts
+        self.is_retry_mode = False  # Track if this is a retry operation
+        self.retry_document_ids = set()  # Track specific document IDs being retried
         self.current_project_name = ""
         self.active_documents = {}  # dict of {worker_id: {name, pages, size_mb}}
         self.total_pages_processed = 0
@@ -22,28 +24,35 @@ class ProgressTracker:
         self.lock = threading.Lock()
         self._stop_logging = False
         
-    def start(self, total_projects, total_documents, project_ids=None):
+    def start(self, total_projects, total_documents, project_ids=None, is_retry_mode=False, retry_document_ids=None):
         """Initialize progress tracking"""
         with self.lock:
             self.start_time = datetime.now()
             self.total_projects = total_projects
             self.total_documents = total_documents
             self.current_project_ids = project_ids or []
+            self.is_retry_mode = is_retry_mode
+            self.retry_document_ids = set(retry_document_ids or [])
             
-            # Get the highest processing log ID before we start
-            try:
-                from src.models.pgvector.vector_models import ProcessingLog
-                from src.models import get_session
-                from sqlalchemy import func
-                
-                session = get_session()
-                max_id_result = session.query(func.max(ProcessingLog.id)).scalar()
-                self.start_processing_log_id = max_id_result or 0
-                session.close()
-                print(f"[DEBUG] Progress tracker starting - baseline processing log ID: {self.start_processing_log_id}")
-            except Exception as e:
-                print(f"[WARN] Could not get baseline processing log ID: {e}")
-                self.start_processing_log_id = 0
+            if not self.is_retry_mode:
+                # For normal mode, get the highest processing log ID before we start
+                try:
+                    from src.models.pgvector.vector_models import ProcessingLog
+                    from src.models import get_session
+                    from sqlalchemy import func
+                    
+                    session = get_session()
+                    max_id_result = session.query(func.max(ProcessingLog.id)).scalar()
+                    self.start_processing_log_id = max_id_result or 0
+                    session.close()
+                    print(f"[DEBUG] Progress tracker starting - baseline processing log ID: {self.start_processing_log_id}")
+                except Exception as e:
+                    print(f"[WARN] Could not get baseline processing log ID: {e}")
+                    self.start_processing_log_id = 0
+            else:
+                # For retry mode, we'll filter by document IDs and latest updates
+                self.start_processing_log_id = None
+                print(f"[DEBUG] Progress tracker starting in retry mode - tracking {len(self.retry_document_ids)} document IDs")
                 
             self.processed_projects = 0
             self.processed_documents = 0
@@ -227,16 +236,48 @@ class ProgressTracker:
             
             session = get_session()
             
-            # Build query to filter records from this run only using ID
-            query = session.query(ProcessingLog)
-            
-            # Filter by ID - only records created during this run
-            if self.start_processing_log_id is not None:
-                query = query.filter(ProcessingLog.id > self.start_processing_log_id)
-            
-            # If we have specific project IDs, filter by them for additional accuracy
-            if self.current_project_ids:
-                query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+            if self.is_retry_mode:
+                # For retry mode, filter by specific document IDs and get latest status
+                if self.retry_document_ids:
+                    # Get the latest status for each retry document
+                    from sqlalchemy import func
+                    
+                    # Query for the latest processing log for each document being retried
+                    subquery = session.query(
+                        ProcessingLog.document_id,
+                        func.max(ProcessingLog.processed_at).label('max_processed_at')
+                    ).filter(
+                        ProcessingLog.document_id.in_(self.retry_document_ids)
+                    ).group_by(ProcessingLog.document_id).subquery()
+                    
+                    # Join to get the actual records with latest processed_at
+                    query = session.query(ProcessingLog).join(
+                        subquery,
+                        (ProcessingLog.document_id == subquery.c.document_id) &
+                        (ProcessingLog.processed_at == subquery.c.max_processed_at)
+                    )
+                    
+                    # Additional project filtering if available
+                    if self.current_project_ids:
+                        query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+                else:
+                    # No specific document IDs, fall back to project-based filtering with recent timestamp
+                    query = session.query(ProcessingLog)
+                    if self.current_project_ids:
+                        query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+                    # For retry mode without specific doc IDs, look for records updated during this run
+                    query = query.filter(ProcessingLog.processed_at >= self.start_time)
+            else:
+                # Normal mode: filter by ID - only records created during this run
+                query = session.query(ProcessingLog)
+                
+                # Filter by ID - only records created during this run
+                if self.start_processing_log_id is not None:
+                    query = query.filter(ProcessingLog.id > self.start_processing_log_id)
+                
+                # If we have specific project IDs, filter by them for additional accuracy
+                if self.current_project_ids:
+                    query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
             
             # Get actual counts from database for this run only
             success_count = query.filter(ProcessingLog.status == 'success').count()
@@ -259,7 +300,10 @@ class ProgressTracker:
             if (success_count != self.processed_documents or 
                 failure_count != self.failed_documents or 
                 skipped_count != self.skipped_documents):
-                print(f"   Note: Counts from database since ID > {self.start_processing_log_id} (progress tracker: {self.processed_documents}S/{self.failed_documents}F/{self.skipped_documents}Sk)")
+                if self.is_retry_mode:
+                    print(f"   Note: Counts from database for retry operation (progress tracker: {self.processed_documents}S/{self.failed_documents}F/{self.skipped_documents}Sk)")
+                else:
+                    print(f"   Note: Counts from database since ID > {self.start_processing_log_id} (progress tracker: {self.processed_documents}S/{self.failed_documents}F/{self.skipped_documents}Sk)")
                 
         except Exception as db_err:
             print(f"   Note: Could not get database counts: {db_err}")

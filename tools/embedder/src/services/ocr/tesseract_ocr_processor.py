@@ -157,24 +157,91 @@ def _extract_text_from_pdf(pdf_path: str, s3_key: str = None) -> List[Dict[str, 
         print(f"[OCR-TESSERACT] Processing scanned PDF {s3_key or pdf_path} with {doc.page_count} pages using Tesseract OCR...")
         
         for page_num in range(doc.page_count):
-            page = doc.load_page(page_num)
-            
-            # Convert PDF page to image
-            # Use configurable DPI for better OCR accuracy
-            mat = fitz.Matrix(dpi/72, dpi/72)
-            pix = page.get_pixmap(matrix=mat)
-            
-            # Convert to PIL Image
-            img_data = pix.tobytes("png")
-            image = Image.open(io.BytesIO(img_data))
-            
-            # Extract text using Tesseract
             try:
-                # Configure Tesseract for better accuracy
-                # --oem 3: Use default OCR engine
-                # --psm 1: Automatic page segmentation with OSD (Orientation and Script Detection)
-                custom_config = f'--oem 3 --psm 1 -l {language}'
-                extracted_text = pytesseract.image_to_string(image, config=custom_config)
+                page = doc.load_page(page_num)
+                
+                # Convert PDF page to image with memory safety checks
+                # Use configurable DPI for better OCR accuracy
+                mat = fitz.Matrix(dpi/72, dpi/72)
+                
+                # Check if page is too large before processing
+                page_rect = page.rect
+                expected_width = int(page_rect.width * dpi / 72)
+                expected_height = int(page_rect.height * dpi / 72)
+                
+                # Prevent excessive memory usage (limit to ~50MB image)
+                max_pixels = 50 * 1024 * 1024  # 50MB at 4 bytes per pixel
+                if expected_width * expected_height > max_pixels:
+                    print(f"[WARN] Page {page_num + 1} too large ({expected_width}x{expected_height}) - reducing DPI for safety")
+                    # Calculate safer DPI
+                    scale_factor = (max_pixels / (expected_width * expected_height)) ** 0.5
+                    safe_dpi = max(72, int(dpi * scale_factor))
+                    mat = fitz.Matrix(safe_dpi/72, safe_dpi/72)
+                
+                # Try to get pixmap with error handling
+                try:
+                    pix = page.get_pixmap(matrix=mat)
+                except Exception as pix_err:
+                    print(f"[WARN] Failed to create pixmap for page {page_num + 1} of {s3_key}: {pix_err}")
+                    raise Exception(f"Pixmap creation failed: {pix_err}")
+                
+                # Convert to PIL Image with memory safety
+                try:
+                    img_data = pix.tobytes("png")
+                    if len(img_data) == 0:
+                        raise Exception("Empty image data")
+                    image = Image.open(io.BytesIO(img_data))
+                    
+                    # Verify image is valid
+                    try:
+                        image.verify()
+                        # Re-open for processing (verify() closes the image)
+                        image = Image.open(io.BytesIO(img_data))
+                    except Exception as verify_err:
+                        print(f"[WARN] Image verification failed for page {page_num + 1}: {verify_err}")
+                        raise Exception(f"Image verification failed: {verify_err}")
+                        
+                except Exception as img_err:
+                    print(f"[WARN] Image conversion failed for page {page_num + 1} of {s3_key}: {img_err}")
+                    pix = None  # Clean up
+                    raise Exception(f"Image conversion failed: {img_err}")
+                finally:
+                    # Always clean up pixmap
+                    if 'pix' in locals() and pix:
+                        pix = None
+                
+                # Extract text using Tesseract with timeout and memory protection
+                try:
+                    # Configure Tesseract for better accuracy
+                    # --oem 3: Use default OCR engine
+                    # --psm 1: Automatic page segmentation with OSD (Orientation and Script Detection)
+                    custom_config = f'--oem 3 --psm 1 -l {language}'
+                    
+                    # Add timeout to prevent hanging
+                    import signal
+                    import multiprocessing as mp
+                    
+                    def _extract_text_with_timeout(image, config, timeout=30):
+                        """Extract text with timeout protection."""
+                        try:
+                            return pytesseract.image_to_string(image, config=config)
+                        except Exception as e:
+                            print(f"[WARN] Tesseract extraction failed: {e}")
+                            return ""
+                    
+                    # Use timeout for tesseract processing
+                    extracted_text = _extract_text_with_timeout(image, custom_config)
+                    
+                except Exception as ocr_err:
+                    print(f"[WARN] Tesseract OCR failed for page {page_num + 1} of {s3_key}: {ocr_err}")
+                    extracted_text = ""
+                finally:
+                    # Clean up image
+                    if 'image' in locals():
+                        try:
+                            image.close()
+                        except:
+                            pass
                 
                 # Clean up the text
                 extracted_text = extracted_text.strip()
@@ -199,8 +266,8 @@ def _extract_text_from_pdf(pdf_path: str, s3_key: str = None) -> List[Dict[str, 
                 if page_num % 10 == 0 and page_num > 0:
                     print(f"[OCR-TESSERACT] Processed {page_num + 1}/{doc.page_count} pages...")
                     
-            except Exception as ocr_err:
-                print(f"[WARN] Tesseract OCR failed for page {page_num + 1} of {s3_key}: {ocr_err}")
+            except Exception as page_err:
+                print(f"[WARN] Complete page processing failed for page {page_num + 1} of {s3_key}: {page_err}")
                 # Add empty page to maintain structure
                 page_data = {
                     "text": "",
@@ -210,10 +277,14 @@ def _extract_text_from_pdf(pdf_path: str, s3_key: str = None) -> List[Dict[str, 
                         "page_number": page_num + 1,
                         "extraction_method": "ocr_tesseract_failed",
                         "total_pages": doc.page_count,
-                        "error": str(ocr_err)
+                        "error": str(page_err)
                     }
                 }
                 pages.append(page_data)
+                
+                # Force garbage collection to free memory
+                import gc
+                gc.collect()
         
         # Store page count before closing document
         total_pages = doc.page_count

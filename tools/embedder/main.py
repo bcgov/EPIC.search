@@ -517,7 +517,13 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
     else:
         print(f"NORMAL MODE: Processing {total_documents} new documents")
     
-    progress_tracker.start(len(projects), total_documents, project_ids)
+    # Collect document IDs for retry mode tracking
+    is_retry = retry_failed_only or retry_skipped_only
+    retry_doc_ids = []
+    if is_retry and document_queue:
+        retry_doc_ids = [task.metadata.get("document_id", f"unknown_{i}") for i, task in enumerate(document_queue)]
+    
+    progress_tracker.start(len(projects), total_documents, project_ids, is_retry_mode=is_retry, retry_document_ids=retry_doc_ids)
     
     if total_documents == 0:
         print(f"No {mode_desc} to process across all projects")

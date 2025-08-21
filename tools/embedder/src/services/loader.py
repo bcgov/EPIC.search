@@ -300,6 +300,17 @@ def chunk_and_embed_pages(
             if chunk_metrics is not None:
                 chunk_metrics["_get_keywords_times"].append(time.perf_counter() - t_kw)
             all_keywords.update(page_keywords)
+            
+            # Special handling for image content - add image keywords for better searchability
+            if page_markdown.get("image_analysis"):
+                image_analysis = page_markdown["image_analysis"]
+                image_keywords = image_analysis.get("keywords", [])
+                if image_keywords:
+                    print(f"[IMAGE_KEYWORDS] Adding {len(image_keywords)} image-specific keywords for enhanced searchability")
+                    all_keywords.update(image_keywords)
+                    # Also add to page keywords for this iteration
+                    page_keywords.extend(image_keywords)
+            
             for i, chunk_dict in enumerate(chunk_dicts):
                 # keywords already set in chunk_metadatas[i]["keywords"] by extract_keywords_from_chunks
                 pass
