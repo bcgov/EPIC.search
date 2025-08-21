@@ -2,7 +2,7 @@ import { Box, Typography, Button, Tooltip } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { DescriptionTwoTone, FindInPage, Business } from "@mui/icons-material";
-import PdfLink from "@/components/Shared/PdfLink";
+import FileLink from "@/components/Shared/FileLink";
 
 interface SearchDocumentGroupHeaderProps {
   document: Document;
@@ -33,7 +33,7 @@ const SearchDocumentGroupHeader = ({ document, onSimilarSearch }: SearchDocument
         position: "relative",
       }}
     >
-      <PdfLink
+      <FileLink
         s3Key={document.s3_key || null}
         fileName={document.document_saved_name}
         projectId={document.project_id}
@@ -107,7 +107,7 @@ const SearchDocumentGroupHeader = ({ document, onSimilarSearch }: SearchDocument
             )}
           </Box>
         </Box>
-      </PdfLink>
+      </FileLink>
       
       {onSimilarSearch && (
         <Box

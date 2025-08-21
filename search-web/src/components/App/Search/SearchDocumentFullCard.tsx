@@ -2,7 +2,7 @@ import { Box, Typography, Button, Tooltip } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { DescriptionTwoTone, FindInPage, Business } from "@mui/icons-material";
-import PdfLink from "@/components/Shared/PdfLink";
+import FileLink from "@/components/Shared/FileLink";
 
 interface SearchDocumentFullCardProps {
   document: Document;
@@ -43,7 +43,7 @@ const SearchDocumentFullCard = ({
         position: "relative",
       }}
     >
-      <PdfLink
+      <FileLink
         s3Key={document.s3_key || null}
         fileName={document.document_saved_name}
         pageNumber={parseInt(document.page_number || "1", 10)}
@@ -137,7 +137,7 @@ const SearchDocumentFullCard = ({
             </Typography>
           )}
         </Box>
-      </PdfLink>
+      </FileLink>
       
       {showSimilarButtons && onSimilarSearch && (
         <Box
