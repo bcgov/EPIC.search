@@ -53,11 +53,19 @@ WORKER_MAX_OVERFLOW = int(os.getenv('WORKER_MAX_OVERFLOW', '2'))  # Minimal over
 WORKER_POOL_TIMEOUT = int(os.getenv('WORKER_POOL_TIMEOUT', '30'))  # Shorter timeout for workers
 WORKER_CONNECT_TIMEOUT = int(os.getenv('WORKER_CONNECT_TIMEOUT', '30')) # Shorter connect timeout
 
-print(f"[CONFIG] Main database pool: size={DB_POOL_SIZE}, max_overflow={DB_MAX_OVERFLOW}, "
-      f"recycle={DB_POOL_RECYCLE}s ({DB_POOL_RECYCLE//60} min), "
-      f"pool_timeout={DB_POOL_TIMEOUT}s, connect_timeout={DB_CONNECT_TIMEOUT}s")
-print(f"[CONFIG] Worker database pool: size={WORKER_POOL_SIZE}, max_overflow={WORKER_MAX_OVERFLOW}, "
-      f"pool_timeout={WORKER_POOL_TIMEOUT}s, connect_timeout={WORKER_CONNECT_TIMEOUT}s")
+# Flag to prevent duplicate configuration logging
+_config_logged = False
+
+def _log_db_config():
+    """Log database configuration once per process"""
+    global _config_logged
+    if not _config_logged:
+        print(f"[CONFIG] Main database pool: size={DB_POOL_SIZE}, max_overflow={DB_MAX_OVERFLOW}, "
+              f"recycle={DB_POOL_RECYCLE}s ({DB_POOL_RECYCLE//60} min), "
+              f"pool_timeout={DB_POOL_TIMEOUT}s, connect_timeout={DB_CONNECT_TIMEOUT}s")
+        print(f"[CONFIG] Worker database pool: size={WORKER_POOL_SIZE}, max_overflow={WORKER_MAX_OVERFLOW}, "
+              f"pool_timeout={WORKER_POOL_TIMEOUT}s, connect_timeout={WORKER_CONNECT_TIMEOUT}s")
+        _config_logged = True
 
 # Use SQLAlchemy to drop and create tables    
 database_url = settings.vector_store_settings.db_url
@@ -105,6 +113,9 @@ def init_vec_db(skip_hnsw=False):
     Ensures pgvector extension and all metadata indexes are present for semantic search.
     By default, also creates HNSW indexes unless skip_hnsw=True.
     """
+    # Log database configuration once per process
+    _log_db_config()
+    
     vec = VectorStore()
     # Initialize the pgvector extension (raw SQL, required for embedding column)
     vec.create_pgvector_extension()

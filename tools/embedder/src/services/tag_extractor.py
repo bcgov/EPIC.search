@@ -169,7 +169,7 @@ def get_tag_embeddings():
         if "paging file" in str(e).lower() or "virtual memory" in str(e).lower():
             error_msg = (
                 f"Windows virtual memory error: {e}\n\n"
-                f"💡 QUICK FIX: Restart your PC\n"
+                f"QUICK FIX: Restart your PC\n"
                 f"This usually happens after running the system for a long time.\n"
                 f"A restart will clear memory fragmentation and fix the issue."
             )

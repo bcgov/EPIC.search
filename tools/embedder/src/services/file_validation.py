@@ -4,7 +4,7 @@ from .ocr.ocr_factory import extract_text_with_ocr, is_ocr_available
 from .word_reader import is_word_supported, get_word_document_metadata
 from PIL import Image
 
-def validate_file(temp_path, s3_key):
+def validate_file(temp_path, s3_key, max_pages=None):
     """
     Validate the file for format and extractable text.
     Returns (is_valid, reason, pages_data, ocr_info) where is_valid is True if the file should be processed.
@@ -14,6 +14,11 @@ def validate_file(temp_path, s3_key):
     - Images: Attempts OCR processing directly  
     - Word documents: Extracts text content from DOCX files. Legacy DOC files are skipped with recommendation to convert.
     - Text files: Reads and chunks plain text content (.txt, .md, .csv, .log, .rtf, etc.)
+    
+    Args:
+        temp_path: Path to the downloaded file
+        s3_key: S3 key for identification  
+        max_pages: Optional maximum page count limit for PDFs
     """
     # Debug: Check OCR availability at the start
     ocr_available = is_ocr_available()
@@ -36,7 +41,7 @@ def validate_file(temp_path, s3_key):
     is_text = file_ext in ['txt', 'text', 'log', 'md', 'markdown', 'csv', 'tsv', 'rtf']
     
     if is_pdf:
-        return _validate_pdf_file(temp_path, s3_key, ocr_info)
+        return _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages)
     elif is_image:
         return _validate_image_file(temp_path, s3_key, ocr_info)
     elif is_word:
@@ -48,17 +53,18 @@ def validate_file(temp_path, s3_key):
         return False, "precheck_failed", None, ocr_info
 
 
-def _validate_pdf_file(temp_path, s3_key, ocr_info):
-    """Validate PDF file - this is the existing PDF validation logic."""
+def _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages=None):
+    """Validate PDF file - this includes page count limits and content validation."""
     # First, check if the file is actually a PDF
     if not s3_key.lower().endswith('.pdf'):
         print(f"[WARN] File {s3_key} is not a PDF file (invalid extension)")
         return False, "precheck_failed", None, ocr_info
     
-    # Verify the file can be opened as a PDF
+    # Verify the file can be opened as a PDF and get page count
     try:
         test_doc = fitz.open(temp_path)
-        if test_doc.page_count == 0:
+        page_count = test_doc.page_count
+        if page_count == 0:
             test_doc.close()
             print(f"[WARN] PDF file {s3_key} has no pages")
             return False, "precheck_failed", None, ocr_info
@@ -66,6 +72,13 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
     except Exception as pdf_validation_err:
         print(f"[WARN] File {s3_key} cannot be opened as a valid PDF: {pdf_validation_err}")
         return False, "precheck_failed", None, ocr_info
+    
+    # Check page count limit if specified
+    if max_pages is not None and page_count > max_pages:
+        print(f"[SKIP] Document {s3_key} has {page_count} pages, exceeding limit of {max_pages} pages - skipping to avoid memory/threading issues")
+        return False, f"page_count_exceeded_limit_{max_pages}", None, ocr_info
+    elif max_pages is not None:
+        print(f"[OK] Document {s3_key} has {page_count} pages (within {max_pages} page limit)")
     
     try:
         doc = fitz.open(temp_path)
@@ -128,7 +141,32 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
             except:
                 ocr_info["ocr_provider"] = "unknown"
             try:
-                ocr_pages = extract_text_with_ocr(temp_path, s3_key)
+                # Add process-level protection around OCR to prevent worker crashes
+                print(f"[OCR] Starting protected OCR extraction for {s3_key}")
+                
+                # Use memory protection wrapper
+                import gc
+                
+                def _safe_ocr_extraction(temp_path, s3_key):
+                    """OCR extraction with memory and process protection."""
+                    try:
+                        # Force garbage collection before OCR
+                        gc.collect()
+                        
+                        # Extract with error handling
+                        return extract_text_with_ocr(temp_path, s3_key)
+                    except MemoryError as mem_err:
+                        print(f"[OCR-WARN] Memory error during OCR of {s3_key}: {mem_err}")
+                        raise Exception(f"OCR memory allocation failed: {mem_err}")
+                    except Exception as ocr_err:
+                        print(f"[OCR-WARN] OCR extraction failed for {s3_key}: {ocr_err}")
+                        raise Exception(f"OCR processing failed: {ocr_err}")
+                    finally:
+                        # Always clean up memory after OCR
+                        gc.collect()
+                
+                ocr_pages = _safe_ocr_extraction(temp_path, s3_key)
+                
                 if ocr_pages and any(page.get("text", "").strip() for page in ocr_pages):
                     print(f"[OCR] Successfully extracted text from scanned document {s3_key}")
                     ocr_info["ocr_successful"] = True
@@ -182,7 +220,32 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
             except:
                 ocr_info["ocr_provider"] = "unknown"
             try:
-                ocr_pages = extract_text_with_ocr(temp_path, s3_key)
+                # Add process-level protection around OCR to prevent worker crashes
+                print(f"[OCR] Starting protected OCR extraction for scanning device document {s3_key}")
+                
+                # Use memory protection wrapper  
+                import gc
+                
+                def _safe_ocr_extraction(temp_path, s3_key):
+                    """OCR extraction with memory and process protection."""
+                    try:
+                        # Force garbage collection before OCR
+                        gc.collect()
+                        
+                        # Extract with error handling
+                        return extract_text_with_ocr(temp_path, s3_key)
+                    except MemoryError as mem_err:
+                        print(f"[OCR-WARN] Memory error during OCR of {s3_key}: {mem_err}")
+                        raise Exception(f"OCR memory allocation failed: {mem_err}")
+                    except Exception as ocr_err:
+                        print(f"[OCR-WARN] OCR extraction failed for {s3_key}: {ocr_err}")
+                        raise Exception(f"OCR processing failed: {ocr_err}")
+                    finally:
+                        # Always clean up memory after OCR
+                        gc.collect()
+                
+                ocr_pages = _safe_ocr_extraction(temp_path, s3_key)
+                
                 if ocr_pages and any(page.get("text", "").strip() for page in ocr_pages):
                     print(f"[OCR] Successfully extracted text from scanned document {s3_key}")
                     ocr_info["ocr_successful"] = True
@@ -224,7 +287,32 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
             except:
                 ocr_info["ocr_provider"] = "unknown"
             try:
-                ocr_pages = extract_text_with_ocr(temp_path, s3_key)
+                # Add process-level protection around OCR to prevent worker crashes
+                print(f"[OCR] Starting protected OCR extraction for quality improvement on {s3_key}")
+                
+                # Use memory protection wrapper  
+                import gc
+                
+                def _safe_ocr_extraction(temp_path, s3_key):
+                    """OCR extraction with memory and process protection."""
+                    try:
+                        # Force garbage collection before OCR
+                        gc.collect()
+                        
+                        # Extract with error handling
+                        return extract_text_with_ocr(temp_path, s3_key)
+                    except MemoryError as mem_err:
+                        print(f"[OCR-WARN] Memory error during OCR of {s3_key}: {mem_err}")
+                        raise Exception(f"OCR memory allocation failed: {mem_err}")
+                    except Exception as ocr_err:
+                        print(f"[OCR-WARN] OCR extraction failed for {s3_key}: {ocr_err}")
+                        raise Exception(f"OCR processing failed: {ocr_err}")
+                    finally:
+                        # Always clean up memory after OCR
+                        gc.collect()
+                
+                ocr_pages = _safe_ocr_extraction(temp_path, s3_key)
+                
                 if ocr_pages and any(page.get("text", "").strip() for page in ocr_pages):
                     print(f"[OCR] Successfully extracted text from scanned document {s3_key}")
                     ocr_info["ocr_successful"] = True
@@ -302,7 +390,32 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
                     ocr_info["ocr_provider"] = "unknown"
                     
                 try:
-                    ocr_pages = extract_text_with_ocr(temp_image_path, s3_key)
+                    # Add process-level protection around OCR to prevent worker crashes
+                    print(f"[IMAGE_PDF] Starting protected OCR extraction on converted image for {s3_key}")
+                    
+                    # Use memory protection wrapper  
+                    import gc
+                    
+                    def _safe_ocr_extraction(temp_image_path, s3_key):
+                        """OCR extraction with memory and process protection."""
+                        try:
+                            # Force garbage collection before OCR
+                            gc.collect()
+                            
+                            # Extract with error handling
+                            return extract_text_with_ocr(temp_image_path, s3_key)
+                        except MemoryError as mem_err:
+                            print(f"[OCR-WARN] Memory error during OCR of {s3_key}: {mem_err}")
+                            raise Exception(f"OCR memory allocation failed: {mem_err}")
+                        except Exception as ocr_err:
+                            print(f"[OCR-WARN] OCR extraction failed for {s3_key}: {ocr_err}")
+                            raise Exception(f"OCR processing failed: {ocr_err}")
+                        finally:
+                            # Always clean up memory after OCR
+                            gc.collect()
+                    
+                    ocr_pages = _safe_ocr_extraction(temp_image_path, s3_key)
+                    
                     if ocr_pages and any(page.get("text", "").strip() for page in ocr_pages):
                         print(f"[IMAGE_PDF] Successfully extracted text via OCR from image PDF {s3_key}")
                         ocr_info["ocr_successful"] = True
@@ -368,7 +481,43 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
                         pdf_context = f"PDF document originally created as image file (creator: {s3_key.split('/')[-1]})"
                         enhanced_searchable_text = f"{pdf_context} | {searchable_text}"
                         
+                        # Extract key terms for headers and tags
+                        image_tags = analysis_result.get("tags", [])
+                        image_objects = analysis_result.get("objects", [])
+                        image_categories = analysis_result.get("categories", [])
+                        image_keywords = analysis_result.get("image_keywords", [])  # Get the new keywords
+                        
+                        # Create meaningful headers from image content
+                        # Use the first few tags/objects as header content
+                        header_content = []
+                        if description:
+                            header_content.append(description)
+                        if image_tags:
+                            header_content.extend(image_tags[:3])  # Use top 3 tags
+                        if image_objects:
+                            header_content.extend(image_objects[:2])  # Use top 2 objects
+                        
                         # Create page data structure similar to OCR/PDF pages
+                        page_metadata = {
+                            "source_type": "image_pdf", 
+                            "original_format": "pdf_converted_to_image",
+                            "conversion_dpi": 300,
+                            "extraction_method": "image_analysis_from_pdf",
+                            "pdf_metadata": pdf_metadata,
+                            # Add header metadata that the loader expects
+                            "Header 1": header_content[0] if len(header_content) > 0 else "Image Content",
+                            "Header 2": header_content[1] if len(header_content) > 1 else "",
+                            "Header 3": header_content[2] if len(header_content) > 2 else "",
+                            "Header 4": header_content[3] if len(header_content) > 3 else "",
+                            "Header 5": header_content[4] if len(header_content) > 4 else "",
+                            "Header 6": header_content[5] if len(header_content) > 5 else "",
+                            # Add image analysis tags as pre-extracted tags
+                            "image_tags": image_tags,
+                            "image_objects": image_objects,
+                            "image_categories": image_categories,
+                            "image_keywords": image_keywords  # Add the comprehensive keywords for searching
+                        }
+                        
                         page_data = [{
                             "page_number": 1,
                             "text": enhanced_searchable_text,
@@ -376,19 +525,14 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
                             "image_analysis": {
                                 "method": analysis_result.get("method", "unknown"),
                                 "description": description,
-                                "tags": analysis_result.get("tags", []),
-                                "objects": analysis_result.get("objects", []),
-                                "categories": analysis_result.get("categories", []),
+                                "tags": image_tags,
+                                "objects": image_objects,
+                                "categories": image_categories,
+                                "keywords": image_keywords,  # Add comprehensive keywords
                                 "confidence": analysis_result.get("confidence", 0.0),
                                 "pdf_enhanced": analysis_result.get("pdf_enhancement", {}).get("enhanced_for_pdf", False)
                             },
-                            "metadata": {
-                                "source_type": "image_pdf",
-                                "original_format": "pdf_converted_to_image",
-                                "conversion_dpi": 300,
-                                "extraction_method": "image_analysis_from_pdf",
-                                "pdf_metadata": pdf_metadata
-                            },
+                            "metadata": page_metadata,
                             "content_type": "image_pdf_with_analysis"
                         }]
                         
@@ -462,7 +606,32 @@ def _validate_image_file(temp_path, s3_key, ocr_info):
         except:
             ocr_info["ocr_provider"] = "unknown"
         try:
-            ocr_pages = extract_text_with_ocr(temp_path, s3_key)
+            # Add process-level protection around OCR to prevent worker crashes
+            print(f"[OCR] Starting protected OCR extraction on image file {s3_key}")
+            
+            # Use memory protection wrapper  
+            import gc
+            
+            def _safe_ocr_extraction(temp_path, s3_key):
+                """OCR extraction with memory and process protection."""
+                try:
+                    # Force garbage collection before OCR
+                    gc.collect()
+                    
+                    # Extract with error handling
+                    return extract_text_with_ocr(temp_path, s3_key)
+                except MemoryError as mem_err:
+                    print(f"[OCR-WARN] Memory error during OCR of {s3_key}: {mem_err}")
+                    raise Exception(f"OCR memory allocation failed: {mem_err}")
+                except Exception as ocr_err:
+                    print(f"[OCR-WARN] OCR extraction failed for {s3_key}: {ocr_err}")
+                    raise Exception(f"OCR processing failed: {ocr_err}")
+                finally:
+                    # Always clean up memory after OCR
+                    gc.collect()
+            
+            ocr_pages = _safe_ocr_extraction(temp_path, s3_key)
+            
             if ocr_pages and any(page.get("text", "").strip() for page in ocr_pages):
                 print(f"[OCR] Successfully extracted text from image {s3_key}")
                 ocr_info["ocr_successful"] = True
@@ -518,6 +687,7 @@ def _try_image_analysis_fallback(temp_path, s3_key, ocr_info):
                         "tags": analysis_result.get("tags", []),
                         "objects": analysis_result.get("objects", []),
                         "categories": analysis_result.get("categories", []),
+                        "keywords": analysis_result.get("image_keywords", []),  # Add comprehensive keywords
                         "confidence": analysis_result.get("confidence", 0.0)
                     },
                     "content_type": "image_with_analysis"
@@ -737,8 +907,8 @@ def _validate_text_file(temp_path, s3_key, ocr_info):
 
 
 # Keep the original function name for backward compatibility
-def validate_pdf_file(temp_path, s3_key):
+def validate_pdf_file(temp_path, s3_key, max_pages=None):
     """
     Backward compatibility wrapper for validate_file.
     """
-    return validate_file(temp_path, s3_key)
+    return validate_file(temp_path, s3_key, max_pages)

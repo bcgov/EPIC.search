@@ -4,7 +4,7 @@ Loader module for document processing, chunking, embedding, and database upsert.
 This module orchestrates the full document processing pipeline:
 - Downloads and validates files
 - Splits documents into pages and chunks
-- Extracts tags and keywords (batched and parallelized)
+- Extracts tags and keywords (parallel processing within documents)
 - Generates chunk and document-level embeddings
 - Stores all data using SQLAlchemy ORM and pgvector
 - Collects and stores structured processing metrics
@@ -31,10 +31,9 @@ from .tag_extractor import extract_tags_from_chunks
 from .embedding import get_embedding
 from .file_validation import validate_file
 from .markdown_reader import read_as_pages
-from .word_reader import read_word_as_pages, is_word_supported
+from .word_reader import read_word_as_pages
 from .bert_keyword_extractor import extract_keywords_from_chunks
 from .fast_keyword_extractor import extract_keywords_from_chunks_fast
-from .ocr.ocr_factory import initialize_ocr, is_ocr_available
 
 # Import and run path setup
 from src.path_setup import setup_paths
@@ -218,6 +217,32 @@ def chunk_and_embed_pages(
             page_chunk_count += 1
         if chunk_metrics is not None:
             chunk_metrics["chunks_per_page"].append(page_chunk_count)
+        
+        # Extract image analysis tags if present in page metadata
+        page_image_tags = set()
+        page_image_objects = set()
+        page_image_categories = set()
+        
+        if page_markdown.get("metadata", {}).get("image_tags"):
+            page_image_tags.update(page_markdown["metadata"]["image_tags"])
+        if page_markdown.get("metadata", {}).get("image_objects"):
+            page_image_objects.update(page_markdown["metadata"]["image_objects"])
+        if page_markdown.get("metadata", {}).get("image_categories"):
+            page_image_categories.update(page_markdown["metadata"]["image_categories"])
+        
+        # Add image analysis tags to document-level tags
+        all_tags.update(page_image_tags)
+        all_tags.update(page_image_objects)
+        all_tags.update(page_image_categories)
+        
+        # Add image analysis tags to each chunk on this page
+        if page_image_tags or page_image_objects or page_image_categories:
+            combined_image_tags = list(page_image_tags) + list(page_image_objects) + list(page_image_categories)
+            for i in range(len(chunk_metadatas)):
+                if "tags" not in chunk_metadatas[i]:
+                    chunk_metadatas[i]["tags"] = []
+                chunk_metadatas[i]["tags"].extend(combined_image_tags)
+        
         if chunk_texts:
             # Parallel tag extraction for all chunks on this page
             t_tag = time.perf_counter() if chunk_metrics is not None else None
@@ -230,7 +255,7 @@ def chunk_and_embed_pages(
                 if "paging file" in str(e).lower() or "virtual memory" in str(e).lower():
                     error_msg = (
                         f"Windows virtual memory error: {e}\n\n"
-                        f"💡 QUICK FIX: Restart your PC\n"
+                        f"QUICK FIX: Restart your PC\n"
                         f"This usually happens after running the system for a long time.\n"
                         f"A restart will clear memory fragmentation and fix the issue."
                     )
@@ -256,7 +281,7 @@ def chunk_and_embed_pages(
                     chunk_id = chunk_dict["id"]
                     tags = chunk_id_to_tags.get(chunk_id, [])
                     chunk_metadatas[i]["tags"] = tags
-            # Batch keyword extraction for all chunks on this page with configurable mode
+            # Parallel keyword extraction for all chunks on this page with configurable mode
             t_kw = time.perf_counter() if chunk_metrics is not None else None
             
             # Choose extraction method based on configuration
@@ -275,6 +300,17 @@ def chunk_and_embed_pages(
             if chunk_metrics is not None:
                 chunk_metrics["_get_keywords_times"].append(time.perf_counter() - t_kw)
             all_keywords.update(page_keywords)
+            
+            # Special handling for image content - add image keywords for better searchability
+            if page_markdown.get("image_analysis"):
+                image_analysis = page_markdown["image_analysis"]
+                image_keywords = image_analysis.get("keywords", [])
+                if image_keywords:
+                    print(f"[IMAGE_KEYWORDS] Adding {len(image_keywords)} image-specific keywords for enhanced searchability")
+                    all_keywords.update(image_keywords)
+                    # Also add to page keywords for this iteration (use update for sets)
+                    page_keywords.update(image_keywords)
+            
             for i, chunk_dict in enumerate(chunk_dicts):
                 # keywords already set in chunk_metadatas[i]["keywords"] by extract_keywords_from_chunks
                 pass
@@ -307,7 +343,7 @@ def chunk_and_embed_pages(
     # Document-level semantic embedding will be built in load_data with metadata
     return chunks_to_upsert, list(all_tags), list(all_keywords), list(all_headings), None
 
-def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict = None) -> tuple:
+def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict = None, max_pages: int = None) -> tuple:
     """
     Download a PDF from S3 and validate it. Returns (temp_path, doc_info) where temp_path is the path to the temp file if valid (else None).
     doc_info contains metadata about the document regardless of validation success.
@@ -340,6 +376,18 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             temp.flush()
             temp_path = temp.name
         
+        # Check if downloaded file is empty (this causes workers to hang)
+        file_size = os.path.getsize(temp_path)
+        if file_size == 0:
+            print(f"[ERROR] Downloaded file is empty (0 bytes): {s3_key}")
+            try:
+                os.unlink(temp_path)  # Clean up empty file
+            except:
+                pass
+            raise ValueError(f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues.")
+        
+        print(f"[DEBUG] Downloaded {s3_key}: {file_size} bytes to {temp_path}")
+        
         # Extract PDF metadata only for PDF files
         if original_ext.lower() == '.pdf':
             try:
@@ -350,9 +398,23 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             except Exception as pdf_meta_err:
                 print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
         
-        is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key)
-        doc_info["validation_status"] = "valid" if is_valid else "invalid"
-        doc_info["validation_reason"] = reason if not is_valid else None
+        is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key, max_pages)
+        
+        # Determine the appropriate validation status based on the reason
+        if is_valid:
+            doc_info["validation_status"] = "valid"
+            doc_info["validation_reason"] = None
+        else:
+            # Determine if this should be marked as "skipped" or "invalid"
+            skip_reasons = [
+                "scanned_or_image_pdf", 
+                "precheck_failed"
+            ]
+            if reason in skip_reasons or (reason and reason.startswith("page_count_exceeded_limit_")):
+                doc_info["validation_status"] = "skipped"
+            else:
+                doc_info["validation_status"] = "invalid"
+            doc_info["validation_reason"] = reason
         
         # Add OCR processing information to document info
         if ocr_info:
@@ -368,6 +430,8 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
                 print(f"[FAIL] File {s3_key} image processing failed: {reason}. Will be marked as failure.")
             elif reason == "precheck_failed":
                 print(f"[SKIP] File {s3_key} is not a valid PDF or unsupported format. Will be marked as skipped.")
+            elif reason and reason.startswith("page_count_exceeded_limit_"):
+                print(f"[SKIP] File {s3_key} skipped due to page limit: {reason}. Will be marked as skipped.")
             else:
                 print(f"[FAIL] File {s3_key} failed PDF validation: {reason}. Will be marked as failure.")
             try:
@@ -645,7 +709,8 @@ def load_data(
     base_metadata: Dict[str, Any],
     temp_dir: str = None,
     api_doc: Dict[str, Any] = None,
-    is_retry: bool = False
+    is_retry: bool = False,
+    max_pages: int = None
 ) -> str:
     """
     Orchestrate the loading and processing of a document from S3 into the vector store.
@@ -722,6 +787,13 @@ def load_data(
         if should_skip:
             print(f"[EARLY_SKIP] File {s3_key} skipped before S3 download: {skip_reason}")
             
+            # Initialize document_info if it doesn't exist yet
+            if metrics["document_info"] is None:
+                metrics["document_info"] = {
+                    "s3_key": s3_key,
+                    "document_name": os.path.basename(s3_key)
+                }
+            
             # Update metrics with the skip information
             metrics["document_info"]["validation_status"] = "skipped_early"
             metrics["document_info"]["validation_reason"] = skip_reason
@@ -770,7 +842,7 @@ def load_data(
                 metrics["document_info"]["display_name"] = basic_metadata["display_name"]
         
         t0 = time.perf_counter()
-        temp_path, doc_info = _download_and_validate_pdf(s3_key, temp_dir, metrics)
+        temp_path, doc_info = _download_and_validate_pdf(s3_key, temp_dir, metrics, max_pages)
         metrics["download_and_validate_pdf"] = time.perf_counter() - t0
         
         # Merge doc_info but preserve API-derived names if they exist
@@ -784,11 +856,13 @@ def load_data(
             if api_derived_names.get("display_name"):
                 metrics["document_info"]["display_name"] = api_derived_names["display_name"]
         
-        # Clean up existing document content if this is a retry (do this after validation but before processing)
+        # Cleanup is now done upfront in bulk to avoid database connection issues
+        # The bulk cleanup functions handle all failed documents before processing starts
+        # This eliminates per-document cleanup that was causing SSL hangs
         if is_retry:
-            print(f"[RETRY] Cleaning up existing content for document {doc_id} before reprocessing...")
-            from ..services.repair_service import cleanup_document_content_for_retry
-            cleanup_document_content_for_retry(doc_id, project_id)
+            print(f"[RETRY] Document {doc_id[:12]}... - cleanup was performed upfront in bulk mode")
+            # from ..services.repair_service import cleanup_document_content_for_retry
+            # cleanup_document_content_for_retry(doc_id, project_id)  # Now handled in bulk
         
         if not temp_path:
             # Determine status based on validation reason - distinguish between failures and skipped files
@@ -803,6 +877,10 @@ def load_data(
                 # Scanned PDFs without OCR should be marked as skipped
                 status = "skipped"
                 print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Marking as skipped.")
+            elif validation_reason and validation_reason.startswith("page_count_exceeded_limit_"):
+                # Files exceeding page count should be marked as skipped
+                status = "skipped"
+                print(f"[SKIP] File {s3_key} exceeded page count limit. Marking as skipped.")
             elif validation_reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed", "no_content_analysis_available"]:
                 # Image processing failures should be marked as failure
                 status = "failure"
@@ -854,6 +932,25 @@ def load_data(
             pages = read_as_pages(temp_path)
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "standard_pdf"
+            
+        # Validate that we got usable pages from the markdown reader
+        if not pages or len(pages) == 0:
+                print(f"[ERROR] No pages extracted from {s3_key} (Doc ID: {doc_id}) - markdown reader returned empty result")
+                print(f"[ERROR] This may indicate a corrupted PDF or unsupported format")
+                # Log failure with document info
+                if not metrics.get("document_info"):
+                    metrics["document_info"] = {"s3_key": s3_key, "document_name": os.path.basename(s3_key)}
+                metrics["error_details"] = "markdown_reader_returned_empty_pages"
+                
+                log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
+                if log:
+                    log.metrics = sanitize_metadata_for_postgres(metrics)
+                    log.status = "failure"
+                else:
+                    log = ProcessingLog(document_id=doc_id, project_id=project_id, status="failure", metrics=sanitize_metadata_for_postgres(metrics))
+                    session.add(log)
+                session.commit()
+                return None
         
         # Normalize page format - ensure all pages have 'text' field for consistency
         for page in pages:

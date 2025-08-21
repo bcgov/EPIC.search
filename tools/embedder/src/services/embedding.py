@@ -46,7 +46,7 @@ def get_embedding(texts: Union[str, List[str]]) -> List:
             if "1455" in str(e) or "paging file" in str(e).lower():
                 helpful_message = (
                     f"Windows virtual memory error loading embedding model: {e}\n\n"
-                    f"💡 QUICK FIX: Restart your PC\n"
+                    f"QUICK FIX: Restart your PC\n"
                     f"This usually happens after running the system for a long time.\n"
                     f"A restart will clear memory fragmentation and fix the issue.\n\n"
                     f"If restarting doesn't help:\n"

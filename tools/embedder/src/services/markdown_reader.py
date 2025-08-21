@@ -1,4 +1,5 @@
 import pymupdf4llm
+import fitz  # PyMuPDF
 
 """
 Markdown Reader module for PDF document extraction.
@@ -15,6 +16,8 @@ def read_as_pages(path):
     This function takes a path to a PDF file and converts its content to markdown format,
     preserving the page structure. Each page is returned as a separate markdown text.
     
+    Includes fallback handling for PyMuPDF4LLM errors like "list index out of range".
+    
     Args:
         path (str): Path to the PDF file to convert
         
@@ -22,5 +25,48 @@ def read_as_pages(path):
         list: A list of dictionaries, each containing the markdown text for a single page
               and any metadata extracted from the document
     """
-    pages = pymupdf4llm.to_markdown(path, page_chunks=True)
-    return pages
+    try:
+        # Try PyMuPDF4LLM markdown extraction (preferred method)
+        pages = pymupdf4llm.to_markdown(path, page_chunks=True)
+        if pages and len(pages) > 0:
+            return pages
+        else:
+            print(f"[WARN] PyMuPDF4LLM returned empty pages for {path}, falling back to basic text extraction")
+            raise ValueError("Empty pages returned from PyMuPDF4LLM")
+            
+    except (IndexError, ValueError, Exception) as e:
+        print(f"[WARN] PyMuPDF4LLM failed for {path}: {type(e).__name__}: {e}")
+        print(f"[FALLBACK] Using basic PyMuPDF text extraction instead")
+        
+        # Fallback to basic PyMuPDF text extraction
+        try:
+            doc = fitz.open(path)
+            pages = []
+            
+            for page_num in range(doc.page_count):
+                page = doc[page_num]
+                text = page.get_text()
+                
+                # Format similar to pymupdf4llm output
+                page_data = {
+                    "text": text,
+                    "page": page_num + 1,
+                    "metadata": {
+                        "source": "pymupdf_fallback",
+                        "page_number": page_num + 1
+                    }
+                }
+                pages.append(page_data)
+            
+            doc.close()
+            
+            if pages:
+                print(f"[FALLBACK] Successfully extracted {len(pages)} pages using basic PyMuPDF")
+                return pages
+            else:
+                print(f"[ERROR] Both PyMuPDF4LLM and PyMuPDF fallback failed for {path}")
+                return []
+                
+        except Exception as fallback_error:
+            print(f"[ERROR] Fallback extraction also failed for {path}: {fallback_error}")
+            return []
