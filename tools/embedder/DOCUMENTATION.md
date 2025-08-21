@@ -7,7 +7,7 @@ The EPIC.search Embedder is a robust, production-grade document processing pipel
 ### Core Components
 
 1. **Main Processor (`main.py`)** - Entry point for project and document processing workflow.
-2. **Processor Service (`processor.py`)** - Manages batch processing of files with parallel execution.
+2. **Processor Service (`processor.py`)** - Manages continuous queue processing of files with parallel execution.
 3. **Loader Service (`loader.py`)** - Handles document loading, validation, text extraction, chunking, embedding, and tag extraction.
 4. **Logger Service (`logger.py`)** - Tracks document processing status and metrics in the unified database.
 5. **OCR Module (`src/services/ocr/`)** - Advanced OCR processing for scanned PDF documents with provider abstraction.
@@ -34,13 +34,12 @@ The system now includes intelligent cross-project parallel processing to maximiz
 
 - Multiple projects in any processing mode (normal, retry-failed, retry-skipped, repair)
 - Creates unified document queue across all projects
-- Workers process documents from any project in optimized batches
+- Workers process documents from any project in continuous queue for optimal utilization
 - Example: `python main.py --project_id proj1 proj2 proj3 --retry-failed`
 
-**Sequential Mode (Automatic)**:
+**Sequential Mode (Legacy)**:
 
-- Single project processing
-- Shallow mode: `--shallow` (due to per-project limits)
+- Single project processing only
 - Maintains compatibility with existing processing logic
 
 ### 🆕 Smart File Type Pre-Filtering
@@ -115,7 +114,7 @@ graph TB
 
     %% Flow connections
     API -->|Get Document IDs| MP
-    MP -->|Batch Process| PS
+    MP -->|Continuous Queue| PS
     PS -->|Process Files| LS
     S3 -->|Download PDFs| LS
     LS --> VAL
@@ -150,7 +149,7 @@ graph TB
 
 1. Document IDs are fetched from the API for a specific project.
 2. Document processing status is checked to avoid re-processing.
-3. Documents are processed in batches using parallel execution.
+3. Documents are processed using continuous queue with parallel execution.
 4. Each document is:
    - Downloaded from S3
    - **Validated for format and content** (routes files to appropriate processing pipeline)
@@ -563,20 +562,57 @@ The embedder supports selective reprocessing of documents based on their status:
 
 - **`--retry-failed`**: Reprocesses documents that previously failed during processing
   - Targets documents with status `"failure"` (e.g., OCR failures, processing errors)
+  - **Performs upfront bulk cleanup** of all failed documents before processing starts
+  - **Deletes**: Processing logs, chunks, and document records from failed attempts
+  - **Recreates**: All data from scratch by reprocessing the original documents
   - Useful for fixing documents after resolving configuration or infrastructure issues
   
 - **`--retry-skipped`**: Reprocesses documents that were previously skipped
   - Targets documents with status `"skipped"` (e.g., scanned PDFs without OCR, unsupported formats)
+  - **Deletes**: Processing logs for skipped documents (no chunks/documents to clean up)
+  - **Recreates**: New processing logs with successful processing results
   - Useful when enabling OCR or adding support for new document types
 
 - **Combined Retry Mode**: Use both `--retry-failed` and `--retry-skipped` together
   - Reprocesses both failed and skipped documents in a single run
+  - **Bulk cleanup** applies only to failed documents, not skipped documents
   - Maximizes cross-project throughput by processing all problematic documents together
   - Example: `python main.py --retry-failed --retry-skipped`
   
 - **Normal mode**: Only processes new documents (skips any with existing status)
 
-These retry modes can be combined with other flags like `--shallow` for limited reprocessing and `--project_id` for targeted project-specific retries. Multiple retry modes can now be used together for comprehensive reprocessing.
+#### Bulk Cleanup Architecture
+
+The retry modes now use an improved **bulk cleanup with targeted queueing** approach for better performance and reliability:
+
+- **Sequential Cleanup Phase**: All failed documents are cleaned up upfront in batches before processing starts
+- **File Tracking**: The cleanup process tracks exactly which files were cleaned
+- **Targeted Queueing**: Only the cleaned files are queued for reprocessing (not rediscovered through normal API scan)
+- **Project Filtering**: Only processes projects that have documents to retry (avoids API calls to projects with no failed/skipped documents)
+- **No Per-Document Cleanup**: Eliminates database connection conflicts during processing
+- **Better Performance**: Workers stay focused on document processing without cleanup interruptions
+- **Accurate Progress**: Document counts reflect actual work after cleanup is complete
+- **Improved Reliability**: Single-threaded cleanup operations prevent SSL connection hangs
+
+**Performance Benefits:**
+
+- **Project Filtering**: Automatically skips projects with no failed/skipped documents, avoiding unnecessary API calls
+- **Example**: If only 12 out of 354 projects have failed documents, only those 12 projects are processed
+
+**Example Output:**
+
+```bash
+🗑️ BULK CLEANUP: Found 150 failed documents to clean up
+🗑️ Cleaning batch 1/2 (100 documents)...
+✅ Batch complete: 245 chunks, 100 document records, 100 processing logs deleted
+🗑️ BULK CLEANUP COMPLETE: 150 documents cleaned
+�️ Files to reprocess: 150
+�🚀 Starting targeted processing - cleaned failed documents will be queued for reprocessing
+✅ Queued 47 cleaned documents from Project Alpha
+✅ Queued 103 cleaned documents from Project Beta
+```
+
+These retry modes can be combined with other flags like `--project_id` for targeted project-specific retries. Multiple retry modes can now be used together for comprehensive reprocessing.
 
 ### Timed Mode Processing
 
@@ -593,7 +629,7 @@ The embedder supports time-constrained processing for scheduled operations and r
 - Time tracking starts immediately after argument parsing and configuration
 - Time checks use `datetime.now()` for accurate elapsed time calculation
 - Processing stops at natural boundaries (project completion, document page completion)
-- Compatible with all other modes (`--shallow`, `--retry-failed`, `--retry-skipped`, etc.)
+- Compatible with all other modes (`--retry-failed`, `--retry-skipped`, etc.)
 - Final summary includes actual runtime vs. time limit for monitoring
 
 **Use Cases:**

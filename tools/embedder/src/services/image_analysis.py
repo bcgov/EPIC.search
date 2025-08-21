@@ -158,6 +158,9 @@ class ImageAnalysisService:
                 s3_key, description, tags, objects, categories, "azure"
             )
             
+            # Generate comprehensive keywords for improved searchability
+            image_keywords = self.generate_image_keywords(description, tags, objects, categories)
+            
             analysis_result = {
                 "method": "azure_computer_vision",
                 "description": description,
@@ -165,6 +168,7 @@ class ImageAnalysisService:
                 "objects": objects,
                 "categories": categories,
                 "searchable_text": searchable_text,
+                "image_keywords": image_keywords,  # Add the new keywords
                 "confidence": confidence,
                 "raw_result": result
             }
@@ -263,10 +267,8 @@ class ImageAnalysisService:
                 filename = filename.replace(ext, '').replace(ext.upper(), '')
                 break
         
-        filename_words = filename.replace('_', ' ').replace('-', ' ')
-        
+        # Don't include the document file hash - just use the visual content description
         searchable_parts = [
-            f"Document file: {filename_words}",
             f"Visual content description: {description}",
         ]
         
@@ -286,13 +288,91 @@ class ImageAnalysisService:
         
         # Add analysis metadata with PDF context
         if original_ext == '.pdf':
-            searchable_parts.append(f"Document type: Image-based PDF analyzed with {method}")
-            searchable_parts.append("Scanned document content visual analysis")
+            searchable_parts.append(f"Content type: Image-based PDF analyzed with {method}")
+            searchable_parts.append("Scanned document visual content analysis")
         else:
             searchable_parts.append(f"Content type: Digital image analyzed with {method}")
             searchable_parts.append("Visual content analysis")
         
         return " | ".join(searchable_parts)
+    
+    def generate_image_keywords(self, description: str, tags: List[str], objects: List[str], categories: List[str]) -> List[str]:
+        """Generate comprehensive keywords for image content to improve searchability."""
+        keywords = []
+        
+        # Base image keywords
+        keywords.extend([
+            "image", "picture", "photo", "visual", "graphic", "illustration",
+            "image of", "picture of", "photo of", "visual content", "graphic content"
+        ])
+        
+        # Add description-based keywords
+        if description:
+            # Extract key terms from description and create searchable variants
+            desc_words = description.lower().split()
+            for word in desc_words:
+                if len(word) > 3:  # Skip short words
+                    keywords.extend([
+                        f"image of {word}",
+                        f"picture of {word}",
+                        f"photo of {word}",
+                        f"visual {word}",
+                        word
+                    ])
+        
+        # Add tag-based keywords
+        for tag in tags:
+            tag_lower = tag.lower()
+            keywords.extend([
+                tag_lower,
+                f"image of {tag_lower}",
+                f"picture of {tag_lower}",
+                f"photo of {tag_lower}",
+                f"visual {tag_lower}",
+                f"{tag_lower} image",
+                f"{tag_lower} picture",
+                f"{tag_lower} photo"
+            ])
+        
+        # Add object-based keywords
+        for obj in objects:
+            obj_lower = obj.lower()
+            keywords.extend([
+                obj_lower,
+                f"image containing {obj_lower}",
+                f"picture containing {obj_lower}",
+                f"photo containing {obj_lower}",
+                f"visual {obj_lower}",
+                f"{obj_lower} image",
+                f"{obj_lower} picture"
+            ])
+        
+        # Add category-based keywords
+        for category in categories:
+            cat_lower = category.lower()
+            keywords.extend([
+                cat_lower,
+                f"image category {cat_lower}",
+                f"picture category {cat_lower}",
+                f"visual category {cat_lower}",
+                f"{cat_lower} content"
+            ])
+        
+        # Add common search patterns for outdoor/nature content
+        nature_indicators = ["outdoor", "nature", "landscape", "mountain", "water", "tree", "sky", "cloud"]
+        for indicator in nature_indicators:
+            if any(indicator in tag.lower() or indicator in description.lower() 
+                   for tag in tags) or indicator in description.lower():
+                keywords.extend([
+                    f"outdoor {indicator}",
+                    f"nature {indicator}",
+                    f"landscape {indicator}",
+                    f"{indicator} scenery",
+                    f"{indicator} view"
+                ])
+        
+        # Remove duplicates and return
+        return list(set(keywords))
 
 
 # Global instance

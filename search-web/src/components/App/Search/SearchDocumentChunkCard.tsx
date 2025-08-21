@@ -3,7 +3,7 @@ import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
 import { useState, useRef, useEffect } from "react";
 import { DescriptionTwoTone, OpenInNew } from "@mui/icons-material";
-import PdfLink from "@/components/Shared/PdfLink";
+import FileLink from "@/components/Shared/FileLink";
 
 interface SearchDocumentChunkCardProps {
   document: Document;
@@ -79,8 +79,8 @@ const SearchDocumentChunkCard = ({
             width: 32,
             height: 32,
           }}
-        >
-          <PdfLink
+        >          
+          <FileLink
             s3Key={document.s3_key || null}
             fileName={document.document_saved_name}
             pageNumber={parseInt(document.page_number || "1", 10)}
@@ -88,7 +88,7 @@ const SearchDocumentChunkCard = ({
             documentName={document.document_name}
           >
             <OpenInNew sx={{ fontSize: 16 }} />
-          </PdfLink>
+          </FileLink>
         </IconButton>
       </Tooltip>
 

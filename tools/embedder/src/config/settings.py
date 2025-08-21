@@ -81,13 +81,13 @@ class MultiProcessingSettings(BaseModel):
         chunk_insert_batch_size (int): Number of chunks to insert per database batch
         keyword_extraction_workers (int): Number of threads per document for keyword extraction
         keyword_extraction_mode (str): Mode for keyword extraction (standard, fast, simplified)
+        debug_file_size_issues (bool): Whether to log debug info for missing file size information
     """
     files_concurrency_size: int = Field(default_factory=lambda: _parse_files_concurrency())
     chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 25)))
     keyword_extraction_workers: int = Field(default_factory=lambda: _parse_keyword_workers())
     keyword_extraction_mode: str = Field(default_factory=lambda: os.environ.get("KEYWORD_EXTRACTION_MODE", "standard"))
-    chunk_insert_batch_size: int = Field(default_factory=lambda: int(os.environ.get("CHUNK_INSERT_BATCH_SIZE", 25)))
-    keyword_extraction_workers: int = Field(default_factory=lambda: _parse_keyword_workers())
+    debug_file_size_issues: bool = Field(default_factory=lambda: os.environ.get("DEBUG_FILE_SIZE_ISSUES", "true").lower() in ("true", "1", "yes"))
 
 def _parse_files_concurrency():
     """Parse FILES_CONCURRENCY_SIZE as integer"""

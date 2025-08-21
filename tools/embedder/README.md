@@ -107,6 +107,7 @@ python main.py --skip-hnsw-indexes
 python main.py --project_id <project_id> --skip-hnsw-indexes
 
 # Retry documents that previously failed processing
+# NOTE: Uses bulk cleanup to remove failed records upfront, then queues those specific files for reprocessing
 python main.py --retry-failed
 
 # Retry documents that were previously skipped (unsupported formats, missing OCR)
@@ -116,16 +117,14 @@ python main.py --retry-skipped
 python main.py --retry-failed --project_id <project_id>
 python main.py --retry-skipped --project_id <project_id>
 
-# Shallow mode: process limited number of documents per project
-python main.py --shallow 10 --project_id <project_id>
-python main.py --retry-failed --shallow 5
+# Repair mode: clean up database inconsistencies
+python main.py --repair
 
 # Timed mode: run for a specific time period then gracefully stop
 python main.py --timed 60  # Run for 60 minutes
 python main.py --timed 30 --project_id <project_id>  # 30 minutes for specific project
 
 # Combine timed mode with other options
-python main.py --timed 120 --shallow 10  # 2 hours with shallow limit
 python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 
 # High-performance server runs with optimized settings
@@ -416,6 +415,7 @@ For servers with 16+ CPU cores processing large document sets:
 FILES_CONCURRENCY_SIZE=16            # Number of concurrent document processing workers
 KEYWORD_EXTRACTION_WORKERS=2         # Number of keyword extraction threads per worker
 CHUNK_INSERT_BATCH_SIZE=50           # Number of chunks per database batch
+DEBUG_FILE_SIZE_ISSUES=true          # Log debug info when file size/page info is missing
 
 # Database pool configuration for high-compute environments
 DB_POOL_SIZE=20                      # More connections for main operations
@@ -424,6 +424,8 @@ DB_POOL_RECYCLE=600                  # 10 minutes - shorter for stability on lon
 DB_POOL_TIMEOUT=300                  # 5 minutes for patient connection waiting
 DB_CONNECT_TIMEOUT=120               # 2 minutes for network delays
 ```
+
+**Note**: The `DEBUG_FILE_SIZE_ISSUES` setting helps identify documents with missing or invalid file size information in your API data. Set to `false` to reduce log verbosity in production.
 
 ## Architecture
 
@@ -659,9 +661,6 @@ python main.py --retry-failed
 
 # Retry failed documents for specific project(s)
 python main.py --retry-failed --project_id <project_id>
-
-# Retry failed documents with limited processing per project
-python main.py --retry-failed --shallow 10
 ```
 
 Use `--retry-failed` when:
@@ -700,6 +699,24 @@ Use both flags together when you want to reprocess all documents that didn't com
 
 > **Note**: When using both `--retry-failed` and `--retry-skipped` together, the system will process all documents that either failed processing or were skipped due to missing dependencies (like OCR).
 
+#### What Happens During Retry Operations
+
+**Data Cleanup and Recreation:**
+
+- **`--retry-failed`**:
+  - **Deletes** processing logs for failed documents
+  - **Cleans up** any partial data (chunks, document records) from incomplete processing
+  - **Recreates** all data from scratch by reprocessing the original documents
+  
+- **`--retry-skipped`**:
+  - **Deletes** processing logs for skipped documents  
+  - **Recreates** processing logs with new processing results
+  - No cleanup of chunks/documents needed (skipped files weren't processed initially)
+
+- **Combined Mode**: Applies the appropriate cleanup for each document type
+
+This approach ensures data consistency and eliminates any corrupt or partial processing artifacts that might have been left behind from previous failed attempts.
+
 ### Timed Mode Processing
 
 For scheduled processing windows or resource-constrained environments, use timed mode to run processing for a specific duration:
@@ -712,7 +729,6 @@ python main.py --timed 120
 python main.py --timed 30 --project_id <project_id>
 
 # Combine with other modes
-python main.py --timed 60 --shallow 10  # 1 hour with shallow processing
 python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 ```
 
@@ -720,15 +736,15 @@ python main.py --timed 45 --retry-failed  # 45 minutes retrying failed documents
 
 - Gracefully stops after the specified time limit
 - Completes any documents currently being processed
-- Does not start new projects or fetch new document batches after time limit
+- Does not start new projects or fetch new documents after time limit
 - Provides elapsed and remaining time updates during processing
-- Perfect for scheduled maintenance windows or batch processing jobs
+- Perfect for scheduled maintenance windows or continuous processing jobs
 
 **Use Cases:**
 
 - Scheduled overnight processing windows
 - Resource-limited environments with time constraints  
-- Batch processing jobs with SLA requirements
+- Continuous processing jobs with SLA requirements
 - Testing and development with controlled run times
 
 ## Development

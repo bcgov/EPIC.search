@@ -1,6 +1,8 @@
 """API endpoints for managing document resources."""
 
 import hashlib
+import mimetypes
+import os
 
 from http import HTTPStatus
 from flask import Response, current_app, request
@@ -21,162 +23,90 @@ import logging
 logger = logging.getLogger(__name__)
 logger.info("Document namespace module loaded")
 
+def detect_mimetype(file_name, file_data=None):
+    """
+    Detect the MIME type of a file based on its filename and optionally file content.
+    
+    Args:
+        file_name (str): The name of the file including extension
+        file_data (bytes, optional): The actual file content for content-based detection
+    
+    Returns:
+        str: The detected MIME type, defaults to 'application/octet-stream' if unknown
+    """
+    # First try to detect based on file extension
+    mimetype, _ = mimetypes.guess_type(file_name)
+    
+    if mimetype:
+        current_app.logger.info(f"Detected mimetype from filename '{file_name}': {mimetype}")
+        return mimetype
+    
+    # If file extension detection fails, try content-based detection for common types
+    if file_data:
+        # Check for PDF signature
+        if file_data.startswith(b'%PDF'):
+            current_app.logger.info("Detected PDF from file content signature")
+            return 'application/pdf'
+        
+        # Check for JPEG signatures
+        elif file_data.startswith(b'\xff\xd8\xff'):
+            current_app.logger.info("Detected JPEG from file content signature")
+            return 'image/jpeg'
+        
+        # Check for PNG signature
+        elif file_data.startswith(b'\x89PNG\r\n\x1a\n'):
+            current_app.logger.info("Detected PNG from file content signature")
+            return 'image/png'
+        
+        # Check for GIF signatures
+        elif file_data.startswith(b'GIF87a') or file_data.startswith(b'GIF89a'):
+            current_app.logger.info("Detected GIF from file content signature")
+            return 'image/gif'
+        
+        # Check for DOCX (ZIP-based Office document)
+        elif file_data.startswith(b'PK\x03\x04') and b'word/' in file_data[:1024]:
+            current_app.logger.info("Detected DOCX from file content signature")
+            return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        
+        # Check for XLSX (ZIP-based Office document)
+        elif file_data.startswith(b'PK\x03\x04') and b'xl/' in file_data[:1024]:
+            current_app.logger.info("Detected XLSX from file content signature")
+            return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        
+        # Check for DOC (legacy Word document)
+        elif file_data.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+            current_app.logger.info("Detected legacy Office document from file content signature")
+            return 'application/msword'
+        
+        # Check for plain text
+        elif all(byte < 128 for byte in file_data[:1024]):
+            current_app.logger.info("Detected plain text from file content")
+            return 'text/plain'
+    
+    # Default fallback
+    current_app.logger.warning(f"Could not detect mimetype for '{file_name}', using default 'application/octet-stream'")
+    return 'application/octet-stream'
+
 document_download_model = ApiHelper.convert_ma_schema_to_restx_model(
     API, DocumentDownloadSchema(), "DocumentDownload"
 )
 
 @cors_preflight("GET, OPTIONS")
-@API.route("/health")
-class DocumentHealth(Resource):
-    """Simple health check for document endpoint."""
-    
-    @staticmethod
-    def get():
-        """Health check endpoint."""
-        current_app.logger.info("Document health check endpoint called")
-        return {"status": "ok", "service": "document"}, 200
-
-@cors_preflight("GET, OPTIONS")
-@API.route("/test")
-class DocumentTest(Resource):
-    """Simple test endpoint for document API."""
-    
-    @staticmethod
-    def get():
-        """Test endpoint - just returns success."""
-        current_app.logger.info("Document test endpoint called successfully")
-        return {"status": "ok", "message": "Document API is reachable"}, 200
-
-@cors_preflight("GET, OPTIONS")
-@API.route("/network-test")
-class NetworkDiagnostic(Resource):
-    """Network diagnostic endpoint to test S3 connectivity."""
-    
-    @staticmethod
-    def get():
-        """Test network connectivity to S3 endpoint."""
-        current_app.logger.info("Network diagnostic endpoint called")
-        
-        import socket
-        import requests
-        import time
-        
-        results = {
-            "timestamp": time.time(),
-            "tests": {}
-        }
-        
-        # Test 1: DNS Resolution
-        try:
-            ip_address = socket.gethostbyname('nrs.objectstore.gov.bc.ca')
-            results["tests"]["dns_resolution"] = {
-                "status": "success",
-                "ip_address": ip_address
-            }
-        except Exception as e:
-            results["tests"]["dns_resolution"] = {
-                "status": "failed",
-                "error": str(e)
-            }
-        
-        # Test 2: TCP Connection
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(15)
-            start_time = time.time()
-            result = sock.connect_ex((ip_address, 443))
-            end_time = time.time()
-            sock.close()
-            
-            if result == 0:
-                results["tests"]["tcp_connection"] = {
-                    "status": "success",
-                    "connection_time_ms": round((end_time - start_time) * 1000, 2)
-                }
-            else:
-                results["tests"]["tcp_connection"] = {
-                    "status": "failed",
-                    "error_code": result
-                }
-        except Exception as e:
-            results["tests"]["tcp_connection"] = {
-                "status": "failed",
-                "error": str(e)
-            }
-        
-        # Test 3: HTTPS Request
-        try:
-            start_time = time.time()
-            response = requests.get('https://nrs.objectstore.gov.bc.ca', timeout=30, verify=True)
-            end_time = time.time()
-            
-            results["tests"]["https_request"] = {
-                "status": "success",
-                "status_code": response.status_code,
-                "response_time_ms": round((end_time - start_time) * 1000, 2),
-                "headers": dict(response.headers)
-            }
-        except Exception as e:
-            results["tests"]["https_request"] = {
-                "status": "failed",
-                "error": str(e)
-            }
-        
-        # Test 4: S3 Endpoint specific test
-        s3_endpoint = current_app.config.get("S3_ENDPOINT_URI", "https://nrs.objectstore.gov.bc.ca")
-        try:
-            start_time = time.time()
-            response = requests.get(s3_endpoint, timeout=30, verify=True)
-            end_time = time.time()
-            
-            results["tests"]["s3_endpoint"] = {
-                "status": "success",
-                "endpoint": s3_endpoint,
-                "status_code": response.status_code,
-                "response_time_ms": round((end_time - start_time) * 1000, 2)
-            }
-        except Exception as e:
-            results["tests"]["s3_endpoint"] = {
-                "status": "failed",
-                "endpoint": s3_endpoint,
-                "error": str(e)
-            }
-        
-        current_app.logger.info(f"Network diagnostic results: {results}")
-        return results, 200
-
-@cors_preflight("GET, OPTIONS")
-@API.route("/config-check")
-class ConfigCheck(Resource):
-    """Configuration check endpoint."""
-    
-    @staticmethod
-    def get():
-        """Check S3 configuration (without exposing secrets)."""
-        current_app.logger.info("Config check endpoint called")
-        
-        config_info = {
-            "s3_endpoint_uri": current_app.config.get("S3_ENDPOINT_URI"),
-            "s3_bucket_name": current_app.config.get("S3_BUCKET_NAME"),
-            "s3_region": current_app.config.get("S3_REGION"),
-            "s3_access_key_configured": bool(current_app.config.get("S3_ACCESS_KEY_ID")),
-            "s3_secret_key_configured": bool(current_app.config.get("S3_SECRET_ACCESS_KEY")),
-            "flask_env": current_app.config.get("FLASK_ENV"),
-            "debug": current_app.debug
-        }
-        
-        current_app.logger.info(f"Config check results: {config_info}")
-        return config_info, 200
-
-@cors_preflight("GET, OPTIONS")
 @API.route("/view")
 class DocumentDownload(Resource):    
     """Resource for document viewing.
-      Provides an endpoint to view PDF documents stored in S3.
-    The document is returned with headers set for inline viewing in a browser.
+    
+    Provides an endpoint to view various document types stored in S3.
+    Supports PDF, Word documents, Excel files, images (JPEG, PNG, GIF), and text files.
+    The document is returned with appropriate headers for inline viewing (for supported types)
+    or as downloadable attachments (for other types).
+    
+    The mimetype is automatically detected based on file extension and content analysis.
     
     Example:
         GET /api/document/view?key=path%2Fto%2Fdocument.pdf&file_name=document.pdf
+        GET /api/document/view?key=path%2Fto%2Fimage.jpg&file_name=image.jpg
+        GET /api/document/view?key=path%2Fto%2Fdocument.docx&file_name=document.docx
     """    
     
     def __init__(self, *args, **kwargs):
@@ -185,14 +115,16 @@ class DocumentDownload(Resource):
     
     @staticmethod
     # @auth.require
-    @ApiHelper.swagger_decorators(API, endpoint_description="View a document from S3")    
+    @ApiHelper.swagger_decorators(API, endpoint_description="View a document from S3 (supports PDF, Word, Excel, images, and text files)")    
     @API.param('key', 'The S3 key of the document to view (URL encoded)')
     @API.param('file_name', 'The filename to display in the browser (URL encoded)')
+    @API.response(200, "Document content with appropriate mimetype")
+    @API.response(304, "Not Modified (cached version is current)")
     @API.response(400, "Bad Request")
     @API.response(404, "Document Not Found")
     @API.response(500, "Internal Server Error")
     def get():
-        """View a document from S3 storage."""
+        """View a document from S3 storage with automatic mimetype detection."""
         current_app.logger.info("=== Document view request started ===")
         current_app.logger.info(f"Request URL: {request.url}")
         current_app.logger.info(f"Request path: {request.path}")
@@ -255,13 +187,28 @@ class DocumentDownload(Resource):
                 # Create response with the file data
                 current_app.logger.info("Creating response with file data")
                 
+                # Detect the actual mimetype based on filename and file content
+                detected_mimetype = detect_mimetype(file_name, file_data)
+                current_app.logger.info(f"Using mimetype: {detected_mimetype}")
+                
+                # Determine Content-Disposition based on file type
+                # Use 'inline' for viewable types (PDF, images) and 'attachment' for downloadable types
+                viewable_types = [
+                    'application/pdf', 
+                    'image/jpeg', 
+                    'image/png', 
+                    'image/gif', 
+                    'text/plain'
+                ]
+                disposition = 'inline' if detected_mimetype in viewable_types else 'attachment'
+                
                 # For large files, we might want to stream the response
                 # But for now, return the full file data
                 response = Response(
                     file_data,
-                    mimetype='application/pdf',
+                    mimetype=detected_mimetype,
                     headers={
-                        'Content-Disposition': f'inline; filename="{file_name}"',
+                        'Content-Disposition': f'{disposition}; filename="{file_name}"',
                         'Content-Length': str(len(file_data)),
                         'Cache-Control': 'public, max-age=3600, immutable',  # Cache for 1 hour
                         'ETag': file_hash,
