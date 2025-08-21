@@ -308,8 +308,8 @@ def chunk_and_embed_pages(
                 if image_keywords:
                     print(f"[IMAGE_KEYWORDS] Adding {len(image_keywords)} image-specific keywords for enhanced searchability")
                     all_keywords.update(image_keywords)
-                    # Also add to page keywords for this iteration
-                    page_keywords.extend(image_keywords)
+                    # Also add to page keywords for this iteration (use update for sets)
+                    page_keywords.update(image_keywords)
             
             for i, chunk_dict in enumerate(chunk_dicts):
                 # keywords already set in chunk_metadatas[i]["keywords"] by extract_keywords_from_chunks
