@@ -6,7 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--project_id", "58851197aaecd9001b8227cc"],
+            "args": ["--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
@@ -153,51 +153,59 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Repair Mode - Specific Project",
+            "name": "Max Pages - 50 pages limit - Specific Project",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--repair", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "args": ["--max-pages", "50", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
-            "name": "Repair Mode - Multiple Projects",
+            "name": "Max Pages - 100 pages limit - All Projects",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--repair", "--project_id", "588511e1aaecd9001b8272e7", "another_project_id"],
+            "args": ["--max-pages", "100"],
             "console": "integratedTerminal"
         },
         {
-            "name": "Repair Mode - All Projects",
+            "name": "Max Pages - 10 pages limit - Specific Project",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--repair"],
+            "args": ["--max-pages", "10", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
-            "name": "Timed Repair Mode (10 min)",
+            "name": "Max Pages - 10 pages limit - All Projects",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--timed", "10", "--repair", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "args": ["--max-pages", "10"],
             "console": "integratedTerminal"
         },
         {
-            "name": "Reset Mode - Specific Project",
+            "name": "Max Pages + Retry Failed - 25 pages limit",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--reset", "--project_id", "58851197aaecd9001b8227cc"],
+            "args": ["--max-pages", "25", "--retry-failed", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         },
         {
-            "name": "Reset + Timed Mode (5 min) - Specific Project",
+            "name": "Max Pages + Timed Mode - 50 pages, 10 min",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/main.py",
-            "args": ["--reset", "--timed", "5", "--project_id", "58851197aaecd9001b8227cc"],
+            "args": ["--max-pages", "50", "--timed", "10", "--project_id", "681a6e4e85cefd0022839a0e"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Max Pages + Timed Mode - 25 pages, 1 min",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--max-pages", "25", "--timed", "1", "--project_id", "681a6e4e85cefd0022839a0e"],
             "console": "integratedTerminal"
         }
     ]

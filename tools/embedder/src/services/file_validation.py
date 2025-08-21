@@ -4,7 +4,7 @@ from .ocr.ocr_factory import extract_text_with_ocr, is_ocr_available
 from .word_reader import is_word_supported, get_word_document_metadata
 from PIL import Image
 
-def validate_file(temp_path, s3_key):
+def validate_file(temp_path, s3_key, max_pages=None):
     """
     Validate the file for format and extractable text.
     Returns (is_valid, reason, pages_data, ocr_info) where is_valid is True if the file should be processed.
@@ -14,6 +14,11 @@ def validate_file(temp_path, s3_key):
     - Images: Attempts OCR processing directly  
     - Word documents: Extracts text content from DOCX files. Legacy DOC files are skipped with recommendation to convert.
     - Text files: Reads and chunks plain text content (.txt, .md, .csv, .log, .rtf, etc.)
+    
+    Args:
+        temp_path: Path to the downloaded file
+        s3_key: S3 key for identification  
+        max_pages: Optional maximum page count limit for PDFs
     """
     # Debug: Check OCR availability at the start
     ocr_available = is_ocr_available()
@@ -36,7 +41,7 @@ def validate_file(temp_path, s3_key):
     is_text = file_ext in ['txt', 'text', 'log', 'md', 'markdown', 'csv', 'tsv', 'rtf']
     
     if is_pdf:
-        return _validate_pdf_file(temp_path, s3_key, ocr_info)
+        return _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages)
     elif is_image:
         return _validate_image_file(temp_path, s3_key, ocr_info)
     elif is_word:
@@ -48,17 +53,18 @@ def validate_file(temp_path, s3_key):
         return False, "precheck_failed", None, ocr_info
 
 
-def _validate_pdf_file(temp_path, s3_key, ocr_info):
-    """Validate PDF file - this is the existing PDF validation logic."""
+def _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages=None):
+    """Validate PDF file - this includes page count limits and content validation."""
     # First, check if the file is actually a PDF
     if not s3_key.lower().endswith('.pdf'):
         print(f"[WARN] File {s3_key} is not a PDF file (invalid extension)")
         return False, "precheck_failed", None, ocr_info
     
-    # Verify the file can be opened as a PDF
+    # Verify the file can be opened as a PDF and get page count
     try:
         test_doc = fitz.open(temp_path)
-        if test_doc.page_count == 0:
+        page_count = test_doc.page_count
+        if page_count == 0:
             test_doc.close()
             print(f"[WARN] PDF file {s3_key} has no pages")
             return False, "precheck_failed", None, ocr_info
@@ -66,6 +72,13 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info):
     except Exception as pdf_validation_err:
         print(f"[WARN] File {s3_key} cannot be opened as a valid PDF: {pdf_validation_err}")
         return False, "precheck_failed", None, ocr_info
+    
+    # Check page count limit if specified
+    if max_pages is not None and page_count > max_pages:
+        print(f"[SKIP] Document {s3_key} has {page_count} pages, exceeding limit of {max_pages} pages - skipping to avoid memory/threading issues")
+        return False, f"page_count_exceeded_limit_{max_pages}", None, ocr_info
+    elif max_pages is not None:
+        print(f"[OK] Document {s3_key} has {page_count} pages (within {max_pages} page limit)")
     
     try:
         doc = fitz.open(temp_path)
@@ -765,8 +778,8 @@ def _validate_text_file(temp_path, s3_key, ocr_info):
 
 
 # Keep the original function name for backward compatibility
-def validate_pdf_file(temp_path, s3_key):
+def validate_pdf_file(temp_path, s3_key, max_pages=None):
     """
     Backward compatibility wrapper for validate_file.
     """
-    return validate_file(temp_path, s3_key)
+    return validate_file(temp_path, s3_key, max_pages)

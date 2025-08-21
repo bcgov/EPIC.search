@@ -2,7 +2,6 @@ import argparse
 import logging
 from datetime import datetime
 from src.services.logger import load_completed_files, load_incomplete_files, load_skipped_files
-from src.services.repair_service import get_repair_candidates_for_processing, cleanup_document_data, cleanup_project_data, cleanup_document_content_for_retry, print_repair_analysis
 from src.models.pgvector.vector_db_utils import init_vec_db
 from src.config.settings import get_settings
 from src.utils.error_suppression import suppress_process_pool_errors
@@ -30,7 +29,7 @@ from src.services.api_utils import (
     get_files_for_project,
     get_projects_count,
 )
-from src.services.processor import process_files
+from src.services.processor import process_mixed_project_files
 from src.services.data_formatter import format_metadata
 from src.services.project_utils import upsert_project
 from src.services.ocr.ocr_factory import initialize_ocr
@@ -106,7 +105,7 @@ def check_time_limit(start_time, time_limit_seconds):
     
     return elapsed_seconds >= time_limit_seconds, elapsed_minutes, remaining_minutes
 
-def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=False, time_limit_minutes=None):
+def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_only=False, retry_skipped_only=False, timed_mode=False, time_limit_minutes=None, max_pages=None):
     """
     Process documents for one or more specific projects, or all projects.
     
@@ -122,9 +121,9 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
         skip_hnsw_indexes (bool, optional): Skip creation of HNSW vector indexes for faster startup.
         retry_failed_only (bool, optional): If True, only process documents that previously failed processing.
         retry_skipped_only (bool, optional): If True, only process documents that were previously skipped.
-        repair_mode (bool, optional): If True, identify and repair documents in inconsistent states.
         timed_mode (bool, optional): If True, run in timed mode with time limit.
         time_limit_minutes (int, optional): Time limit in minutes for timed mode processing.
+        max_pages (int, optional): Skip documents with more than this many pages to avoid threading/memory issues.
         
     Returns:
         dict: A dictionary containing the processing results, including:
@@ -142,7 +141,11 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
     print(f"[PERF] Document workers: {files_concurrency}")
     print(f"[PERF] Keyword threads per document: {keyword_workers}")
     print(f"[PERF] Database batch size: {chunk_batch_size}")
-    print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")    
+    print(f"[PERF] Total potential keyword threads: {files_concurrency * keyword_workers}")
+    
+    # Show max pages limit if enabled
+    if max_pages is not None:
+        print(f"[LIMIT] Max pages per document: {max_pages} (large documents will be skipped)")
     
     # Show processing mode
     if retry_failed_only and retry_skipped_only:
@@ -151,8 +154,6 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
         print(f"[MODE] RETRY FAILED MODE: Only processing documents that previously failed")
     elif retry_skipped_only:
         print(f"[MODE] RETRY SKIPPED MODE: Only processing documents that were previously skipped")
-    elif repair_mode:
-        print(f"[MODE] REPAIR MODE: Identifying and fixing documents in inconsistent states")
     else:
         print(f"[MODE] NORMAL MODE: Processing new documents (skipping successful ones)")
     
@@ -209,8 +210,8 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
     use_dynamic_processing = True  # Always use dynamic processing for maximum efficiency
     
     print(f"[DEBUG] Processing mode determination:")
-    print(f"[DEBUG]   - Number of projects: {len(projects)}")
-    print(f"[DEBUG]   - Use dynamic processing: {use_dynamic_processing}")
+    print(f"[DEBUG] - Number of projects: {len(projects)}")
+    print(f"[DEBUG] - Use dynamic processing: {use_dynamic_processing}")
     
     if use_dynamic_processing:
         mode_type = "NORMAL"
@@ -220,8 +221,6 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
             mode_type = "RETRY FAILED"
         elif retry_skipped_only:
             mode_type = "RETRY SKIPPED"
-        elif repair_mode:
-            mode_type = "REPAIR"
             
         print(f"\n=== DYNAMIC {mode_type} PROCESSING MODE ===")
         if len(projects) > 1:
@@ -236,7 +235,7 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
             print(f"Processing single project with dynamic worker queuing to maximize throughput")
             print(f"All {settings.multi_processing_settings.files_concurrency_size} workers will stay busy with continuous document queuing")
             print(f"DYNAMIC QUEUING: Workers immediately get next document when they finish current one")
-        results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, repair_mode)
+        results = process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only, retry_skipped_only, max_pages)
     else:
         # This branch should never be reached now since use_dynamic_processing is always True
         print(f"\n=== FALLBACK SEQUENTIAL PROCESSING ===")
@@ -295,224 +294,7 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
     return {"message": "Processing completed", "results": results}
 
 
-def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False, timed_mode=False, time_limit_seconds=None, start_time=None):
-    """
-    Process files from multiple projects concurrently using a unified worker pool with dynamic queuing.
-    Workers continuously pull new documents as they finish, maximizing CPU utilization.
-    
-    Args:
-        document_tasks (list): List of DocumentTask namedtuples containing project info for each document
-        file_keys (list): List of file keys or paths to be processed
-        metadata_list (list): List of metadata dictionaries corresponding to each file  
-        api_docs_list (list): List of API document objects corresponding to each file
-        batch_size (int, optional): Number of worker processes to run in parallel. Defaults to 4.
-        temp_dir (str, optional): Temporary directory for processing files. Passed to load_data.
-        is_retry (bool, optional): If True, cleanup existing document content before processing.
-        timed_mode (bool, optional): If True, check time limits and stop gracefully when reached.
-        time_limit_seconds (int, optional): Time limit in seconds for timed mode.
-        start_time (datetime, optional): Start time for timed mode calculations.
-        
-    Returns:
-        dict: Processing results including time_limit_reached status
-    """
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-    from src.services.logger import log_processing_result
-    from src.services.loader import load_data
-    from datetime import datetime
-    import os
-    
-    if len(file_keys) != len(metadata_list) or len(file_keys) != len(api_docs_list) or len(file_keys) != len(document_tasks):
-        raise ValueError("document_tasks, file_keys, metadata_list, and api_docs_list must have the same length.")
-
-    if not file_keys:
-        print("No files to process.")
-        return {"time_limit_reached": False, "documents_processed": 0}
-
-    print(f"Starting ProcessPoolExecutor with max_workers={batch_size}")
-    print(f"DYNAMIC QUEUING: Workers will continuously pull new documents as they finish")
-    
-    if timed_mode and time_limit_seconds and start_time:
-        print(f"TIMED MODE: Will stop gracefully when {time_limit_seconds/60:.1f} minute limit is reached")
-    
-    time_limit_reached = False
-    documents_processed = 0
-    
-    # Determine project mode for progress tracking
-    if len(set(task.project_name for task in document_tasks)) > 1:
-        progress_tracker.update_current_project("Cross-Project Processing")
-        print(f"[PROGRESS] Set project mode: Cross-Project Processing ({len(set(task.project_name for task in document_tasks))} projects)")
-    else:
-        # Single project mode
-        single_project_name = document_tasks[0].project_name if document_tasks else "Unknown Project"
-        progress_tracker.update_current_project(single_project_name)
-        print(f"[PROGRESS] Set project mode: {single_project_name}")
-    
-    with ProcessPoolExecutor(max_workers=batch_size) as executor:
-        future_to_task = {}
-        document_index = 0
-        total_documents = len(document_tasks)
-        completed_count = 0
-        
-        # Submit initial worker pool (up to worker_count workers)
-        while document_index < min(batch_size, total_documents):
-            # Check time limit before submitting initial work
-            if timed_mode and time_limit_seconds and start_time:
-                elapsed_time = datetime.now() - start_time
-                if elapsed_time.total_seconds() >= time_limit_seconds:
-                    print(f"[TIMED MODE] Time limit reached before processing could begin. Stopping gracefully.")
-                    time_limit_reached = True
-                    break
-            
-            task = document_tasks[document_index]
-            file_key = file_keys[document_index]
-            base_meta = metadata_list[document_index]
-            api_doc = api_docs_list[document_index]
-            
-            worker_id = document_index % batch_size + 1
-            doc_id = base_meta.get("document_id") or os.path.basename(file_key)
-            doc_name = api_doc.get('name', doc_id)
-            
-            # File size handling with fallbacks and debug info
-            file_size_raw = api_doc.get('internalSize', '0') or api_doc.get('fileSize', '0')
-            try:
-                file_size_bytes = int(file_size_raw) if file_size_raw else 0
-            except (ValueError, TypeError):
-                file_size_bytes = 0
-                if settings.multi_processing_settings.debug_file_size_issues:
-                    print(f"[DEBUG] Invalid file size for {doc_name}: internalSize='{api_doc.get('internalSize')}', fileSize='{api_doc.get('fileSize')}'")
-            
-            # Calculate size and pages with better defaults
-            if file_size_bytes > 0:
-                size_mb = file_size_bytes / (1024 * 1024)
-                estimated_pages = max(1, int(file_size_bytes / 50000))  # ~50KB per page estimate
-            else:
-                # Fallback when size is unknown - use conservative estimates for display
-                size_mb = None
-                estimated_pages = None
-                if file_size_bytes == 0 and settings.multi_processing_settings.debug_file_size_issues:
-                    print(f"[DEBUG] No file size info for {doc_name}, will show as processing without size/page info")
-            
-            # Submit work and track it
-            future = executor.submit(load_data, file_key, base_meta, temp_dir, api_doc, is_retry)
-            future_to_task[future] = (task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, document_index)
-            
-            # Update progress tracker (no need to update current_project repeatedly in cross-project mode)
-            progress_tracker.start_document_processing(worker_id, doc_name, estimated_pages, size_mb)
-            
-            document_index += 1
-        
-        if not time_limit_reached:
-            print(f"Submitted initial {len(future_to_task)} documents to workers. Queue contains {total_documents - document_index} more documents.")
-        
-        # Process completed tasks and dynamically submit new work
-        for future in as_completed(future_to_task):
-            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, doc_index = future_to_task[future]
-            doc_id = base_meta.get("document_id") or os.path.basename(file_key)
-            project_id = task.project_id
-            
-            try:
-                result = future.result()
-                
-                if result is None:
-                    print(f"[{completed_count + 1}/{total_documents}] File {doc_id} processing completed with None result (status already logged internally).")
-                    progress_tracker.finish_document_processing(worker_id, success=False, skipped=True)
-                else:
-                    print(f"[{completed_count + 1}/{total_documents}] Successfully processed: {result}")
-                    log_processing_result(project_id, doc_id, "success")
-                    progress_tracker.finish_document_processing(worker_id, success=True, pages=estimated_pages, size_mb=size_mb)
-                    
-            except Exception as e:
-                print(f"[{completed_count + 1}/{total_documents}] Failed to process {doc_id}: {e}")
-                log_processing_result(project_id, doc_id, "failure")
-                progress_tracker.finish_document_processing(worker_id, success=False, skipped=False)
-                
-            completed_count += 1
-            documents_processed += 1
-            
-            # Check time limit after each document completes
-            if timed_mode and time_limit_seconds and start_time:
-                elapsed_time = datetime.now() - start_time
-                elapsed_minutes = elapsed_time.total_seconds() / 60
-                remaining_seconds = max(0, time_limit_seconds - elapsed_time.total_seconds())
-                remaining_minutes = remaining_seconds / 60
-                
-                if elapsed_time.total_seconds() >= time_limit_seconds:
-                    print(f"[TIMED MODE] Time limit of {time_limit_seconds/60:.1f} minutes reached after processing {completed_count} documents.")
-                    print(f"[TIMED MODE] Elapsed: {elapsed_minutes:.1f}min. Stopping gracefully.")
-                    print(f"[TIMED MODE] Cancelling remaining {total_documents - completed_count} documents in queue.")
-                    time_limit_reached = True
-                    
-                    # Cancel any remaining futures that haven't started yet
-                    for remaining_future in future_to_task:
-                        if not remaining_future.done():
-                            remaining_future.cancel()
-                    
-                    break
-                
-                # Show time status every 10 documents
-                if completed_count % 10 == 0:
-                    print(f"[TIMED MODE] Elapsed: {elapsed_minutes:.1f}min, Remaining: {remaining_minutes:.1f}min ({completed_count}/{total_documents} processed)")
-            
-            # DYNAMIC QUEUING: Only submit next document if time limit not reached
-            if not time_limit_reached and document_index < total_documents:
-                # Final time check before submitting new work
-                if timed_mode and time_limit_seconds and start_time:
-                    elapsed_time = datetime.now() - start_time
-                    if elapsed_time.total_seconds() >= time_limit_seconds:
-                        print(f"[TIMED MODE] Time limit reached. Not submitting additional documents.")
-                        time_limit_reached = True
-                        break
-                
-                next_task = document_tasks[document_index]
-                next_file_key = file_keys[document_index]
-                next_base_meta = metadata_list[document_index]
-                next_api_doc = api_docs_list[document_index]
-                
-                next_doc_id = next_base_meta.get("document_id") or os.path.basename(next_file_key)
-                next_doc_name = next_api_doc.get('name', next_doc_id)
-                
-                # File size handling for next document with fallbacks and debug info
-                next_file_size_raw = next_api_doc.get('internalSize', '0') or next_api_doc.get('fileSize', '0')
-                try:
-                    next_file_size_bytes = int(next_file_size_raw) if next_file_size_raw else 0
-                except (ValueError, TypeError):
-                    next_file_size_bytes = 0
-                    if settings.multi_processing_settings.debug_file_size_issues:
-                        print(f"[DEBUG] Invalid file size for {next_doc_name}: internalSize='{next_api_doc.get('internalSize')}', fileSize='{next_api_doc.get('fileSize')}'")
-                
-                # Calculate size and pages for next document
-                if next_file_size_bytes > 0:
-                    next_size_mb = next_file_size_bytes / (1024 * 1024)
-                    next_estimated_pages = max(1, int(next_file_size_bytes / 50000))
-                else:
-                    next_size_mb = None
-                    next_estimated_pages = None
-                    if next_file_size_bytes == 0 and settings.multi_processing_settings.debug_file_size_issues:
-                        print(f"[DEBUG] No file size info for {next_doc_name}, will show as processing without size/page info")
-                
-                # Submit next document immediately 
-                next_future = executor.submit(load_data, next_file_key, next_base_meta, temp_dir, next_api_doc, is_retry)
-                future_to_task[next_future] = (next_task, next_file_key, next_base_meta, next_api_doc, worker_id, next_doc_name, next_estimated_pages, next_size_mb, document_index)
-                
-                # Update progress tracker for new document (no need to update current_project repeatedly)
-                progress_tracker.start_document_processing(worker_id, next_doc_name, next_estimated_pages, next_size_mb)
-                
-                print(f"[DYNAMIC] Worker {worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
-                document_index += 1
-            elif document_index >= total_documents:
-                # Calculate how many futures are still running
-                remaining_futures = sum(1 for f in future_to_task if not f.done())
-                print(f"[DYNAMIC] Worker {worker_id} finished. No more documents to assign. ({remaining_futures} workers still active)")
-
-    if time_limit_reached:
-        print(f"[TIMED MODE] Graceful shutdown completed. Processed {documents_processed} documents before time limit.")
-    else:
-        print(f"All queued documents completed. {completed_count} documents processed with dynamic queuing.")
-    
-    return {"time_limit_reached": time_limit_reached, "documents_processed": documents_processed}
-
-
-def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, repair_mode=False):
+def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, max_pages=None):
     """Process multiple projects in parallel using a unified document queue across all projects"""
     from collections import namedtuple
     
@@ -534,21 +316,6 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         print(f"Failed files to reprocess: {len(cleanup_result.get('cleaned_files', []))}")
         print(f"{'='*80}")
         print("Starting targeted processing - cleaned failed documents will be queued for reprocessing")
-        print(f"{'='*80}\n")
-        
-    if repair_mode:
-        # Cleanup repair candidates before processing
-        from src.services.repair_service import bulk_cleanup_repair_candidates
-        
-        print(f"\n{'='*80}")
-        print("REPAIR MODE: Analyzing and cleaning up inconsistent document states...")
-        cleanup_result = bulk_cleanup_repair_candidates(project_ids)
-        cleanup_performed = True
-        cleaned_files_to_process.extend(cleanup_result.get('cleaned_files', []))
-        print(f"Repair candidates cleaned: {cleanup_result['documents_cleaned']}")
-        print(f"Repair files to reprocess: {len(cleanup_result.get('cleaned_files', []))}")
-        print(f"{'='*80}")
-        print("Starting targeted processing - repaired documents will be queued for reprocessing")
         print(f"{'='*80}\n")
         
     if retry_skipped_only:
@@ -578,8 +345,6 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         mode_desc = "failed documents"
     elif retry_skipped_only:
         mode_desc = "skipped documents"
-    elif repair_mode:
-        mode_desc = "documents needing repair"
     
     # OPTIMIZATION: Filter projects to only those that have documents to retry/repair
     projects_to_process = projects
@@ -631,7 +396,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
             project_cleaned_files = [f for f in cleaned_files_to_process if f['project_id'] == project_id]
             
             if project_cleaned_files:
-                print(f"  Found {len(project_cleaned_files)} cleaned files to reprocess for {project_name}")
+                print(f"Found {len(project_cleaned_files)} cleaned files to reprocess for {project_name}")
                 
                 # For each cleaned file, find it in the API and queue it for processing
                 for cleaned_file in project_cleaned_files:
@@ -657,15 +422,15 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                                     document_queue.append(document_task)
                                     documents_queued += 1
                                 else:
-                                    print(f"    Warning: Cleaned file {doc_id[:12]}... has no internalURL in API")
+                                    print(f"Warning: Cleaned file {doc_id[:12]}... has no internalURL in API")
                                 break
                         if doc_found:
                             break
                     
                     if not doc_found:
-                        print(f"    Warning: Cleaned file {doc_id[:12]}... not found in API (may have been deleted from S3)")
+                        print(f"Warning: Cleaned file {doc_id[:12]}... not found in API (may have been deleted from S3)")
                 
-                print(f"  Queued {len(project_cleaned_files)} cleaned documents from {project_name}")
+                print(f"Queued {len(project_cleaned_files)} cleaned documents from {project_name}")
                 
                 # If we're in retry-only mode (failed or skipped), we're done after cleanup
                 if retry_failed_only or retry_skipped_only:
@@ -675,55 +440,11 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         
         # If we handled everything with targeted approaches, continue to next project
         if not need_normal_discovery:
-            print(f"  Total queued for {project_name}: {documents_queued} documents")
+            print(f"Total queued for {project_name}: {documents_queued} documents")
             continue
         
-        # Handle repair mode differently - get repair candidates
-        elif repair_mode:
-            repair_candidates = get_repair_candidates_for_processing(project_id)
-            
-            if not repair_candidates:
-                print(f"  No documents need repair for {project_name}")
-                continue
-            
-            print(f"  Found {len(repair_candidates)} documents that need repair for {project_name}")
-            
-            # Process repair candidates
-            for candidate in repair_candidates:
-                doc_id = candidate['document_id']
-                
-                # Clean up existing inconsistent data first
-                cleanup_summary = cleanup_document_data(doc_id, project_id)
-                print(f"  Cleaned up inconsistent data for {candidate['document_name'][:50]}: {cleanup_summary['chunks_deleted']} chunks, {cleanup_summary['document_records_deleted']} docs, {cleanup_summary['processing_logs_deleted']} logs")
-                
-                # Find the document in the API to reprocess it
-                doc_found = False
-                for search_page in range(file_total_pages):
-                    search_files = get_files_for_project(project_id, search_page, page_size)
-                    for doc in search_files:
-                        if doc["_id"] == doc_id:
-                            doc_found = True
-                            s3_key = doc.get("internalURL")
-                            if s3_key:
-                                doc_meta = format_metadata(project, doc)
-                                document_task = DocumentTask(
-                                    project_id=project_id,
-                                    project_name=project_name,
-                                    s3_key=s3_key,
-                                    metadata=doc_meta,
-                                    api_doc=doc
-                                )
-                                document_queue.append(document_task)
-                                documents_queued += 1
-                            break
-                    if doc_found:
-                        break
-                
-                if not doc_found:
-                    print(f"  Warning: Could not find document {doc_id} in API - may have been deleted")
-        else:
-            # Normal mode: iterate through all files
-            for file_page_number in range(file_total_pages):
+        # Normal mode: iterate through all files
+        for file_page_number in range(file_total_pages):
                 files_data = get_files_for_project(project_id, file_page_number, page_size)
                 
                 if not files_data:
@@ -743,26 +464,24 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                             continue
                         
                         status_type = "failed" if status == "failed" else "skipped"
-                        print(f"  Queuing {status_type} document for retry: {doc_name}")
+                        print(f"Queuing {status_type} document for retry: {doc_name}")
                         
                     elif retry_failed_only:
                         # Only process files that previously failed
                         if not is_processed or status != "failed":
                             continue
-                        print(f"  Queuing failed document for retry: {doc_name}")
+                        print(f"Queuing failed document for retry: {doc_name}")
                         
                     elif retry_skipped_only:
                         # Only process files that were previously skipped
                         if not is_processed or status != "skipped":
                             continue
-                        print(f"  Queuing skipped document for retry: {doc_name}")
+                        print(f"Queuing skipped document for retry: {doc_name}")
                         
                     else:
                         # Normal mode: skip already processed files
                         if is_processed:
-                            continue
-                    
-
+                            continue                
                         
                     s3_key = doc.get("internalURL")
                     if not s3_key:
@@ -779,7 +498,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
                     document_queue.append(document_task)
                     documents_queued += 1
         
-        print(f"  Queued {documents_queued} documents from {project_name}")
+        print(f"Queued {documents_queued} documents from {project_name}")
     
     total_documents = len(document_queue)
     print(f"\n=== Unified queue built: {total_documents} documents across {len(projects)} projects ===")
@@ -795,12 +514,10 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         print(f"RETRY MODE: Processing {total_documents} failed documents")
     elif retry_skipped_only:
         print(f"RETRY MODE: Processing {total_documents} skipped documents")
-    elif repair_mode:
-        print(f"REPAIR MODE: Processing {total_documents} documents needing repair")
     else:
         print(f"NORMAL MODE: Processing {total_documents} new documents")
     
-    progress_tracker.start(len(projects), total_documents)
+    progress_tracker.start(len(projects), total_documents, project_ids)
     
     if total_documents == 0:
         print(f"No {mode_desc} to process across all projects")
@@ -825,6 +542,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         timed_mode=timed_mode,
         time_limit_seconds=time_limit_seconds,
         start_time=start_time,
+        max_pages=max_pages,
     )
     
     # Handle timed mode results
@@ -869,31 +587,16 @@ if __name__ == "__main__":
             "--retry-skipped", action="store_true", help="Only process documents that were previously skipped. Deletes existing processing logs and reprocesses from scratch."
         )
         parser.add_argument(
-            "--repair", action="store_true", help="Repair mode: identify and fix documents in inconsistent states (partial processing, orphaned chunks, failed but with data). Cleans up and reprocesses automatically."
-        )
-        parser.add_argument(
-            "--reset", action="store_true", help="Reset mode: completely clean and reprocess a specific project. Deletes all documents, chunks, and processing logs for the project. Can only be used with --project_id (single project only)."
-        )
-        parser.add_argument(
             "--timed", type=int, metavar="MINUTES", help="Run in timed mode for the specified number of minutes, then gracefully stop. Example: --timed 60"
+        )
+        parser.add_argument(
+            "--max-pages", type=int, metavar="PAGES", help="Skip documents with more than the specified number of pages to avoid threading/memory issues with large documents. Example: --max-pages 50"
         )
         args = parser.parse_args()
 
         # Validate flag combinations
         # Note: --retry-failed and --retry-skipped can now be used together
         # to process both failed and skipped documents
-        
-        if args.repair and (args.retry_failed or args.retry_skipped):
-            parser.error("Cannot use --repair with --retry-failed or --retry-skipped. Repair mode automatically handles inconsistent states.")
-        
-        # Validate reset flag - must be used only with a single project_id
-        if args.reset:
-            if not args.project_id:
-                parser.error("--reset requires --project_id to be specified. Reset mode can only be used with a specific project.")
-            if len(args.project_id) > 1:
-                parser.error("--reset can only be used with a single project ID. Multiple projects are not allowed with reset mode.")
-            if args.retry_failed or args.retry_skipped or args.repair:
-                parser.error("--reset cannot be used with other processing modes (--retry-failed, --retry-skipped, --repair). Reset mode can only be combined with --timed.")
         
         # Validate timed argument
         if args.timed is not None and args.timed <= 0:
@@ -903,27 +606,13 @@ if __name__ == "__main__":
         time_limit_minutes = args.timed if timed_mode else None
 
         if args.project_id:
-            # Handle reset mode first (clean slate)
-            if args.reset:
-                project_id = args.project_id[0]  # We validated it's only one project
-                print(f"[RESET] Starting complete reset for project {project_id}")
-                
-                # Perform complete cleanup
-                cleanup_summary = cleanup_project_data(project_id)
-                print(f"[RESET] Cleanup complete: {cleanup_summary}")
-                
-                # Now process normally (fresh start)
-                print(f"[RESET] Beginning fresh processing for project {project_id}")
-                result = process_projects([project_id], skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=False, retry_skipped_only=False, repair_mode=False, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
-                print(f"[RESET] Fresh processing complete: {result}")
-            else:
-                # Run immediately if project_id(s) are provided (normal modes)
-                result = process_projects(args.project_id, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
-                print(result)
+            # Run immediately if project_id(s) are provided
+            result = process_projects(args.project_id, skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes, max_pages=args.max_pages)
+            print(result)
         else:
             # Run for all projects if no project_id is provided
             print("No project_id provided. Processing all projects.")
-            result = process_projects(skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, repair_mode=args.repair, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes)
+            result = process_projects(skip_hnsw_indexes=args.skip_hnsw_indexes, retry_failed_only=args.retry_failed, retry_skipped_only=args.retry_skipped, timed_mode=timed_mode, time_limit_minutes=time_limit_minutes, max_pages=args.max_pages)
             print(result)
     finally:
         pass

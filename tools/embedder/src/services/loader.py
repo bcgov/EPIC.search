@@ -31,10 +31,9 @@ from .tag_extractor import extract_tags_from_chunks
 from .embedding import get_embedding
 from .file_validation import validate_file
 from .markdown_reader import read_as_pages
-from .word_reader import read_word_as_pages, is_word_supported
+from .word_reader import read_word_as_pages
 from .bert_keyword_extractor import extract_keywords_from_chunks
 from .fast_keyword_extractor import extract_keywords_from_chunks_fast
-from .ocr.ocr_factory import initialize_ocr, is_ocr_available
 
 # Import and run path setup
 from src.path_setup import setup_paths
@@ -333,7 +332,7 @@ def chunk_and_embed_pages(
     # Document-level semantic embedding will be built in load_data with metadata
     return chunks_to_upsert, list(all_tags), list(all_keywords), list(all_headings), None
 
-def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict = None) -> tuple:
+def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict = None, max_pages: int = None) -> tuple:
     """
     Download a PDF from S3 and validate it. Returns (temp_path, doc_info) where temp_path is the path to the temp file if valid (else None).
     doc_info contains metadata about the document regardless of validation success.
@@ -388,9 +387,23 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
             except Exception as pdf_meta_err:
                 print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
         
-        is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key)
-        doc_info["validation_status"] = "valid" if is_valid else "invalid"
-        doc_info["validation_reason"] = reason if not is_valid else None
+        is_valid, reason, ocr_pages, ocr_info = validate_file(temp_path, s3_key, max_pages)
+        
+        # Determine the appropriate validation status based on the reason
+        if is_valid:
+            doc_info["validation_status"] = "valid"
+            doc_info["validation_reason"] = None
+        else:
+            # Determine if this should be marked as "skipped" or "invalid"
+            skip_reasons = [
+                "scanned_or_image_pdf", 
+                "precheck_failed"
+            ]
+            if reason in skip_reasons or (reason and reason.startswith("page_count_exceeded_limit_")):
+                doc_info["validation_status"] = "skipped"
+            else:
+                doc_info["validation_status"] = "invalid"
+            doc_info["validation_reason"] = reason
         
         # Add OCR processing information to document info
         if ocr_info:
@@ -406,6 +419,8 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
                 print(f"[FAIL] File {s3_key} image processing failed: {reason}. Will be marked as failure.")
             elif reason == "precheck_failed":
                 print(f"[SKIP] File {s3_key} is not a valid PDF or unsupported format. Will be marked as skipped.")
+            elif reason and reason.startswith("page_count_exceeded_limit_"):
+                print(f"[SKIP] File {s3_key} skipped due to page limit: {reason}. Will be marked as skipped.")
             else:
                 print(f"[FAIL] File {s3_key} failed PDF validation: {reason}. Will be marked as failure.")
             try:
@@ -683,7 +698,8 @@ def load_data(
     base_metadata: Dict[str, Any],
     temp_dir: str = None,
     api_doc: Dict[str, Any] = None,
-    is_retry: bool = False
+    is_retry: bool = False,
+    max_pages: int = None
 ) -> str:
     """
     Orchestrate the loading and processing of a document from S3 into the vector store.
@@ -815,7 +831,7 @@ def load_data(
                 metrics["document_info"]["display_name"] = basic_metadata["display_name"]
         
         t0 = time.perf_counter()
-        temp_path, doc_info = _download_and_validate_pdf(s3_key, temp_dir, metrics)
+        temp_path, doc_info = _download_and_validate_pdf(s3_key, temp_dir, metrics, max_pages)
         metrics["download_and_validate_pdf"] = time.perf_counter() - t0
         
         # Merge doc_info but preserve API-derived names if they exist
@@ -850,6 +866,10 @@ def load_data(
                 # Scanned PDFs without OCR should be marked as skipped
                 status = "skipped"
                 print(f"[SKIP] File {s3_key} is a scanned PDF but OCR is not available. Marking as skipped.")
+            elif validation_reason and validation_reason.startswith("page_count_exceeded_limit_"):
+                # Files exceeding page count should be marked as skipped
+                status = "skipped"
+                print(f"[SKIP] File {s3_key} exceeded page count limit. Marking as skipped.")
             elif validation_reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed", "no_content_analysis_available"]:
                 # Image processing failures should be marked as failure
                 status = "failure"
@@ -902,8 +922,8 @@ def load_data(
             metrics["read_as_pages"] = time.perf_counter() - t1
             metrics["extraction_method"] = "standard_pdf"
             
-            # Validate that we got usable pages from the markdown reader
-            if not pages or len(pages) == 0:
+        # Validate that we got usable pages from the markdown reader
+        if not pages or len(pages) == 0:
                 print(f"[ERROR] No pages extracted from {s3_key} (Doc ID: {doc_id}) - markdown reader returned empty result")
                 print(f"[ERROR] This may indicate a corrupted PDF or unsupported format")
                 # Log failure with document info

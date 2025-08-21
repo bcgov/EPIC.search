@@ -12,6 +12,8 @@ class ProgressTracker:
         self.processed_documents = 0
         self.failed_documents = 0
         self.skipped_documents = 0
+        self.current_project_ids = []  # Track project IDs for this run
+        self.start_processing_log_id = None  # Track the highest ID before run starts
         self.current_project_name = ""
         self.active_documents = {}  # dict of {worker_id: {name, pages, size_mb}}
         self.total_pages_processed = 0
@@ -20,12 +22,29 @@ class ProgressTracker:
         self.lock = threading.Lock()
         self._stop_logging = False
         
-    def start(self, total_projects, total_documents):
+    def start(self, total_projects, total_documents, project_ids=None):
         """Initialize progress tracking"""
         with self.lock:
             self.start_time = datetime.now()
             self.total_projects = total_projects
             self.total_documents = total_documents
+            self.current_project_ids = project_ids or []
+            
+            # Get the highest processing log ID before we start
+            try:
+                from src.models.pgvector.vector_models import ProcessingLog
+                from src.models import get_session
+                from sqlalchemy import func
+                
+                session = get_session()
+                max_id_result = session.query(func.max(ProcessingLog.id)).scalar()
+                self.start_processing_log_id = max_id_result or 0
+                session.close()
+                print(f"[DEBUG] Progress tracker starting - baseline processing log ID: {self.start_processing_log_id}")
+            except Exception as e:
+                print(f"[WARN] Could not get baseline processing log ID: {e}")
+                self.start_processing_log_id = 0
+                
             self.processed_projects = 0
             self.processed_documents = 0
             self.failed_documents = 0
@@ -192,18 +211,68 @@ class ProgressTracker:
     def _print_final_summary(self, reason="Completed"):
         """Print final completion summary"""
         elapsed = datetime.now() - self.start_time
-        total_processed = self.processed_documents + self.failed_documents + self.skipped_documents
-        docs_per_hour = (total_processed / elapsed.total_seconds()) * 3600 if elapsed.total_seconds() > 0 else 0
+        total_processed_this_run = self.processed_documents + self.failed_documents + self.skipped_documents
+        docs_per_hour = (total_processed_this_run / elapsed.total_seconds()) * 3600 if elapsed.total_seconds() > 0 else 0
         
         print(f"\n{'='*80}")
         print(f"EMBEDDER COMPLETED: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"Total Runtime: {str(elapsed).split('.')[0]}")
         print(f"Final Results:")
         print(f"   Projects: {self.processed_projects}/{self.total_projects}")
-        print(f"   Documents: {total_processed}/{self.total_documents}")
-        print(f"   Successful: {self.processed_documents}")
-        print(f"   Failed: {self.failed_documents}")
-        print(f"   Skipped: {self.skipped_documents}")
+        
+        # Always get actual counts from database for accuracy
+        try:
+            from src.models.pgvector.vector_models import ProcessingLog
+            from src.models import get_session
+            
+            session = get_session()
+            
+            # Build query to filter records from this run only using ID
+            query = session.query(ProcessingLog)
+            
+            # Filter by ID - only records created during this run
+            if self.start_processing_log_id is not None:
+                query = query.filter(ProcessingLog.id > self.start_processing_log_id)
+            
+            # If we have specific project IDs, filter by them for additional accuracy
+            if self.current_project_ids:
+                query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+            
+            # Get actual counts from database for this run only
+            success_count = query.filter(ProcessingLog.status == 'success').count()
+            failure_count = query.filter(ProcessingLog.status == 'failure').count()
+            skipped_count = query.filter(ProcessingLog.status == 'skipped').count()
+            actual_total = success_count + failure_count + skipped_count
+            session.close()
+            
+            # Show documents processed vs queued
+            if actual_total < self.total_documents and reason != "Completed":
+                print(f"   Documents: {actual_total}/{actual_total} (of {self.total_documents} queued, stopped early due to {reason.lower()})")
+            else:
+                print(f"   Documents: {actual_total}/{self.total_documents}")
+            
+            print(f"   Successful: {success_count}")
+            print(f"   Failed: {failure_count}")
+            print(f"   Skipped: {skipped_count}")
+            
+            # Show note if database counts differ from progress tracker counts
+            if (success_count != self.processed_documents or 
+                failure_count != self.failed_documents or 
+                skipped_count != self.skipped_documents):
+                print(f"   Note: Counts from database since ID > {self.start_processing_log_id} (progress tracker: {self.processed_documents}S/{self.failed_documents}F/{self.skipped_documents}Sk)")
+                
+        except Exception as db_err:
+            print(f"   Note: Could not get database counts: {db_err}")
+            # Fallback to progress tracker counts
+            if total_processed_this_run < self.total_documents and reason != "Completed":
+                print(f"   Documents: {total_processed_this_run}/{total_processed_this_run} (of {self.total_documents} queued, stopped early due to {reason.lower()})")
+            else:
+                print(f"   Documents: {total_processed_this_run}/{self.total_documents}")
+            
+            print(f"   Successful: {self.processed_documents}")
+            print(f"   Failed: {self.failed_documents}")
+            print(f"   Skipped: {self.skipped_documents}")
+        
         if self.total_pages_processed > 0:
             print(f"   Pages Processed: {self.total_pages_processed:,}")
         if self.total_size_mb_processed > 0:
