@@ -86,12 +86,15 @@ The application uses typed configuration classes for different aspects of the sy
 
 #### Keyword Extraction Configuration
 
-* `DOCUMENT_KEYWORD_EXTRACTION_METHOD`: Method used for document keyword extraction (default: "keybert")
-  * **"keybert"**: Semantic embeddings-based extraction (standard/fast modes with diversity 0.6-0.7)
-  * **"tfidf"**: Statistical frequency-based extraction (simplified mode)
-  * **Impact**: Changes query keyword extraction method and search strategy to match document processing
+* `DOCUMENT_KEYWORD_EXTRACTION_METHOD`: Method used for document keyword extraction (default: "standard")
+  * **"standard"**: Semantic embeddings-based extraction using KeyBERT with high-quality settings (best quality, ngrams 1-3, MMR enabled, diversity 0.8)
+  * **"fast"**: Semantic embeddings-based extraction using KeyBERT with optimized settings (faster, ngrams 1-2, MMR disabled for speed)
+  * **"simplified"**: Enhanced TF-IDF statistical extraction with domain-specific filtering (fastest, matches embedder implementation)
+  * **⚠️ CRITICAL**: This setting **MUST** match your embedder's keyword extraction method for optimal search results
 
-> **New Feature**: The API now adapts its search strategy based on how document keywords were extracted. When set to "tfidf", the system prioritizes tags and semantic search over keyword matching since TF-IDF keywords are statistical rather than semantic. This ensures optimal performance regardless of which extraction mode your embedding service uses.
+> **🎯 Perfect Alignment Required**: The API's keyword extraction implementations are precisely engineered to match the embedder processing methods. **Query keywords must be extracted using the exact same method that was used to embed the documents.** Mismatched extraction methods will result in poor search relevance because the query keywords won't align with how document keywords were originally processed. All modes include comprehensive domain-specific stopword filtering (50+ environmental assessment terms) to ensure consistency.
+
+> **Configuration Validation**: Always verify that your search API's `DOCUMENT_KEYWORD_EXTRACTION_METHOD` matches your embedder's keyword extraction configuration. The three modes (standard/fast/simplified) use identical algorithms, parameters, and filtering to guarantee query-document keyword compatibility.
 
 #### Search Strategy Configuration
 
@@ -263,7 +266,11 @@ search-vector-api/
 │   │   ├── ops.py               # Health/operations endpoints
 │   │   └── search.py            # Search endpoints
 │   ├── services/                # Business logic layer
-│   │   ├── bert_keyword_extractor.py  # Keyword extraction using BERT
+│   │   ├── keyword_extractor.py     # Main keyword extraction interface
+│   │   ├── keywords/            # Modular keyword extraction strategies
+│   │   │   ├── simplified_query_keywords_extractor.py  # Basic word frequency
+│   │   │   ├── fast_query_keywords_extractor.py        # TF-IDF based
+│   │   │   └── standard_query_keywords_extractor.py    # KeyBERT semantic
 │   │   ├── embedding.py         # Text to vector conversion
 │   │   ├── re_ranker.py         # Result re-ranking with cross-encoder
 │   │   ├── search_service.py    # Legacy search service

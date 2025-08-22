@@ -538,6 +538,30 @@ The system uses two distinct models for different NLP tasks, both configurable a
 - Extraction is parallelized per chunk for speed and reliability.
 - Extracted tags/keywords are stored and indexed for search and analytics.
 
+#### Keyword Extraction Modes
+
+The system supports three configurable keyword extraction modes via `KEYWORD_EXTRACTION_MODE`:
+
+**Standard Mode (`standard`)**
+- Full KeyBERT implementation with highest semantic quality
+- Uses complete n-gram range (1,3) and MMR (Maximal Marginal Relevance)
+- Highest quality results but slowest performance (baseline)
+- Best for: Offline processing where quality is paramount
+
+**Fast Mode (`fast`)**
+- Optimized KeyBERT with reduced parameters for faster processing
+- Uses reduced n-gram range (1,2) and disables MMR for speed
+- 5-10x faster than standard mode while maintaining good quality
+- Best for: Real-time processing where KeyBERT quality is preferred
+
+**Simplified Mode (`simplified`)**
+- Enhanced TF-IDF implementation with domain-specific optimizations
+- Custom term weighting and environmental assessment keyword preferences
+- 30-60x faster than standard mode with good domain-optimized quality
+- Best for: High-volume processing where speed is critical
+
+Mode selection is controlled by the `KEYWORD_EXTRACTION_MODE` environment variable and can be overridden in scripts for testing and comparison.
+
 ### Model Independence & Lazy Loading
 
 - Both models are loaded only when first used (lazy loading), improving startup time and resource usage.
@@ -696,6 +720,7 @@ Used by worker processes to prevent P03 prepared statement conflicts:
 |----------------------|-----------------------------------------|------------------------------|
 | EMBEDDING_MODEL_NAME | Model for document embeddings            | "all-mpnet-base-v2"          |
 | KEYWORD_MODEL_NAME   | Model for keyword extraction             | "all-mpnet-base-v2"          |
+| KEYWORD_EXTRACTION_MODE | Keyword extraction mode: standard, fast, or simplified | "standard"        |
 | EMBEDDING_DIMENSIONS | Embedding vector size                    | 768                          |
 | FILES_CONCURRENCY_SIZE | Number of files to process in parallel | 16                           |
 | KEYWORD_EXTRACTION_WORKERS | Threads per document for keywords | 2                            |

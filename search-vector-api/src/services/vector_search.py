@@ -1,34 +1,39 @@
-"""Vector search implementation combining semantic and keyword search capabilities.
+"""Vector search implementation with modular strategy architecture.
 
-This module provides the core hybrid search functionality that combines semantic vector search
-with keyword-based search in a multi-stage pipeline including:
+This module serves as the main entry point for search functionality and contains shared utility
+functions used across multiple search strategies. The core search functionality has been 
+modularized into strategy-specific implementations located in the search_strategies package.
 
-1. Document-level keyword filtering using PostgreSQL full-text search on pre-computed metadata
-2. Semantic vector search within relevant document chunks using pgvector similarity matching
-3. Fallback semantic search across all chunks when document filtering finds no results
-4. Final fallback keyword search on chunks when all semantic approaches fail
-5. Cross-encoder re-ranking for improved relevance ordering
-6. Removing duplicate results based on document ID
-7. Formatting results for the API response
-8. Tracking performance metrics for each step of the pipeline
+Architecture:
+- Main search() function: Routes requests to appropriate strategy implementations via factory pattern
+- Shared utility functions: Common operations used by multiple search strategies
+- Direct metadata search: Special case handling for generic document browsing requests
 
-The hybrid search pipeline is designed to provide high-quality search results by leveraging
-both traditional keyword matching for efficient document filtering and modern embedding-based 
-semantic similarity for content relevance, with multiple fallback strategies to ensure 
-comprehensive coverage.
+The search strategies implement various approaches including:
+1. Hybrid semantic fallback (default): Document filtering → semantic search → keyword fallback
+2. Hybrid keyword fallback: Document filtering → keyword search → semantic fallback  
+3. Semantic only: Pure semantic vector search across all chunks
+4. Keyword only: Pure keyword-based search
+5. Hybrid parallel: Parallel semantic and keyword search with result merging
+6. Document only: Metadata-based document retrieval for generic requests
+
+Shared utilities include:
+- Document-level search using pre-computed metadata
+- Semantic search across all document chunks
+- Keyword search with configurable extraction methods
+- Cross-encoder re-ranking for relevance optimization
+- Result formatting and metadata extraction
+- Post-search filtering and similarity search functions
 """
 
-import pandas as pd
 import time
-import threading
-import queue
 import logging
-import numpy as np
-from flask import current_app
-from .bert_keyword_extractor import get_keywords
-from .re_ranker import rerank_results, rerank_results_with_metrics
-from .vector_store import VectorStore
 import re
+
+from flask import current_app
+from .keywords.query_keyword_extractor import get_keywords
+from .re_ranker import rerank_results_with_metrics
+from .vector_store import VectorStore
 
 
 def get_document_type_name(document_metadata, chunk_metadata=None):
@@ -148,24 +153,29 @@ def get_document_display_name(document_metadata, chunk_metadata=None):
 
 
 def search(question, project_ids=None, document_type_ids=None, min_relevance_score=None, top_n=None, search_strategy=None):
-    """Main search function implementing a hybrid multi-stage search strategy.
+    """Main search entry point that routes requests to appropriate search strategies.
     
-    This function orchestrates a modern search pipeline that combines keyword and semantic search
-    for optimal efficiency and accuracy:
+    This function serves as the primary interface for search functionality. It handles:
+    1. Parameter validation and configuration setup
+    2. Special case detection for generic document requests (routes to direct metadata search)
+    3. Strategy selection and execution via the search strategy factory
+    4. Fallback error handling
     
-    Direct Metadata Mode: When both project and document type are specified and the query
-    is generic (e.g., "any correspondence"), returns document-level results ordered by date
+    The actual search implementation is delegated to modular strategy classes located in
+    the search_strategies package. Each strategy implements its own multi-stage pipeline
+    optimized for different use cases (semantic-first, keyword-first, parallel, etc.).
     
-    Hybrid Search Pipeline:
-    Stage 1: Document-level keyword filtering using pre-computed keywords, tags, and headings
-    Stage 2: Semantic vector search within chunks of relevant documents (from Stage 1)
-    Fallback 2.1: If Stage 1 finds no documents, semantic search across all chunks
-    Fallback 2.2: If semantic search fails, keyword search on chunks as last resort
-    Stage 3: Cross-encoder re-ranking for optimal relevance ordering
+    Special Cases:
+    - Generic document requests with type/project filters → Direct metadata search
+    - DOCUMENT_ONLY strategy → Metadata-based document retrieval
     
-    This hybrid approach is much more efficient than searching all chunks directly and provides
-    better relevance by first identifying promising documents through keyword filtering,
-    then applying expensive semantic search only to relevant content.
+    Strategy Options:
+    - HYBRID_SEMANTIC_FALLBACK (default): Document filtering → semantic → keyword fallback
+    - HYBRID_KEYWORD_FALLBACK: Document filtering → keyword → semantic fallback
+    - SEMANTIC_ONLY: Pure semantic vector search
+    - KEYWORD_ONLY: Pure keyword-based search  
+    - HYBRID_PARALLEL: Parallel semantic and keyword search
+    - DOCUMENT_ONLY: Metadata-based document browsing
     
     Args:
         question (str): The search query text
@@ -199,14 +209,24 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     if top_n is None:
         top_n = current_app.search_settings.top_record_count
     
+    # Ensure top_n is valid - provide a safe default if config is invalid
+    if top_n is None or not isinstance(top_n, int) or top_n <= 0:
+        from src.utils.config import _Config
+        top_n = _Config.TOP_RECORD_COUNT  # Use config default
+    
     # Use provided min_relevance_score parameter or fall back to config value
     original_min_relevance_score = min_relevance_score
     if min_relevance_score is None:
         min_relevance_score = current_app.search_settings.min_relevance_score
     
+    # Ensure min_relevance_score is valid - just check it's a number
+    if min_relevance_score is None or not isinstance(min_relevance_score, (int, float)):
+        from src.utils.config import _Config
+        min_relevance_score = _Config.MIN_RELEVANCE_SCORE  # Use config default
+    
     # Set default search strategy if none provided
     if search_strategy is None:
-        search_strategy = "HYBRID_SEMANTIC_FALLBACK"
+        search_strategy = current_app.search_settings.default_search_strategy
     
     # Add search strategy to metrics
     metrics["search_strategy"] = search_strategy
@@ -276,523 +296,49 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     metrics["document_type_filter_applied"] = document_type_ids is not None and len(document_type_ids) > 0
     metrics["keyword_extraction_method"] = current_app.model_settings.document_keyword_extraction_method
     
-    if search_strategy == "HYBRID_SEMANTIC_FALLBACK":
-        return execute_hybrid_semantic_fallback_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time)
-    elif search_strategy == "HYBRID_KEYWORD_FALLBACK":
-        return execute_hybrid_keyword_fallback_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time)
-    elif search_strategy == "SEMANTIC_ONLY":
-        return execute_semantic_only_strategy(question, vec_store, project_ids, document_type_ids, chunk_limit, top_n, min_relevance_score, metrics, start_time)
-    elif search_strategy == "KEYWORD_ONLY":
-        return execute_keyword_only_strategy(question, vec_store, project_ids, document_type_ids, chunk_limit, top_n, min_relevance_score, metrics, start_time)
-    elif search_strategy == "HYBRID_PARALLEL":
-        return execute_hybrid_parallel_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time)
-    elif search_strategy == "DOCUMENT_ONLY":
-        return execute_document_only_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, metrics, start_time)
-    else:
-        # Fallback to default strategy for unknown strategy
-        logging.warning(f"Unknown search strategy '{search_strategy}'. Using HYBRID_SEMANTIC_FALLBACK as fallback.")
+    # Use the strategy factory to get and execute the appropriate strategy
+    from .search_strategies import get_search_strategy
+    
+    try:
+        strategy = get_search_strategy(search_strategy)
+        return strategy.execute(
+            question=question,
+            vec_store=vec_store,
+            project_ids=project_ids,
+            document_type_ids=document_type_ids,
+            doc_limit=doc_limit,
+            chunk_limit=chunk_limit,
+            top_n=top_n,
+            min_relevance_score=min_relevance_score,
+            metrics=metrics,
+            start_time=start_time
+        )
+    except Exception as e:
+        # Fallback to default strategy if something goes wrong
+        logging.error(f"Error executing search strategy '{search_strategy}': {e}")
+        logging.warning("Falling back to default strategy execution")
+        metrics["strategy_error"] = str(e)
         metrics["strategy_fallback"] = True
-        return execute_hybrid_semantic_fallback_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time)
-
-def execute_hybrid_semantic_fallback_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time):
-    """Execute the hybrid search strategy with semantic search and keyword fallback.
-    
-    This is the default/current strategy that:
-    1. Finds relevant documents using document-level keyword filtering
-    2. Searches chunks within those documents using semantic search
-    3. Falls back to semantic search across all chunks if no documents found
-    4. Falls back to keyword search if semantic search fails
-    5. Re-ranks results using cross-encoder
-    
-    Args:
-        question (str): The search query
-        vec_store (VectorStore): Vector store instance
-        project_ids (list): Project IDs for filtering
-        document_type_ids (list): Document type IDs for filtering
-        doc_limit (int): Document search limit
-        chunk_limit (int): Chunk search limit
-        top_n (int): Final result count
-        min_relevance_score (float): Minimum relevance threshold
-        metrics (dict): Metrics dictionary to update
-        start_time (float): Search start time
         
-    Returns:
-        tuple: (formatted_data, metrics)
-    """
-    import logging
-    
-    # Stage 1: Find relevant documents using document-level metadata
-    relevant_documents, doc_search_time = perform_document_level_search(vec_store, question, doc_limit, project_ids, document_type_ids)
-    metrics["document_search_ms"] = doc_search_time
-    
-    # Debug logging
-    logging.info(f"HYBRID_SEMANTIC_FALLBACK - Stage 1: Found {len(relevant_documents) if not relevant_documents.empty else 0} documents")
-    
-    # Stage 2: Search chunks within the relevant documents
-    if not relevant_documents.empty:
-        document_ids = relevant_documents["document_id"].tolist()
-        chunk_results, chunk_search_time = perform_chunk_search_within_documents(
-            vec_store, document_ids, question, chunk_limit
-        )
-        metrics["chunk_search_ms"] = chunk_search_time
-        logging.info(f"HYBRID_SEMANTIC_FALLBACK - Stage 2: Found {len(chunk_results) if not chunk_results.empty else 0} chunks in documents")
-    else:
-        # Alternative path: if no documents found, perform semantic search across all chunks with project filtering
-        logging.info("HYBRID_SEMANTIC_FALLBACK - Stage 2: No documents found, using semantic search across all chunks")
-        chunk_results, semantic_search_time = perform_semantic_search_all_chunks(vec_store, question, chunk_limit, project_ids, document_type_ids)
-        metrics["semantic_search_ms"] = semantic_search_time
-        logging.info(f"HYBRID_SEMANTIC_FALLBACK - Semantic fallback found {len(chunk_results) if not chunk_results.empty else 0} chunks")
-    
-    # If both document search and semantic search returned no results, try a simple keyword search
-    if chunk_results.empty:
-        logging.info("HYBRID_SEMANTIC_FALLBACK - Stage 3: Semantic search returned no results, trying keyword search as last resort")
+        # Try to get the default strategy and execute it
         try:
-            table_name = current_app.vector_settings.vector_table_name
-            keyword_results, keyword_time = perform_keyword_search(vec_store, table_name, question, chunk_limit, project_ids, document_type_ids)
-            if not keyword_results.empty:
-                chunk_results = keyword_results
-                metrics["keyword_fallback_ms"] = keyword_time
-                logging.info(f"HYBRID_SEMANTIC_FALLBACK - Keyword fallback found {len(chunk_results)} chunks")
-            else:
-                logging.info("HYBRID_SEMANTIC_FALLBACK - Keyword fallback also returned no results")
-        except Exception as e:
-            logging.error(f"HYBRID_SEMANTIC_FALLBACK - Keyword fallback search failed: {e}")
-    
-    # Re-rank results using cross-encoder
-    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n, min_relevance_score)
-    metrics["reranking_ms"] = rerank_time
-    
-    # Add filtering metrics to the search metrics
-    metrics.update({
-        "filtering_total_chunks": filtering_metrics["total_chunks_before_filtering"],
-        "filtering_excluded_chunks": filtering_metrics["excluded_chunks_count"],
-        "filtering_exclusion_percentage": filtering_metrics["exclusion_percentage"],
-        "filtering_final_chunks": filtering_metrics["final_chunk_count"]
-    })
-    
-    # Add score range information if available
-    if filtering_metrics["score_range_excluded"]:
-        metrics["filtering_excluded_score_range"] = filtering_metrics["score_range_excluded"]
-    if filtering_metrics["score_range_included"]:
-        metrics["filtering_included_score_range"] = filtering_metrics["score_range_included"]
-    
-    results = reranked_results
-    
-    # Format the data
-    format_start = time.time()
-    formatted_data = format_data(results)
-    metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
-    
-    # Total time
-    metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
-    metrics["search_mode"] = "hybrid_semantic_fallback"
-    
-    logging.info(f"HYBRID_SEMANTIC_FALLBACK - Completed: {len(formatted_data)} final results")
-    
-    return formatted_data, metrics
-
-
-def execute_hybrid_keyword_fallback_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time):
-    """Execute the hybrid search strategy with keyword search first and semantic fallback.
-    
-    This strategy:
-    1. Finds relevant documents using document-level keyword filtering
-    2. Searches chunks within those documents using keyword search
-    3. Falls back to keyword search across all chunks if no documents found
-    4. Falls back to semantic search if keyword search fails
-    5. Re-ranks results using cross-encoder
-    
-    Args:
-        question (str): The search query
-        vec_store (VectorStore): Vector store instance
-        project_ids (list): Project IDs for filtering
-        document_type_ids (list): Document type IDs for filtering
-        doc_limit (int): Document search limit
-        chunk_limit (int): Chunk search limit
-        top_n (int): Final result count
-        min_relevance_score (float): Minimum relevance threshold
-        metrics (dict): Metrics dictionary to update
-        start_time (float): Search start time
-        
-    Returns:
-        tuple: (formatted_data, metrics)
-    """
-    import logging
-    
-    # Stage 1: Find relevant documents using document-level metadata
-    relevant_documents, doc_search_time = perform_document_level_search(vec_store, question, doc_limit, project_ids, document_type_ids)
-    metrics["document_search_ms"] = doc_search_time
-    
-    logging.info(f"HYBRID_KEYWORD_FALLBACK - Stage 1: Found {len(relevant_documents) if not relevant_documents.empty else 0} documents")
-    
-    # Stage 2: Search chunks within the relevant documents using keyword search
-    if not relevant_documents.empty:
-        document_ids = relevant_documents["document_id"].tolist()
-        # Perform keyword search within the identified documents
-        table_name = current_app.vector_settings.vector_table_name
-        chunk_results, chunk_search_time = perform_keyword_search_within_documents(
-            vec_store, table_name, question, chunk_limit, document_ids
-        )
-        metrics["chunk_search_ms"] = chunk_search_time
-        logging.info(f"HYBRID_KEYWORD_FALLBACK - Stage 2: Found {len(chunk_results) if not chunk_results.empty else 0} chunks in documents")
-    else:
-        # Alternative path: if no documents found, perform keyword search across all chunks with project filtering
-        logging.info("HYBRID_KEYWORD_FALLBACK - Stage 2: No documents found, using keyword search across all chunks")
-        table_name = current_app.vector_settings.vector_table_name
-        chunk_results, keyword_search_time = perform_keyword_search(vec_store, table_name, question, chunk_limit, project_ids, document_type_ids)
-        metrics["keyword_search_ms"] = keyword_search_time
-        logging.info(f"HYBRID_KEYWORD_FALLBACK - Keyword search found {len(chunk_results) if not chunk_results.empty else 0} chunks")
-    
-    # If keyword search returned no results, try semantic search as fallback
-    if chunk_results.empty:
-        logging.info("HYBRID_KEYWORD_FALLBACK - Stage 3: Keyword search returned no results, trying semantic search as fallback")
-        try:
-            semantic_results, semantic_time = perform_semantic_search_all_chunks(vec_store, question, chunk_limit, project_ids, document_type_ids)
-            if not semantic_results.empty:
-                chunk_results = semantic_results
-                metrics["semantic_fallback_ms"] = semantic_time
-                logging.info(f"HYBRID_KEYWORD_FALLBACK - Semantic fallback found {len(chunk_results)} chunks")
-            else:
-                logging.info("HYBRID_KEYWORD_FALLBACK - Semantic fallback also returned no results")
-        except Exception as e:
-            logging.error(f"HYBRID_KEYWORD_FALLBACK - Semantic fallback search failed: {e}")
-    
-    # Re-rank results using cross-encoder
-    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n, min_relevance_score)
-    metrics["reranking_ms"] = rerank_time
-    
-    # Add filtering metrics to the search metrics
-    metrics.update({
-        "filtering_total_chunks": filtering_metrics["total_chunks_before_filtering"],
-        "filtering_excluded_chunks": filtering_metrics["excluded_chunks_count"],
-        "filtering_exclusion_percentage": filtering_metrics["exclusion_percentage"],
-        "filtering_final_chunks": filtering_metrics["final_chunk_count"]
-    })
-    
-    # Add score range information if available
-    if filtering_metrics["score_range_excluded"]:
-        metrics["filtering_excluded_score_range"] = filtering_metrics["score_range_excluded"]
-    if filtering_metrics["score_range_included"]:
-        metrics["filtering_included_score_range"] = filtering_metrics["score_range_included"]
-    
-    results = reranked_results
-    
-    # Format the data
-    format_start = time.time()
-    formatted_data = format_data(results)
-    metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
-    
-    # Total time
-    metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
-    metrics["search_mode"] = "hybrid_keyword_fallback"
-    
-    logging.info(f"HYBRID_KEYWORD_FALLBACK - Completed: {len(formatted_data)} final results")
-    
-    return formatted_data, metrics
-
-
-def execute_semantic_only_strategy(question, vec_store, project_ids, document_type_ids, chunk_limit, top_n, min_relevance_score, metrics, start_time):
-    """Execute pure semantic search strategy without keyword filtering or fallbacks.
-    
-    This strategy:
-    1. Performs semantic search directly across all chunks
-    2. Applies project and document type filtering
-    3. Re-ranks results using cross-encoder
-    
-    Args:
-        question (str): The search query
-        vec_store (VectorStore): Vector store instance
-        project_ids (list): Project IDs for filtering
-        document_type_ids (list): Document type IDs for filtering
-        chunk_limit (int): Chunk search limit
-        top_n (int): Final result count
-        min_relevance_score (float): Minimum relevance threshold
-        metrics (dict): Metrics dictionary to update
-        start_time (float): Search start time
-        
-    Returns:
-        tuple: (formatted_data, metrics)
-    """
-    import logging
-    
-    logging.info(f"SEMANTIC_ONLY - Starting pure semantic search")
-    
-    # Perform semantic search across all chunks with project and document type filtering
-    chunk_results, semantic_search_time = perform_semantic_search_all_chunks(vec_store, question, chunk_limit, project_ids, document_type_ids)
-    metrics["semantic_search_ms"] = semantic_search_time
-    
-    logging.info(f"SEMANTIC_ONLY - Found {len(chunk_results) if not chunk_results.empty else 0} chunks")
-    
-    # Re-rank results using cross-encoder
-    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n, min_relevance_score)
-    metrics["reranking_ms"] = rerank_time
-    
-    # Add filtering metrics to the search metrics
-    metrics.update({
-        "filtering_total_chunks": filtering_metrics["total_chunks_before_filtering"],
-        "filtering_excluded_chunks": filtering_metrics["excluded_chunks_count"],
-        "filtering_exclusion_percentage": filtering_metrics["exclusion_percentage"],
-        "filtering_final_chunks": filtering_metrics["final_chunk_count"]
-    })
-    
-    # Add score range information if available
-    if filtering_metrics["score_range_excluded"]:
-        metrics["filtering_excluded_score_range"] = filtering_metrics["score_range_excluded"]
-    if filtering_metrics["score_range_included"]:
-        metrics["filtering_included_score_range"] = filtering_metrics["score_range_included"]
-    
-    results = reranked_results
-    
-    # Format the data
-    format_start = time.time()
-    formatted_data = format_data(results)
-    metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
-    
-    # Total time
-    metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
-    metrics["search_mode"] = "semantic_only"
-    
-    logging.info(f"SEMANTIC_ONLY - Completed: {len(formatted_data)} final results")
-    
-    return formatted_data, metrics
-
-
-def execute_keyword_only_strategy(question, vec_store, project_ids, document_type_ids, chunk_limit, top_n, min_relevance_score, metrics, start_time):
-    """Execute pure keyword search strategy without semantic components.
-    
-    This strategy:
-    1. Performs keyword search directly across all chunks
-    2. Applies project and document type filtering
-    3. Re-ranks results using cross-encoder
-    
-    Args:
-        question (str): The search query
-        vec_store (VectorStore): Vector store instance
-        project_ids (list): Project IDs for filtering
-        document_type_ids (list): Document type IDs for filtering
-        chunk_limit (int): Chunk search limit
-        top_n (int): Final result count
-        min_relevance_score (float): Minimum relevance threshold
-        metrics (dict): Metrics dictionary to update
-        start_time (float): Search start time
-        
-    Returns:
-        tuple: (formatted_data, metrics)
-    """
-    import logging
-    
-    logging.info(f"KEYWORD_ONLY - Starting pure keyword search")
-    
-    # Perform keyword search across all chunks with project and document type filtering
-    table_name = current_app.vector_settings.vector_table_name
-    chunk_results, keyword_search_time = perform_keyword_search(vec_store, table_name, question, chunk_limit, project_ids, document_type_ids)
-    metrics["keyword_search_ms"] = keyword_search_time
-    
-    logging.info(f"KEYWORD_ONLY - Found {len(chunk_results) if not chunk_results.empty else 0} chunks")
-    
-    # Re-rank results using cross-encoder
-    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n, min_relevance_score)
-    metrics["reranking_ms"] = rerank_time
-    
-    # Add filtering metrics to the search metrics
-    metrics.update({
-        "filtering_total_chunks": filtering_metrics["total_chunks_before_filtering"],
-        "filtering_excluded_chunks": filtering_metrics["excluded_chunks_count"],
-        "filtering_exclusion_percentage": filtering_metrics["exclusion_percentage"],
-        "filtering_final_chunks": filtering_metrics["final_chunk_count"]
-    })
-    
-    # Add score range information if available
-    if filtering_metrics["score_range_excluded"]:
-        metrics["filtering_excluded_score_range"] = filtering_metrics["score_range_excluded"]
-    if filtering_metrics["score_range_included"]:
-        metrics["filtering_included_score_range"] = filtering_metrics["score_range_included"]
-    
-    results = reranked_results
-    
-    # Format the data
-    format_start = time.time()
-    formatted_data = format_data(results)
-    metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
-    
-    # Total time
-    metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
-    metrics["search_mode"] = "keyword_only"
-    
-    logging.info(f"KEYWORD_ONLY - Completed: {len(formatted_data)} final results")
-    
-    return formatted_data, metrics
-
-
-def execute_hybrid_parallel_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, chunk_limit, top_n, min_relevance_score, metrics, start_time):
-    """Execute hybrid parallel search strategy running semantic and keyword searches simultaneously.
-    
-    This strategy:
-    1. Runs both semantic and keyword searches in parallel
-    2. Merges results from both searches
-    3. De-duplicates based on chunk ID
-    4. Re-ranks combined results using cross-encoder
-    
-    Args:
-        question (str): The search query
-        vec_store (VectorStore): Vector store instance
-        project_ids (list): Project IDs for filtering
-        document_type_ids (list): Document type IDs for filtering
-        doc_limit (int): Document search limit (not used in parallel strategy)
-        chunk_limit (int): Chunk search limit per search type
-        top_n (int): Final result count
-        min_relevance_score (float): Minimum relevance threshold
-        metrics (dict): Metrics dictionary to update
-        start_time (float): Search start time
-        
-    Returns:
-        tuple: (formatted_data, metrics)
-    """
-    import logging
-    import threading
-    import queue
-    from flask import current_app
-    
-    logging.info(f"HYBRID_PARALLEL - Starting parallel semantic and keyword searches")
-    
-    # Capture the Flask application context for use in threads
-    app_context = current_app._get_current_object()
-    vector_table_name = current_app.vector_settings.vector_table_name
-    
-    # Results queue for threading
-    results_queue = queue.Queue()
-    
-    def semantic_search_worker():
-        try:
-            with app_context.app_context():
-                semantic_results, semantic_time = perform_semantic_search_all_chunks(
-                    vec_store, question, chunk_limit, project_ids, document_type_ids
-                )
-                results_queue.put(("semantic", semantic_results, semantic_time))
-        except Exception as e:
-            logging.error(f"HYBRID_PARALLEL - Semantic search worker failed: {e}")
-            results_queue.put(("semantic", pd.DataFrame(), 0))
-    
-    def keyword_search_worker():
-        try:
-            with app_context.app_context():
-                keyword_results, keyword_time = perform_keyword_search(
-                    vec_store, vector_table_name, question, chunk_limit, project_ids, document_type_ids
-                )
-                results_queue.put(("keyword", keyword_results, keyword_time))
-        except Exception as e:
-            logging.error(f"HYBRID_PARALLEL - Keyword search worker failed: {e}")
-            results_queue.put(("keyword", pd.DataFrame(), 0))
-    
-    # Start both search threads
-    semantic_thread = threading.Thread(target=semantic_search_worker)
-    keyword_thread = threading.Thread(target=keyword_search_worker)
-    
-    parallel_start = time.time()
-    semantic_thread.start()
-    keyword_thread.start()
-    
-    # Wait for both searches to complete
-    semantic_thread.join()
-    keyword_thread.join()
-    parallel_time = round((time.time() - parallel_start) * 1000, 2)
-    
-    # Collect results
-    semantic_results = pd.DataFrame()
-    keyword_results = pd.DataFrame()
-    semantic_time = 0
-    keyword_time = 0
-    
-    while not results_queue.empty():
-        search_type, results, search_time = results_queue.get()
-        if search_type == "semantic":
-            semantic_results = results
-            semantic_time = search_time
-        elif search_type == "keyword":
-            keyword_results = results
-            keyword_time = search_time
-    
-    metrics["semantic_search_ms"] = semantic_time
-    metrics["keyword_search_ms"] = keyword_time
-    metrics["parallel_execution_ms"] = parallel_time
-    
-    logging.info(f"HYBRID_PARALLEL - Semantic: {len(semantic_results) if not semantic_results.empty else 0} chunks")
-    logging.info(f"HYBRID_PARALLEL - Keyword: {len(keyword_results) if not keyword_results.empty else 0} chunks")
-    
-    # Merge results from both searches
-    chunk_results = merge_parallel_search_results(semantic_results, keyword_results)
-    
-    logging.info(f"HYBRID_PARALLEL - Merged: {len(chunk_results) if not chunk_results.empty else 0} unique chunks")
-    
-    # Re-rank combined results using cross-encoder
-    reranked_results, rerank_time, filtering_metrics = perform_reranking(question, chunk_results, top_n, min_relevance_score)
-    metrics["reranking_ms"] = rerank_time
-    
-    # Add filtering metrics to the search metrics
-    metrics.update({
-        "filtering_total_chunks": filtering_metrics["total_chunks_before_filtering"],
-        "filtering_excluded_chunks": filtering_metrics["excluded_chunks_count"],
-        "filtering_exclusion_percentage": filtering_metrics["exclusion_percentage"],
-        "filtering_final_chunks": filtering_metrics["final_chunk_count"]
-    })
-    
-    # Add score range information if available
-    if filtering_metrics["score_range_excluded"]:
-        metrics["filtering_excluded_score_range"] = filtering_metrics["score_range_excluded"]
-    if filtering_metrics["score_range_included"]:
-        metrics["filtering_included_score_range"] = filtering_metrics["score_range_included"]
-    
-    results = reranked_results
-    
-    # Format the data
-    format_start = time.time()
-    formatted_data = format_data(results)
-    metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
-    
-    # Total time
-    metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
-    metrics["search_mode"] = "hybrid_parallel"
-    
-    logging.info(f"HYBRID_PARALLEL - Completed: {len(formatted_data)} final results")
-    
-    return formatted_data, metrics
-
-
-def merge_parallel_search_results(semantic_results, keyword_results):
-    """Merge results from parallel semantic and keyword searches, removing duplicates.
-    
-    Args:
-        semantic_results (DataFrame): Results from semantic search
-        keyword_results (DataFrame): Results from keyword search
-        
-    Returns:
-        DataFrame: Merged results with duplicates removed based on chunk ID
-    """
-    import pandas as pd
-    
-    # If one of the results is empty, return the other
-    if semantic_results.empty and keyword_results.empty:
-        return pd.DataFrame()
-    elif semantic_results.empty:
-        return keyword_results
-    elif keyword_results.empty:
-        return semantic_results
-    
-    # Add search type information to track origin
-    semantic_results = semantic_results.copy()
-    keyword_results = keyword_results.copy()
-    semantic_results["search_type"] = "semantic"
-    keyword_results["search_type"] = "keyword"
-    
-    # Combine the DataFrames
-    combined_results = pd.concat([semantic_results, keyword_results], ignore_index=True)
-    
-    # Remove duplicates based on 'id' column (chunk ID), keeping the first occurrence
-    # This means semantic results will be preferred over keyword results for duplicates
-    if 'id' in combined_results.columns:
-        combined_results = combined_results.drop_duplicates(subset=['id'], keep='first')
-    
-    return combined_results
+            default_strategy = get_search_strategy("HYBRID_SEMANTIC_FALLBACK")
+            return default_strategy.execute(
+                question=question,
+                vec_store=vec_store,
+                project_ids=project_ids,
+                document_type_ids=document_type_ids,
+                doc_limit=doc_limit,
+                chunk_limit=chunk_limit,
+                top_n=top_n,
+                min_relevance_score=min_relevance_score,
+                metrics=metrics,
+                start_time=start_time
+            )
+        except Exception as fallback_error:
+            logging.error(f"Critical error: Default strategy fallback also failed: {fallback_error}")
+            # Return empty results rather than crashing
+            return [], {"error": "All search strategies failed", "details": str(fallback_error)}
 
 
 def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None, document_type_ids=None):
@@ -815,21 +361,12 @@ def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None
             - DataFrame: Search results with id, content, search_type, and metadata columns
             - float: Time taken in milliseconds
     """
-    # Time the keyword extraction step
-    keyword_extract_start = time.time()
-    
     # Use the appropriate keyword extraction method based on document configuration
     extraction_method = current_app.model_settings.document_keyword_extraction_method
     
-    if extraction_method == "tfidf":
-        from .bert_keyword_extractor import get_tfidf_keywords
-        weighted_keywords = get_tfidf_keywords(query)
-        logging.info(f"Using TF-IDF keyword extraction for query: {query}")
-    else:  # default to keybert
-        weighted_keywords = get_keywords(query)
-        logging.info(f"Using KeyBERT keyword extraction for query: {query}")
-    
-    keyword_extract_ms = round((time.time() - keyword_extract_start) * 1000, 2)
+    # Use the get_keywords function which now handles method selection internally
+    weighted_keywords = get_keywords(query)
+    logging.info(f"Using {extraction_method} keyword extraction for query: {query}")
     logging.info(f"Extracted keywords: {weighted_keywords} (method: {extraction_method})")
 
     # Extract just the keywords from the (keyword, score) tuples
@@ -856,113 +393,6 @@ def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return keyword_results, elapsed_ms
-
-
-def perform_keyword_search_within_documents(vec_store, table_name, query, limit, document_ids):
-    """Perform keyword search within specific documents.
-    
-    Executes a keyword-based search using PostgreSQL's full-text search capabilities
-    within a specific set of documents. The keyword extraction method used will match
-    the method used for document keywords to ensure optimal matching.
-    
-    Args:
-        vec_store (VectorStore): The vector store instance
-        table_name (str): The database table to search in
-        query (str): The search query text
-        limit (int): Maximum number of results to return
-        document_ids (list): List of document IDs to search within
-        
-    Returns:
-        tuple: A tuple containing:
-            - DataFrame: Search results with id, content, search_type, and metadata columns
-            - float: Time taken in milliseconds
-    """
-    # Time the keyword extraction step
-    keyword_extract_start = time.time()
-    
-    # Use the appropriate keyword extraction method based on document configuration
-    extraction_method = current_app.model_settings.document_keyword_extraction_method
-    
-    if extraction_method == "tfidf":
-        from .bert_keyword_extractor import get_tfidf_keywords
-        weighted_keywords = get_tfidf_keywords(query)
-        logging.info(f"Using TF-IDF keyword extraction for document search: {query}")
-    else:  # default to keybert
-        weighted_keywords = get_keywords(query)
-        logging.info(f"Using KeyBERT keyword extraction for document search: {query}")
-    
-    keyword_extract_ms = round((time.time() - keyword_extract_start) * 1000, 2)
-
-    # Extract just the keywords from the (keyword, score) tuples
-    keywords_only = [keyword for keyword, score in weighted_keywords] if weighted_keywords else []
-
-    # Pass the extracted keywords to the vector store (without document filtering for now)
-    start_time = time.time()
-    keyword_results = vec_store.keyword_search(
-        table_name, query, limit=limit, return_dataframe=True, 
-        weighted_keywords=keywords_only
-    )
-    
-    # Apply document filtering after the search
-    if not keyword_results.empty and document_ids:
-        keyword_results = apply_document_filtering(keyword_results, document_ids)
-    
-    keyword_results["search_type"] = "keyword"
-    
-    # Ensure we have the expected columns
-    expected_columns = ["id", "content", "search_type", "metadata"]
-    available_columns = [col for col in expected_columns if col in keyword_results.columns]
-    keyword_results = keyword_results[available_columns]
-    
-    elapsed_ms = round((time.time() - start_time) * 1000, 2)
-    return keyword_results, elapsed_ms
-
-
-def apply_document_filtering(results_df, document_ids):
-    """Apply document ID filtering to search results.
-    
-    This function filters search results to only include chunks from specific documents
-    by examining the metadata column in the results DataFrame.
-    
-    Args:
-        results_df (DataFrame): Search results with metadata column
-        document_ids (list): List of document IDs to filter by
-        
-    Returns:
-        DataFrame: Filtered search results
-    """
-    import pandas as pd
-    import logging
-    
-    if results_df.empty or not document_ids:
-        return results_df
-    
-    def matches_document(metadata):
-        if not isinstance(metadata, dict):
-            return False
-        
-        # Check if document_id is directly in metadata
-        metadata_doc_id = metadata.get('document_id')
-        if metadata_doc_id and metadata_doc_id in document_ids:
-            return True
-        
-        # Check if document_id is in document_metadata
-        document_metadata = metadata.get('document_metadata', {})
-        if isinstance(document_metadata, dict):
-            doc_id = document_metadata.get('document_id')
-            if doc_id and doc_id in document_ids:
-                return True
-        logging.debug(f"Document metadata check failed for {metadata}")
-        return False
-    
-    # Apply document filtering
-    filtered_df = results_df.copy()
-    document_mask = filtered_df['metadata'].apply(matches_document)
-    filtered_df = filtered_df[document_mask]
-    
-    logging.info(f"Post-search document filtering: {len(results_df)} -> {len(filtered_df)} results")
-    
-    return filtered_df
 
 
 def perform_semantic_search(vec_store, table_name, query, limit):
@@ -994,52 +424,6 @@ def perform_semantic_search(vec_store, table_name, query, limit):
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return semantic_results, elapsed_ms
-
-
-def combine_search_results(keyword_results, semantic_results):
-    """Combine keyword and semantic search results.
-    
-    Concatenates the results from keyword and semantic searches into a single DataFrame.
-    
-    Args:
-        keyword_results (DataFrame): Results from keyword search
-        semantic_results (DataFrame): Results from semantic search
-        
-    Returns:
-        tuple: A tuple containing:
-            - DataFrame: Combined search results
-            - float: Time taken in milliseconds
-    """
-    start_time = time.time()
-    
-    # Combine results
-    combined_results = pd.concat([keyword_results, semantic_results], ignore_index=True)
-    
-    elapsed_ms = round((time.time() - start_time) * 1000, 2)
-    return combined_results, elapsed_ms
-
-
-def remove_duplicates(combined_results):
-    """Remove duplicate results based on ID.
-    
-    Removes duplicate entries from the combined results, keeping the first occurrence
-    which preserves the original order and prioritization.
-    
-    Args:
-        combined_results (DataFrame): Combined search results potentially with duplicates
-        
-    Returns:
-        tuple: A tuple containing:
-            - DataFrame: Deduplicated search results
-            - float: Time taken in milliseconds
-    """
-    start_time = time.time()
-    
-    # Remove duplicates, keeping the first occurrence (which maintains the original order)
-    deduplicated_results = combined_results.drop_duplicates(subset=["id"], keep="first")
-    
-    elapsed_ms = round((time.time() - start_time) * 1000, 2)
-    return deduplicated_results, elapsed_ms
 
 
 def perform_reranking(query, combined_results, top_n, min_relevance_score=None):
@@ -1084,46 +468,6 @@ def perform_reranking(query, combined_results, top_n, min_relevance_score=None):
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return reranked_results, elapsed_ms, filtering_metrics
-
-
-def hybrid_search(
-    table_name: str,
-    query: str,
-    keyword_k: int = 5,
-    semantic_k: int = 5,
-    rerank: bool = False,
-    top_n: int = 5,
-) -> pd.DataFrame:
-    """Hybrid search combining keyword and semantic search with optional re-ranking.
-    
-    Legacy function maintained for backwards compatibility. Use the main search function
-    for new implementations.
-    
-    Args:
-        table_name (str): The database table to search in
-        query (str): The search query text
-        keyword_k (int): Maximum number of keyword search results
-        semantic_k (int): Maximum number of semantic search results
-        rerank (bool): Whether to re-rank the results
-        top_n (int): Number of top results to return after re-ranking
-        
-    Returns:
-        DataFrame: Search results, optionally re-ranked
-    """
-    vec_store = VectorStore()
-    
-    # Perform operations using the refactored functions
-    keyword_results, _ = perform_keyword_search(vec_store, table_name, query, keyword_k, None, None)
-    semantic_results, _ = perform_semantic_search(vec_store, table_name, query, semantic_k)
-    combined_results, _ = combine_search_results(keyword_results, semantic_results)
-    deduplicated_results, _ = remove_duplicates(combined_results)
-    
-    # Re-rank the results if needed
-    if rerank:
-        final_results, _, _ = perform_reranking(query, deduplicated_results, top_n, None) # Ignore timing and metrics for this legacy function
-        return final_results
-    
-    return deduplicated_results
 
 
 def format_data(data):
@@ -1292,46 +636,6 @@ def perform_document_level_search(vec_store, query, limit, project_ids=None, doc
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
     return document_results, elapsed_ms
-
-
-def perform_chunk_search_within_documents(vec_store, document_ids, query, limit):
-    """Perform semantic search within specific documents' chunks.
-    
-    Searches the document_chunks table for the most relevant chunks,
-    but only within the chunks belonging to the specified documents.
-    
-    Args:
-        vec_store (VectorStore): The vector store instance
-        document_ids (list): List of document IDs to search within
-        query (str): The search query text
-        limit (int): Maximum number of chunks to return
-        
-    Returns:
-        tuple: A tuple containing:
-            - DataFrame: Chunk search results with id, content, metadata columns
-            - float: Time taken in milliseconds
-    """
-    start_time = time.time()
-    
-    # Perform chunk search within specific documents
-    chunk_results = vec_store.search_chunks_by_documents(
-        document_ids, query, limit=limit, return_dataframe=True
-    )
-    
-    # Rename columns to match expected format for format_data function
-    if not chunk_results.empty:
-        # The search_chunks_by_documents returns: [id, metadata, content, document_id, project_id, similarity]
-        chunk_results["search_type"] = "semantic"
-        
-        # Add empty document_metadata column for compatibility with format_data function
-        # Note: We'll populate document_type in the format_data function using chunk metadata when possible
-        chunk_results["document_metadata"] = [{}] * len(chunk_results)
-        
-        # Reorder to match expected structure: id, content, search_type, similarity, metadata, document_metadata
-        chunk_results = chunk_results[["id", "content", "search_type", "similarity", "metadata", "document_metadata"]]
-    
-    elapsed_ms = round((time.time() - start_time) * 1000, 2)
-    return chunk_results, elapsed_ms
 
 
 def perform_semantic_search_all_chunks(vec_store, query, limit, project_ids=None, document_type_ids=None):
@@ -1826,51 +1130,3 @@ def apply_post_search_filtering(results_df, project_ids=None, document_type_ids=
         logging.info(f"Post-search document type filtering: {len(results_df) if not project_ids else len(filtered_df)} -> {len(filtered_df)} results")
     
     return filtered_df
-
-def execute_document_only_strategy(question, vec_store, project_ids, document_type_ids, doc_limit, metrics, start_time):
-    """Execute document-only search strategy that returns document-level results without chunk analysis.
-    
-    This strategy is designed for generic document requests where users want to browse
-    documents of a specific type without searching for specific content within them.
-    It performs direct metadata-based search and returns document-level information.
-    
-    Args:
-        question (str): The search query (mainly for logging)
-        vec_store (VectorStore): Vector store instance
-        project_ids (list): Project IDs for filtering
-        document_type_ids (list): Document type IDs for filtering
-        doc_limit (int): Maximum number of documents to return
-        metrics (dict): Metrics dictionary to update
-        start_time (float): Search start time
-        
-    Returns:
-        tuple: (formatted_data, metrics)
-    """
-    import logging
-    
-    logging.info(f"DOCUMENT_ONLY - Starting document-level search")
-    logging.info(f"DOCUMENT_ONLY - Query: '{question}'")
-    logging.info(f"DOCUMENT_ONLY - Project IDs: {project_ids}")
-    logging.info(f"DOCUMENT_ONLY - Document Type IDs: {document_type_ids}")
-    
-    # Perform direct metadata search
-    documents, metadata_search_time = perform_direct_metadata_search(
-        vec_store, project_ids, document_type_ids, doc_limit
-    )
-    
-    metrics["metadata_search_ms"] = metadata_search_time
-    
-    logging.info(f"DOCUMENT_ONLY - Found {len(documents) if not documents.empty else 0} documents")
-    
-    # Format the document results directly (no re-ranking needed for date-ordered results)
-    format_start = time.time()
-    formatted_data = format_document_data(documents)
-    metrics["formatting_ms"] = round((time.time() - format_start) * 1000, 2)
-    
-    # Total time
-    metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
-    metrics["search_mode"] = "document_only"
-    
-    logging.info(f"DOCUMENT_ONLY - Completed: {len(formatted_data)} final documents")
-    
-    return formatted_data, metrics

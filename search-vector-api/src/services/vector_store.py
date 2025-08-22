@@ -23,7 +23,7 @@ from typing import Any, List, Optional, Tuple, Union
 from datetime import datetime
 from flask import current_app
 from .embedding import get_embedding
-from .tag_extractor import get_tags
+from .tags.tag_extractor import get_tags
 
 class VectorStore:
     """
@@ -214,6 +214,11 @@ class VectorStore:
         """
         Search for documents using only pre-computed metadata columns (document_keywords, document_tags, document_headings).
         This avoids scanning the raw content field and leverages GIN indexes for fast keyword search.
+        
+        Search logic:
+        - Keywords are searched in: document_keywords, document_headings
+        - Tags are searched in: document_tags, document_headings
+        - Both keywords and tags can match headings for maximum coverage
         """
         if weighted_keywords is None:
             raise ValueError("weighted_keywords must be provided by the caller.")
@@ -234,6 +239,9 @@ class VectorStore:
         if keywords:
             doc_search_conditions.append("document_headings ?| %s")
             doc_params.append(keywords)
+        if tags:
+            doc_search_conditions.append("document_headings ?| %s")
+            doc_params.append(tags)
         if doc_search_conditions:
             doc_where_conditions.append("(" + " OR ".join(doc_search_conditions) + ")")
         doc_where_clause = " AND ".join(doc_where_conditions)
@@ -302,6 +310,9 @@ class VectorStore:
                 if keywords:
                     chunk_search_conditions.append("(metadata->'headings') ?| %s")
                     chunk_params.append(keywords)
+                if tags:
+                    chunk_search_conditions.append("(metadata->'headings') ?| %s")
+                    chunk_params.append(tags)
                 if chunk_search_conditions:
                     chunk_where_conditions.append("(" + " OR ".join(chunk_search_conditions) + ")")
                 chunk_where_clause = " AND ".join(chunk_where_conditions)
@@ -350,13 +361,13 @@ class VectorStore:
         Returns:
             Either a pandas DataFrame or a list of tuples containing document search results.
         """
-        from .bert_keyword_extractor import extract_keywords_for_document_search
-        from .tag_extractor import get_tags
+        from .keywords.query_keyword_extractor import get_keywords
+        from .tags.tag_extractor import get_tags
         
         start_time = time.time()
         
         # Extract keywords and tags from query
-        query_keywords = extract_keywords_for_document_search(query)
+        query_keywords = get_keywords(query)
         query_tags = get_tags(query)
         
         # Check extraction method to adjust search strategy
@@ -376,8 +387,8 @@ class VectorStore:
         search_conditions = []
         
         # Adjust search strategy based on keyword extraction method
-        if extraction_method == "tfidf":
-            # For TF-IDF keywords, prioritize tags and headings over document keywords
+        if extraction_method == "fast":
+            # For fast (TF-IDF-based) keywords, prioritize tags and headings over document keywords
             # since TF-IDF keywords are statistical/frequency-based rather than semantic
             
             # Search for tag matches first (highest priority for TF-IDF)
@@ -397,10 +408,10 @@ class VectorStore:
                 search_conditions.append("document_keywords ?| %s")
                 params.append(keyword_list)
                 
-            logging.info("TF-IDF mode: Prioritizing tags and headings over document keywords")
+            logging.info("Fast mode: Prioritizing tags and headings over document keywords")
             
         else:
-            # For KeyBERT keywords, use the original strategy (keywords have high semantic relevance)
+            # For semantic keywords, use the original strategy (keywords have high semantic relevance)
             
             # Search for keyword matches in document_keywords JSONB field (high priority)
             if query_keywords:
@@ -420,7 +431,7 @@ class VectorStore:
                 search_conditions.append("document_headings ?| %s")
                 params.append(keyword_list)  # Add the same keyword list again for headings
                 
-            logging.info("KeyBERT mode: Standard keyword-first search strategy")
+            logging.info("Semantic mode: Standard keyword-first search strategy")
         
         # Combine search conditions with OR logic
         if search_conditions:

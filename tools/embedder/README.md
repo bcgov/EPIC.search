@@ -271,6 +271,7 @@ To run this project, you will need to add the following environment variables to
 - `EMBEDDING_DIMENSIONS` - Dimensions of the embedding vectors (default: 768)
 - `FILES_CONCURRENCY_SIZE` - Number of documents to process in parallel (default: 16)
 - `KEYWORD_EXTRACTION_WORKERS` - Number of threads per document for keyword extraction (default: 2)
+- `KEYWORD_EXTRACTION_MODE` - Keyword extraction mode: `standard` (highest quality), `fast` (5-10x faster), or `simplified` (30-60x faster) (default: "standard")
 - `CHUNK_INSERT_BATCH_SIZE` - Number of chunks to insert per database batch for stability (default: 25)
 - `CHUNK_SIZE` - Size of text chunks in characters (default: 1000)
 - `CHUNK_OVERLAP` - Number of characters to overlap between chunks (default: 200)

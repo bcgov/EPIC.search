@@ -27,13 +27,12 @@ from src.models.pgvector.vector_models import DocumentChunk, Document, Processin
 
 from .s3_reader import read_file_from_s3
 from .markdown_splitter import chunk_markdown_text
-from .tag_extractor import extract_tags_from_chunks
+from .tags.tag_extractor import extract_tags_from_chunks
 from .embedding import get_embedding
 from .file_validation import validate_file
 from .markdown_reader import read_as_pages
 from .word_reader import read_word_as_pages
-from .bert_keyword_extractor import extract_keywords_from_chunks
-from .fast_keyword_extractor import extract_keywords_from_chunks_fast
+from .keywords.keyword_factory import extract_keywords_from_chunks
 
 # Import and run path setup
 from src.path_setup import setup_paths
@@ -284,18 +283,8 @@ def chunk_and_embed_pages(
             # Parallel keyword extraction for all chunks on this page with configurable mode
             t_kw = time.perf_counter() if chunk_metrics is not None else None
             
-            # Choose extraction method based on configuration
-            extraction_mode = settings.multi_processing_settings.keyword_extraction_mode
-            if extraction_mode == "fast":
-                chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
-                    chunk_dicts, use_batch_mode=True, simplified_mode=False, document_id=s3_key
-                )
-            elif extraction_mode == "simplified":
-                chunk_dicts, page_keywords = extract_keywords_from_chunks_fast(
-                    chunk_dicts, use_batch_mode=True, simplified_mode=True, document_id=s3_key
-                )
-            else:  # extraction_mode == "standard" or any other value
-                chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts)
+            # Use the factory pattern for keyword extraction (mode is configured via KEYWORD_EXTRACTION_MODE in .env)
+            chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts, document_id=s3_key)
             
             if chunk_metrics is not None:
                 chunk_metrics["_get_keywords_times"].append(time.perf_counter() - t_kw)
