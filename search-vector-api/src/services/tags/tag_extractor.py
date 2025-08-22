@@ -2,7 +2,7 @@ from sentence_transformers import util
 import multiprocessing
 
 from concurrent.futures import ThreadPoolExecutor
-from .embedding import get_embedding
+from ..embedding import get_embedding
 
 tags = [
     "AboriginalInterests",
@@ -191,13 +191,6 @@ def process_document_chunked(document_chunks, tag_embeddings):
                 )
 
     return results
-
-
-def explicit_and_semantic_search_large_document(document_chunks):
-    tag_embeddings = get_tag_embeddings()
-    results = process_document_chunked(document_chunks, tag_embeddings)
-    return results
-
 
 def get_tags(query: str, threshold=0.6):
     tag_embeddings = get_embedding(tags)

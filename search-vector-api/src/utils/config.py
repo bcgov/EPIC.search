@@ -268,13 +268,13 @@ class ModelSettings:
         match this method for optimal matching performance.
         
         Returns:
-            str: The extraction method ("keybert" or "tfidf")
+            str: The extraction method ("standard", "fast", or "simplified")
         """
-        method = self._config.get("DOCUMENT_KEYWORD_EXTRACTION_METHOD", "keybert").lower()
-        if method not in ["keybert", "tfidf"]:
+        method = self._config.get("DOCUMENT_KEYWORD_EXTRACTION_METHOD", "standard").lower()
+        if method not in ["standard", "fast", "simplified"]:
             import logging
-            logging.warning(f"Invalid keyword extraction method '{method}'. Using default 'keybert'")
-            return "keybert"
+            logging.warning(f"Invalid keyword extraction method '{method}'. Using default 'standard'")
+            return "standard"
         return method
 
 
@@ -327,8 +327,8 @@ class _Config:  # pylint: disable=too-few-public-methods
 
     # Keyword Extraction Configuration
     # Indicates the method used to extract keywords in documents stored in the database
-    # Values: "keybert" (default) or "tfidf"
-    DOCUMENT_KEYWORD_EXTRACTION_METHOD = os.getenv("DOCUMENT_KEYWORD_EXTRACTION_METHOD", "keybert")
+    # Values: "standard" (default), "fast", or "simplified"
+    DOCUMENT_KEYWORD_EXTRACTION_METHOD = os.getenv("DOCUMENT_KEYWORD_EXTRACTION_METHOD", "standard")
 
     # Minimum relevance score for re-ranked results
     MIN_RELEVANCE_SCORE = float(os.getenv("MIN_RELEVANCE_SCORE", "-8.0"))
