@@ -4,6 +4,47 @@ This directory contains utility scripts for maintenance and updates to the EPIC.
 
 ## Available Scripts
 
+### update_keywords_retrospectively.py
+
+This script retrospectively updates keywords for successfully embedded documents using a configurable keyword extraction mode. It excludes documents that used Azure Vision service as they have custom keywords.
+
+**Features:**
+
+- Connects to the database and finds all successful documents
+- Excludes documents that used Azure Vision service (custom keywords)
+- Re-extracts keywords for document chunks using the specified mode
+- Updates chunk metadata with new keywords
+- Consolidates document keywords into a unique list
+- Regenerates document-level embeddings (from tags, keywords, headings)
+
+**Usage:**
+
+```bash
+# Update all documents with the mode from .env
+python scripts/update_keywords_retrospectively.py
+
+# Use specific keyword extraction mode
+python scripts/update_keywords_retrospectively.py --mode fast
+
+# Process only a specific project
+python scripts/update_keywords_retrospectively.py --project_id 681a6e4e85cefd0022839a0e
+
+# Dry run to see what would be changed
+python scripts/update_keywords_retrospectively.py --dry_run
+
+# Limit processing for testing
+python scripts/update_keywords_retrospectively.py --limit 10
+
+# Combine options
+python scripts/update_keywords_retrospectively.py --mode standard --project_id 681a6e4e85cefd0022839a0e --dry_run
+```
+
+**Keyword Extraction Modes:**
+
+- `standard`: Full KeyBERT quality (baseline, slowest)
+- `fast`: KeyBERT optimized + batch processing (2-4x faster, query-compatible)
+- `simplified`: TF-IDF ultra-fast (10-50x faster, may affect search quality)
+
 ### update_metadata_s3keys.py
 
 This script retrospectively updates the metadata in the chunks and tags tables to include S3 keys for all documents. It's designed to be run manually on a VM within the vnet.
