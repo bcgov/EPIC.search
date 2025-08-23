@@ -83,7 +83,8 @@ class ProgressTracker:
             self.active_documents[worker_id] = {
                 'name': document_name,
                 'pages': pages,
-                'size_mb': size_mb
+                'size_mb': size_mb,
+                'start_time': time.time()
             }
     
     def finish_document_processing(self, worker_id, success=True, skipped=False, pages=None, size_mb=None):
@@ -254,10 +255,15 @@ class ProgressTracker:
             # Show currently active documents
             if self.active_documents:
                 print(f"Active Workers ({len(self.active_documents)}):")
+                current_time = time.time()
                 for i, (worker_id, doc_info) in enumerate(self.active_documents.items(), 1):
                     doc_name = doc_info['name']
                     # Document name is already truncated in processor.py, no need to truncate again
                     display_name = doc_name
+                    
+                    # Calculate processing time
+                    start_time = doc_info.get('start_time', current_time)
+                    processing_seconds = int(current_time - start_time)
                     
                     # Add page count and size info if available
                     extra_info = ""
@@ -267,14 +273,13 @@ class ProgressTracker:
                     if has_page_info:
                         extra_info += f" ({doc_info['pages']}p"
                         if has_size_info:
-                            extra_info += f", {doc_info['size_mb']:.1f}MB)"
-                        else:
-                            extra_info += ")"
+                            extra_info += f", {doc_info['size_mb']:.1f}MB"
+                        extra_info += f", {processing_seconds}s)"
                     elif has_size_info:
-                        extra_info += f" ({doc_info['size_mb']:.1f}MB)"
+                        extra_info += f" ({doc_info['size_mb']:.1f}MB, {processing_seconds}s)"
                     else:
                         # No size or page info available
-                        extra_info += " (processing...)"
+                        extra_info += f" ({processing_seconds}s)"
                     
                     print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}")
             else:
