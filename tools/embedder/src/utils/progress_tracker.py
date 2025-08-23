@@ -148,7 +148,71 @@ class ProgressTracker:
                 return
                 
             elapsed = datetime.now() - self.start_time
-            total_processed = self.processed_documents + self.failed_documents + self.skipped_documents
+            
+            # Get accurate counts from database for real-time reporting
+            try:
+                from src.models.pgvector.vector_models import ProcessingLog
+                from src.models import get_session
+                
+                session = get_session()
+                
+                if self.is_retry_mode:
+                    # For retry mode, filter by specific document IDs and get latest status
+                    if self.retry_document_ids:
+                        # Get the latest status for each retry document
+                        from sqlalchemy import func
+                        
+                        # Query for the latest processing log for each document being retried
+                        subquery = session.query(
+                            ProcessingLog.document_id,
+                            func.max(ProcessingLog.processed_at).label('max_processed_at')
+                        ).filter(
+                            ProcessingLog.document_id.in_(self.retry_document_ids)
+                        ).group_by(ProcessingLog.document_id).subquery()
+                        
+                        # Join to get the actual records with latest processed_at
+                        query = session.query(ProcessingLog).join(
+                            subquery,
+                            (ProcessingLog.document_id == subquery.c.document_id) &
+                            (ProcessingLog.processed_at == subquery.c.max_processed_at)
+                        )
+                        
+                        # Additional project filtering if available
+                        if self.current_project_ids:
+                            query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+                    else:
+                        # No specific document IDs, fall back to project-based filtering with recent timestamp
+                        query = session.query(ProcessingLog)
+                        if self.current_project_ids:
+                            query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+                        # For retry mode without specific doc IDs, look for records updated during this run
+                        query = query.filter(ProcessingLog.processed_at >= self.start_time)
+                else:
+                    # Normal mode: filter by ID - only records created during this run
+                    query = session.query(ProcessingLog)
+                    
+                    # Filter by ID - only records created during this run
+                    if self.start_processing_log_id is not None:
+                        query = query.filter(ProcessingLog.id > self.start_processing_log_id)
+                    
+                    # If we have specific project IDs, filter by them for additional accuracy
+                    if self.current_project_ids:
+                        query = query.filter(ProcessingLog.project_id.in_(self.current_project_ids))
+                
+                # Get actual counts from database for this run only
+                success_count = query.filter(ProcessingLog.status == 'success').count()
+                failure_count = query.filter(ProcessingLog.status == 'failure').count()
+                skipped_count = query.filter(ProcessingLog.status == 'skipped').count()
+                total_processed = success_count + failure_count + skipped_count
+                session.close()
+                
+            except Exception as e:
+                # Fallback to progress tracker internal counters if database query fails
+                print(f"[WARN] Could not get database counts for progress summary: {e}")
+                success_count = self.processed_documents
+                failure_count = self.failed_documents
+                skipped_count = self.skipped_documents
+                total_processed = success_count + failure_count + skipped_count
             
             # Calculate rates
             if elapsed.total_seconds() > 0:
@@ -171,7 +235,7 @@ class ProgressTracker:
             print(f"Runtime: {str(elapsed).split('.')[0]}")
             print(f"Projects: {self.processed_projects}/{self.total_projects} ({project_pct:.1f}%)")
             print(f"Documents: {total_processed}/{self.total_documents} ({doc_pct:.1f}%) "
-                  f"[Success: {self.processed_documents}, Failed: {self.failed_documents}, Skipped: {self.skipped_documents}]")
+                  f"[Success: {success_count}, Failed: {failure_count}, Skipped: {skipped_count}]")
             
             # Add throughput metrics if we have data
             throughput_info = ""
