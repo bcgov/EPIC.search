@@ -9,7 +9,9 @@ The service returns aggregated statistics including:
 2. Number of successful processing operations per project  
 3. Number of failed processing operations per project
 4. Number of skipped processing operations per project
-5. Project metadata (project_id, project_name)
+5. Overall success rate (successful files / total files, including skipped)
+6. Processing success rate (successful files / processed files, excluding skipped)
+7. Project metadata (project_id, project_name)
 """
 
 import logging
@@ -52,7 +54,8 @@ class StatsService:
                                 "successful_files": 140,
                                 "failed_files": 8,
                                 "skipped_files": 2,
-                                "success_rate": 93.33
+                                "overall_success_rate": 93.33,
+                                "processing_success_rate": 94.59
                             },
                             ...
                         ],
@@ -62,7 +65,8 @@ class StatsService:
                             "total_successful_files": 720,
                             "total_failed_files": 25,
                             "total_skipped_files": 5,
-                            "overall_success_rate": 96.0
+                            "overall_success_rate": 96.0,
+                            "overall_processing_success_rate": 96.64
                         }
                     }
                 }
@@ -100,7 +104,12 @@ class StatsService:
                     WHEN COUNT(pl.*) > 0 THEN 
                         ROUND((COUNT(CASE WHEN pl.status = 'success' THEN 1 END) * 100.0 / COUNT(pl.*)), 2)
                     ELSE 0 
-                END as success_rate
+                END as success_rate,
+                CASE 
+                    WHEN (COUNT(CASE WHEN pl.status = 'success' THEN 1 END) + COUNT(CASE WHEN pl.status = 'failure' THEN 1 END)) > 0 THEN 
+                        ROUND((COUNT(CASE WHEN pl.status = 'success' THEN 1 END) * 100.0 / (COUNT(CASE WHEN pl.status = 'success' THEN 1 END) + COUNT(CASE WHEN pl.status = 'failure' THEN 1 END))), 2)
+                    ELSE 0 
+                END as processed_success_rate
             FROM projects p
             LEFT JOIN processing_logs pl ON p.project_id = pl.project_id
             {where_clause}
@@ -126,7 +135,7 @@ class StatsService:
             total_skipped_all = 0
             
             for row in results:
-                project_id, project_name, total_files, successful_files, failed_files, skipped_files, success_rate = row
+                project_id, project_name, total_files, successful_files, failed_files, skipped_files, success_rate, processed_success_rate = row
                 
                 # Only include projects that have processing logs
                 if total_files > 0:
@@ -137,7 +146,8 @@ class StatsService:
                         "successful_files": successful_files,
                         "failed_files": failed_files,
                         "skipped_files": skipped_files,
-                        "success_rate": float(success_rate) if success_rate else 0.0
+                        "overall_success_rate": float(success_rate) if success_rate else 0.0,
+                        "processing_success_rate": float(processed_success_rate) if processed_success_rate else 0.0
                     })
                     
                     total_projects += 1
@@ -152,6 +162,13 @@ class StatsService:
                 if total_files_all > 0 else 0.0
             )
             
+            # Calculate overall processed success rate (successful vs processed, excluding skipped)
+            total_processed_all = total_successful_all + total_failed_all
+            overall_processing_success_rate = (
+                round((total_successful_all * 100.0 / total_processed_all), 2) 
+                if total_processed_all > 0 else 0.0
+            )
+            
             response = {
                 "processing_stats": {
                     "projects": projects_stats,
@@ -161,7 +178,8 @@ class StatsService:
                         "total_successful_files": total_successful_all,
                         "total_failed_files": total_failed_all,
                         "total_skipped_files": total_skipped_all,
-                        "overall_success_rate": overall_success_rate
+                        "overall_success_rate": overall_success_rate,
+                        "overall_processing_success_rate": overall_processing_success_rate
                     }
                 }
             }
@@ -181,7 +199,8 @@ class StatsService:
                         "total_successful_files": 0,
                         "total_failed_files": 0,
                         "total_skipped_files": 0,
-                        "overall_success_rate": 0.0
+                        "overall_success_rate": 0.0,
+                        "overall_processing_success_rate": 0.0
                     }
                 },
                 "error": str(e)
@@ -219,7 +238,8 @@ class StatsService:
                             "successful_files": 46,
                             "failed_files": 2,
                             "skipped_files": 2,
-                            "success_rate": 96.0
+                            "overall_success_rate": 92.0,
+                            "processing_success_rate": 95.83
                         }
                     }
                 }
@@ -288,9 +308,16 @@ class StatsService:
                     elif status == 'skipped':
                         skipped_files += 1
             
-            success_rate = (
+            overall_success_rate = (
                 round((successful_files * 100.0 / total_files), 2) 
                 if total_files > 0 else 0.0
+            )
+            
+            # Calculate processed success rate (successful vs processed, excluding skipped)
+            total_processed = successful_files + failed_files
+            processing_success_rate = (
+                round((successful_files * 100.0 / total_processed), 2) 
+                if total_processed > 0 else 0.0
             )
             
             response = {
@@ -303,7 +330,8 @@ class StatsService:
                         "successful_files": successful_files,
                         "failed_files": failed_files,
                         "skipped_files": skipped_files,
-                        "success_rate": success_rate
+                        "overall_success_rate": overall_success_rate,
+                        "processing_success_rate": processing_success_rate
                     }
                 }
             }
