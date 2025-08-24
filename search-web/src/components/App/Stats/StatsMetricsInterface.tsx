@@ -24,6 +24,10 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import {
   Assessment,
@@ -37,6 +41,7 @@ import {
   SkipNext,
   FilterList,
   Check,
+  Code,
 } from "@mui/icons-material";
 import { BCDesignTokens } from "epic.theme";
 import { useStatsQuery, useProcessingStatsQuery, useProjectDetailsQuery } from "@/hooks/useStats";
@@ -45,8 +50,11 @@ import { ProjectStats } from "@/models/Stats";
 const StatsMetricsInterface = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showProjectDetails, setShowProjectDetails] = useState<Record<string, boolean>>({});
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilters, setStatusFilters] = useState<Record<string, string>>({});
   const [filterAnchorEl, setFilterAnchorEl] = useState<null | HTMLElement>(null);
+  const [currentFilterProjectId, setCurrentFilterProjectId] = useState<string | null>(null);
+  const [jsonModalOpen, setJsonModalOpen] = useState<boolean>(false);
+  const [selectedLogData, setSelectedLogData] = useState<any>(null);
 
   const {
     data: summaryData,
@@ -88,28 +96,47 @@ const StatsMetricsInterface = () => {
     return "#f44336"; // Red
   };
 
-  const handleFilterClick = (event: React.MouseEvent<HTMLElement>) => {
-    setFilterAnchorEl(event.currentTarget);
-  };
-
   const handleFilterClose = () => {
     setFilterAnchorEl(null);
+    setCurrentFilterProjectId(null);
   };
 
   const handleFilterChange = (filter: string) => {
-    setStatusFilter(filter);
+    if (currentFilterProjectId) {
+      setStatusFilters(prev => ({
+        ...prev,
+        [currentFilterProjectId]: filter
+      }));
+    }
     setFilterAnchorEl(null);
+    setCurrentFilterProjectId(null);
+  };
+
+  const handleProjectFilterClick = (event: React.MouseEvent<HTMLElement>, projectId: string) => {
+    setCurrentFilterProjectId(projectId);
+    setFilterAnchorEl(event.currentTarget);
+  };
+
+  const handleOpenJsonModal = (logData: any) => {
+    setSelectedLogData(logData);
+    setJsonModalOpen(true);
+  };
+
+  const handleCloseJsonModal = () => {
+    setJsonModalOpen(false);
+    setSelectedLogData(null);
   };
 
   // Sort and filter processing logs
   const getSortedAndFilteredLogs = useMemo(() => {
-    if (!projectDetailsData?.result?.project_details?.processing_logs) return [];
+    if (!projectDetailsData?.result?.project_details?.processing_logs || !selectedProjectId) return [];
     
     let logs = [...projectDetailsData.result.project_details.processing_logs];
     
-    // Filter by status
-    if (statusFilter !== "all") {
-      logs = logs.filter((log: any) => log.status === statusFilter);
+    // Filter by status for this specific project
+    const projectFilter = statusFilters[selectedProjectId] || "all";
+    if (projectFilter !== "all") {
+      logs = logs.filter((log: any) => log.status === projectFilter);
     }
     
     // Sort by display name A-Z
@@ -124,7 +151,7 @@ const StatsMetricsInterface = () => {
     });
     
     return logs;
-  }, [projectDetailsData, statusFilter]);
+  }, [projectDetailsData, statusFilters, selectedProjectId]);
 
   const formatFileSize = (bytes: number) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -165,8 +192,8 @@ const StatsMetricsInterface = () => {
     );
   }
 
-  const summary = summaryData?.result.processing_summary;
-  const projects = processingData?.result.processing_stats?.projects || [];
+  const summary = summaryData?.result?.processing_summary;
+  const projects = processingData?.result?.processing_stats?.projects || [];
 
   return (
     <Box sx={{ p: 3 }}>
@@ -187,7 +214,7 @@ const StatsMetricsInterface = () => {
 
       {/* Summary Cards */}
       <Grid container spacing={2} sx={{ mb: 4 }}>
-        <Grid item xs={6} sm={4} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -203,7 +230,7 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={6} sm={4} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -219,7 +246,7 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={6} sm={4} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -235,7 +262,7 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={6} sm={4} md={2.4}>
+        <Grid item xs={6} sm={4} md={2}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
@@ -251,7 +278,7 @@ const StatsMetricsInterface = () => {
           </Card>
         </Grid>
 
-        <Grid item xs={12} sm={8} md={2.4}>
+        <Grid item xs={12} sm={8} md={2}>
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
               <Box>
@@ -276,7 +303,112 @@ const StatsMetricsInterface = () => {
             </CardContent>
           </Card>
         </Grid>
+
+        <Grid item xs={12} sm={8} md={2}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+              <Box>
+                <Typography variant="h5" sx={{ color: getSuccessRateColor(summary?.overall_processing_success_rate || 0) }}>
+                  {summary?.overall_processing_success_rate?.toFixed(1) || 0}%
+                </Typography>
+                <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem', mb: 1 }}>
+                  Processing Success Rate
+                </Typography>
+                <LinearProgress
+                  variant="determinate"
+                  value={summary?.overall_processing_success_rate || 0}
+                  sx={{
+                    height: 6,
+                    backgroundColor: BCDesignTokens.themeGray20,
+                    '& .MuiLinearProgress-bar': {
+                      backgroundColor: getSuccessRateColor(summary?.overall_processing_success_rate || 0),
+                    },
+                  }}
+                />
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
+
+      {/* Additional Metrics Row - Only show if summary data has these fields */}
+      {summary?.projects_with_failures !== undefined && (
+        <Grid container spacing={2} sx={{ mb: 4 }}>
+          <Grid item xs={6} sm={4} md={3}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <Error sx={{ color: "#f44336", fontSize: 28 }} />
+                  <Box>
+                    <Typography variant="h5">{summary?.projects_with_failures || 0}</Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
+                      Projects with Failures
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={6} sm={4} md={3}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <SkipNext sx={{ color: "#ff9800", fontSize: 28 }} />
+                  <Box>
+                    <Typography variant="h5">{summary?.projects_with_skipped_files || 0}</Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
+                      Projects with Skipped Files
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={6} sm={4} md={3}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                  <Assessment color="primary" sx={{ fontSize: 28 }} />
+                  <Box>
+                    <Typography variant="h5">{summary?.total_files_across_all_projects || 0}</Typography>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
+                      Total Files
+                    </Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={6} sm={4} md={3}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                <Box>
+                  <Typography variant="h5" sx={{ color: getSuccessRateColor(summary?.avg_success_rate_per_project || 0) }}>
+                    {summary?.avg_success_rate_per_project?.toFixed(1) || 0}%
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem', mb: 1 }}>
+                    Avg Success Rate per Project
+                  </Typography>
+                  <LinearProgress
+                    variant="determinate"
+                    value={summary?.avg_success_rate_per_project || 0}
+                    sx={{
+                      height: 6,
+                      backgroundColor: BCDesignTokens.themeGray20,
+                      '& .MuiLinearProgress-bar': {
+                        backgroundColor: getSuccessRateColor(summary?.avg_success_rate_per_project || 0),
+                      },
+                    }}
+                  />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
 
       {/* Projects Table */}
       <Card>
@@ -295,7 +427,8 @@ const StatsMetricsInterface = () => {
                   <TableCell align="center" sx={{ width: 100 }}><strong>Successful</strong></TableCell>
                   <TableCell align="center" sx={{ width: 100 }}><strong>Failed</strong></TableCell>
                   <TableCell align="center" sx={{ width: 100 }}><strong>Skipped</strong></TableCell>
-                  <TableCell align="center" sx={{ width: 150 }}><strong>Success Rate</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 150 }}><strong>Overall Success</strong></TableCell>
+                  <TableCell align="center" sx={{ width: 150 }}><strong>Processing Success</strong></TableCell>
                   <TableCell align="center" sx={{ width: 150 }}><strong>Actions</strong></TableCell>
                 </TableRow>
               </TableHead>
@@ -347,18 +480,40 @@ const StatsMetricsInterface = () => {
                           <Typography 
                             variant="body2" 
                             fontWeight={600}
-                            sx={{ color: getSuccessRateColor(project.success_rate) }}
+                            sx={{ color: getSuccessRateColor(project.overall_success_rate) }}
                           >
-                            {project.success_rate.toFixed(1)}%
+                            {project.overall_success_rate.toFixed(1)}%
                           </Typography>
                           <LinearProgress
                             variant="determinate"
-                            value={project.success_rate}
+                            value={project.overall_success_rate}
                             sx={{
                               width: 60,
                               backgroundColor: BCDesignTokens.themeGray20,
                               '& .MuiLinearProgress-bar': {
-                                backgroundColor: getSuccessRateColor(project.success_rate),
+                                backgroundColor: getSuccessRateColor(project.overall_success_rate),
+                              },
+                            }}
+                          />
+                        </Box>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+                          <Typography 
+                            variant="body2" 
+                            fontWeight={600}
+                            sx={{ color: getSuccessRateColor(project.processing_success_rate) }}
+                          >
+                            {project.processing_success_rate.toFixed(1)}%
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={project.processing_success_rate}
+                            sx={{
+                              width: 60,
+                              backgroundColor: BCDesignTokens.themeGray20,
+                              '& .MuiLinearProgress-bar': {
+                                backgroundColor: getSuccessRateColor(project.processing_success_rate),
                               },
                             }}
                           />
@@ -379,7 +534,7 @@ const StatsMetricsInterface = () => {
 
                     {/* Project Details Collapse */}
                     <TableRow>
-                      <TableCell colSpan={7} sx={{ py: 0 }}>
+                      <TableCell colSpan={8} sx={{ py: 0 }}>
                         <Collapse in={showProjectDetails[project.project_id]} timeout="auto" unmountOnExit>
                           <Box sx={{ py: 2 }}>
                             {selectedProjectId === project.project_id && projectDetailsLoading && (
@@ -392,7 +547,76 @@ const StatsMetricsInterface = () => {
                             {selectedProjectId === project.project_id && projectDetailsData && (
                               <Box>
                                 <Typography variant="h6" sx={{ mb: 2 }}>
-                                  Processing Logs for {project.project_name}
+                                  Project Details: {project.project_name}
+                                </Typography>
+                                
+                                {/* Project Summary Cards */}
+                                <Grid container spacing={2} sx={{ mb: 3 }}>
+                                  <Grid item xs={6} md={3}>
+                                    <Card sx={{ height: '100%' }}>
+                                      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                          <Assessment color="primary" sx={{ fontSize: 20 }} />
+                                          <Box>
+                                            <Typography variant="h6">{projectDetailsData.result.project_details.summary.total_files}</Typography>
+                                            <Typography variant="caption" color="textSecondary">
+                                              Total Files
+                                            </Typography>
+                                          </Box>
+                                        </Box>
+                                      </CardContent>
+                                    </Card>
+                                  </Grid>
+                                  
+                                  <Grid item xs={6} md={3}>
+                                    <Card sx={{ height: '100%' }}>
+                                      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                          <CheckCircle sx={{ color: "#4caf50", fontSize: 20 }} />
+                                          <Box>
+                                            <Typography variant="h6">{projectDetailsData.result.project_details.summary.successful_files}</Typography>
+                                            <Typography variant="caption" color="textSecondary">
+                                              Successful
+                                            </Typography>
+                                          </Box>
+                                        </Box>
+                                      </CardContent>
+                                    </Card>
+                                  </Grid>
+                                  
+                                  <Grid item xs={6} md={3}>
+                                    <Card sx={{ height: '100%' }}>
+                                      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                        <Box>
+                                          <Typography variant="h6" sx={{ color: getSuccessRateColor(projectDetailsData.result.project_details.summary.overall_success_rate) }}>
+                                            {projectDetailsData.result.project_details.summary.overall_success_rate.toFixed(1)}%
+                                          </Typography>
+                                          <Typography variant="caption" color="textSecondary">
+                                            Overall Success
+                                          </Typography>
+                                        </Box>
+                                      </CardContent>
+                                    </Card>
+                                  </Grid>
+                                  
+                                  <Grid item xs={6} md={3}>
+                                    <Card sx={{ height: '100%' }}>
+                                      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                                        <Box>
+                                          <Typography variant="h6" sx={{ color: getSuccessRateColor(projectDetailsData.result.project_details.summary.processing_success_rate) }}>
+                                            {projectDetailsData.result.project_details.summary.processing_success_rate.toFixed(1)}%
+                                          </Typography>
+                                          <Typography variant="caption" color="textSecondary">
+                                            Processing Success
+                                          </Typography>
+                                        </Box>
+                                      </CardContent>
+                                    </Card>
+                                  </Grid>
+                                </Grid>
+
+                                <Typography variant="h6" sx={{ mb: 2 }}>
+                                  Processing Logs
                                 </Typography>
                                 
                                 <Box sx={{ maxHeight: 400, overflow: "auto" }}>
@@ -403,9 +627,22 @@ const StatsMetricsInterface = () => {
                                         <TableCell align="center">
                                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
                                             Status
+                                            {statusFilters[selectedProjectId || ''] && statusFilters[selectedProjectId || ''] !== 'all' && (
+                                              <Chip
+                                                label={statusFilters[selectedProjectId || '']}
+                                                size="small"
+                                                color="primary"
+                                                variant="outlined"
+                                                sx={{ 
+                                                  fontSize: '0.6rem', 
+                                                  height: '18px',
+                                                  textTransform: 'capitalize'
+                                                }}
+                                              />
+                                            )}
                                             <IconButton 
                                               size="small" 
-                                              onClick={handleFilterClick}
+                                              onClick={(e) => handleProjectFilterClick(e, selectedProjectId || '')}
                                               sx={{ p: 0.5 }}
                                             >
                                               <FilterList fontSize="small" />
@@ -416,6 +653,7 @@ const StatsMetricsInterface = () => {
                                         <TableCell align="center">File Size</TableCell>
                                         <TableCell align="center">Processing Time</TableCell>
                                         <TableCell align="center">Processed At</TableCell>
+                                        <TableCell align="center">Actions</TableCell>
                                       </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -488,6 +726,17 @@ const StatsMetricsInterface = () => {
                                               {new Date(log.processed_at).toLocaleString()}
                                             </Typography>
                                           </TableCell>
+                                          <TableCell align="center">
+                                            <Tooltip title="View Raw JSON">
+                                              <IconButton
+                                                size="small"
+                                                onClick={() => handleOpenJsonModal(log)}
+                                                sx={{ color: "primary.main" }}
+                                              >
+                                                <Code fontSize="small" />
+                                              </IconButton>
+                                            </Tooltip>
+                                          </TableCell>
                                         </TableRow>
                                       ))}
                                     </TableBody>
@@ -518,29 +767,71 @@ const StatsMetricsInterface = () => {
       >
         <MenuItem onClick={() => handleFilterChange("all")}>
           <ListItemIcon>
-            {statusFilter === "all" && <Check fontSize="small" />}
+            {(statusFilters[currentFilterProjectId || ''] || 'all') === "all" && <Check fontSize="small" />}
           </ListItemIcon>
           <ListItemText>All</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => handleFilterChange("success")}>
           <ListItemIcon>
-            {statusFilter === "success" && <Check fontSize="small" />}
+            {statusFilters[currentFilterProjectId || ''] === "success" && <Check fontSize="small" />}
           </ListItemIcon>
           <ListItemText>Success</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => handleFilterChange("failure")}>
           <ListItemIcon>
-            {statusFilter === "failure" && <Check fontSize="small" />}
+            {statusFilters[currentFilterProjectId || ''] === "failure" && <Check fontSize="small" />}
           </ListItemIcon>
           <ListItemText>Failure</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => handleFilterChange("skipped")}>
           <ListItemIcon>
-            {statusFilter === "skipped" && <Check fontSize="small" />}
+            {statusFilters[currentFilterProjectId || ''] === "skipped" && <Check fontSize="small" />}
           </ListItemIcon>
           <ListItemText>Skipped</ListItemText>
         </MenuItem>
       </Menu>
+
+      {/* JSON Modal */}
+      <Dialog
+        open={jsonModalOpen}
+        onClose={handleCloseJsonModal}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { minHeight: '60vh' }
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Code color="primary" />
+            Raw Processing Log Data
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ 
+            backgroundColor: '#f5f5f5', 
+            padding: 2, 
+            borderRadius: 1,
+            maxHeight: '60vh',
+            overflow: 'auto'
+          }}>
+            <pre style={{ 
+              margin: 0, 
+              fontFamily: 'monospace', 
+              fontSize: '12px',
+              whiteSpace: 'pre-wrap',
+              wordWrap: 'break-word'
+            }}>
+              {selectedLogData ? JSON.stringify(selectedLogData, null, 2) : ''}
+            </pre>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseJsonModal} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

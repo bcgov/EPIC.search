@@ -279,6 +279,7 @@ class ProcessingSummary(Resource):
                         "total_failed_files": 25,
                         "total_skipped_files": 5,
                         "overall_success_rate": 96.0,
+                        "overall_processing_success_rate": 96.64,
                         "projects_with_failures": 2,
                         "projects_with_skipped_files": 1,
                         "avg_success_rate_per_project": 95.5
@@ -295,7 +296,7 @@ class ProcessingSummary(Resource):
             projects_with_failures = len([p for p in projects if p.get("failed_files", 0) > 0])
             projects_with_skipped_files = len([p for p in projects if p.get("skipped_files", 0) > 0])
             avg_success_rate = (
-                sum(p.get("success_rate", 0) for p in projects) / len(projects)
+                sum(p.get("overall_success_rate", 0) for p in projects) / len(projects)
                 if projects else 0.0
             )
             

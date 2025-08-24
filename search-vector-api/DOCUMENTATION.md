@@ -1234,6 +1234,7 @@ Provides a high-level summary of processing statistics across the entire system.
     "overall_success_rate": 96.0,
     "overall_processing_success_rate": 96.0,
     "projects_with_failures": 2,
+    "projects_with_skipped_files": 1,
     "avg_success_rate_per_project": 95.5
   }
 }
