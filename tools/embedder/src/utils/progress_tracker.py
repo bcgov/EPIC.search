@@ -127,10 +127,48 @@ class ProgressTracker:
         with self.lock:
             self.processed_projects += 1
     
+    def force_cleanup_phantom_workers(self, max_hours=4):
+        """
+        Force cleanup of workers that have been processing for too long.
+        Conservative approach: flag workers >2h as likely stuck, kill after 4h.
+        """
+        with self.lock:
+            if not self.active_documents:
+                return 0
+            
+            current_time = time.time()
+            max_seconds = max_hours * 3600
+            phantom_workers = []
+            
+            for worker_id, doc_info in list(self.active_documents.items()):
+                start_time = doc_info.get('start_time', current_time)
+                processing_seconds = current_time - start_time
+                
+                if processing_seconds > max_seconds:
+                    phantom_workers.append(worker_id)
+                    doc_name = doc_info.get('name', 'unknown')
+                    hours = processing_seconds / 3600
+                    print(f"[CLEANUP] Removing worker {worker_id} stuck on {doc_name} for {hours:.1f} hours (timeout after {max_hours}h)")
+                    
+                    # Remove from active documents
+                    del self.active_documents[worker_id]
+                    # Count as failed since it was stuck
+                    self.failed_documents += 1
+            
+            if phantom_workers:
+                print(f"[CLEANUP] Removed {len(phantom_workers)} phantom workers from progress tracker")
+            
+            return len(phantom_workers)
+
     def stop(self, reason="Completed"):
         """Stop progress tracking and print final summary"""
         with self.lock:
             self._stop_logging = True
+            
+        # Force cleanup any remaining phantom workers before final summary
+        phantom_count = self.force_cleanup_phantom_workers(max_hours=1)  # More aggressive cleanup at shutdown
+        if phantom_count > 0:
+            print(f"[CLEANUP] Cleaned {phantom_count} phantom workers during shutdown")
             
         if self.start_time:
             self._print_final_summary(reason)
@@ -256,6 +294,8 @@ class ProgressTracker:
             if self.active_documents:
                 print(f"Active Workers ({len(self.active_documents)}):")
                 current_time = time.time()
+                phantom_workers = []
+                
                 for i, (worker_id, doc_info) in enumerate(self.active_documents.items(), 1):
                     doc_name = doc_info['name']
                     # Document name is already truncated in processor.py, no need to truncate again
@@ -264,6 +304,10 @@ class ProgressTracker:
                     # Calculate processing time
                     start_time = doc_info.get('start_time', current_time)
                     processing_seconds = int(current_time - start_time)
+                    
+                    # Detect phantom workers (processing for more than 2 hours)
+                    if processing_seconds > 7200:  # 2 hours - flag as likely stuck
+                        phantom_workers.append((worker_id, processing_seconds, doc_name))
                     
                     # Add page count and size info if available
                     extra_info = ""
@@ -281,7 +325,16 @@ class ProgressTracker:
                         # No size or page info available
                         extra_info += f" ({processing_seconds}s)"
                     
-                    print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}")
+                    # Mark phantom workers with warning (processing > 2 hours)
+                    warning = f" [LIKELY STUCK - {processing_seconds//3600}h]" if processing_seconds > 7200 else ""
+                    print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}{warning}")
+                
+                # Report phantom workers
+                if phantom_workers:
+                    print(f"[WARN] Detected {len(phantom_workers)} workers processing >2 hours (likely stuck):")
+                    for worker_id, seconds, doc_name in phantom_workers:
+                        hours = seconds / 3600
+                        print(f"[WARN]   Worker-{worker_id}: {doc_name} ({hours:.1f} hours)")
             else:
                 print("Active Workers: None (waiting for documents)")
             print(f"{'-'*80}")

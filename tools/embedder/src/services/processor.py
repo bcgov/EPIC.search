@@ -1,4 +1,6 @@
 import os
+import time
+import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from concurrent.futures.process import BrokenProcessPool
 
@@ -123,7 +125,50 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
         while all_futures and not process_pool_broken:
             # Wait for any future to complete
             try:
-                done_futures, _ = wait(all_futures, return_when=FIRST_COMPLETED)
+                # In timed mode, use a reasonable timeout to check for phantom workers
+                # but don't force immediate shutdown - let log activity tracking handle stuck workers
+                wait_timeout = 30 if time_limit_reached else 60  # Check every 30s if time limit reached, 60s otherwise
+                
+                done_futures, _ = wait(all_futures, return_when=FIRST_COMPLETED, timeout=wait_timeout)
+                
+                # If timeout occurred and we're in timed mode, check for phantom workers
+                if not done_futures and time_limit_reached:
+                    print(f"[TIMED MODE] Checking for phantom workers (processing >4 hours)...")
+                    phantom_count = progress_tracker.force_cleanup_phantom_workers(max_hours=4)
+                    
+                    if phantom_count > 0:
+                        print(f"[TIMED MODE] Cleaned up {phantom_count} phantom workers. Forcing shutdown.")
+                        _force_cleanup_phantom_workers(all_futures, future_to_task)
+                        break
+                    else:
+                        # All workers are still within reasonable processing time, continue waiting
+                        active_workers = len([f for f in all_futures if not f.done()])
+                        print(f"[TIMED MODE] All {active_workers} workers still within reasonable processing time. Continuing to wait...")
+                        continue
+                
+                # For both timed and non-timed modes: periodic phantom worker cleanup
+                if not done_futures:  # Only check when no workers completed recently
+                    phantom_count = progress_tracker.force_cleanup_phantom_workers(max_hours=4)
+                    
+                    if phantom_count > 0:
+                        print(f"[PHANTOM CLEANUP] Detected and cleaned {phantom_count} workers stuck >4h")
+                        # Force cleanup futures for these phantom workers
+                        _force_cleanup_phantom_workers(all_futures, future_to_task)
+                        
+                        # In non-timed mode, we can continue processing with remaining workers
+                        # The dynamic queuing will assign new documents to healthy workers
+                        if not time_limit_reached:
+                            remaining_workers = len([f for f in all_futures if not f.done()])
+                            available_docs = total_documents - document_index
+                            print(f"[NON-TIMED] Continuing with {remaining_workers} healthy workers after phantom cleanup")
+                            print(f"[NON-TIMED] {available_docs} documents remain in queue for dynamic assignment")
+                            
+                            # Don't immediately try to replace workers - let existing ones finish
+                            # and naturally pick up new work through dynamic queuing
+                        else:
+                            # In timed mode, force shutdown after phantom cleanup
+                            break
+                    
             except Exception as wait_error:
                 print(f"[ERROR] Error waiting for futures: {wait_error}")
                 print(f"[ERROR] Process pool may be broken. Stopping processing.")
@@ -214,9 +259,17 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                     time_limit_reached = True
                     
                     # Cancel any remaining futures that haven't started yet
-                    for remaining_future in future_to_task:
+                    cancelled_count = 0
+                    for remaining_future in list(future_to_task.keys()):
                         if not remaining_future.done():
-                            remaining_future.cancel()
+                            try:
+                                if remaining_future.cancel():
+                                    cancelled_count += 1
+                            except Exception as cancel_err:
+                                print(f"[TIMED MODE] Could not cancel future: {cancel_err}")
+                    
+                    print(f"[TIMED MODE] Successfully cancelled {cancelled_count} pending futures.")
+                    print(f"[TIMED MODE] Will wait max 30 seconds for {len([f for f in all_futures if not f.done()])} active workers to finish.")
                     
                     break
                 
@@ -263,16 +316,19 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                 
                 # Submit next document immediately 
                 try:
+                    # Assign a worker ID for the new document (cycle through available workers)
+                    next_worker_id = document_index % batch_size + 1
+                    
                     next_future = executor.submit(load_data, next_file_key, next_base_meta, temp_dir, next_api_doc, is_retry, max_pages)
-                    future_to_task[next_future] = (next_task, next_file_key, next_base_meta, next_api_doc, worker_id, next_doc_name, next_estimated_pages, next_size_mb, document_index)
+                    future_to_task[next_future] = (next_task, next_file_key, next_base_meta, next_api_doc, next_worker_id, next_doc_name, next_estimated_pages, next_size_mb, document_index)
                     
                     # Add new future to tracking set for dynamic queuing
                     all_futures.add(next_future)
                     
                     # Update progress tracker for new document (no need to update current_project repeatedly)
-                    progress_tracker.start_document_processing(worker_id, next_doc_name, next_estimated_pages, next_size_mb)
+                    progress_tracker.start_document_processing(next_worker_id, next_doc_name, next_estimated_pages, next_size_mb)
                     
-                    print(f"[DYNAMIC] Worker {worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
+                    print(f"[DYNAMIC] Worker {next_worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
                     document_index += 1
                 except Exception as submit_error:
                     print(f"[ERROR] Failed to submit new document {next_doc_name}: {submit_error}")
@@ -293,3 +349,38 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
         print(f"All queued documents completed. {completed_count} documents processed with dynamic queuing.")
     
     return {"time_limit_reached": time_limit_reached, "documents_processed": documents_processed, "process_pool_broken": process_pool_broken}
+
+
+def _force_cleanup_phantom_workers(all_futures, future_to_task):
+    """
+    Force cleanup of phantom workers that are stuck and never reporting back.
+    This is called when timed mode reaches timeout waiting for workers.
+    """
+    from src.utils.progress_tracker import progress_tracker
+    
+    print(f"[CLEANUP] Starting forced cleanup of {len(all_futures)} phantom workers...")
+    
+    cleaned_count = 0
+    for future in list(all_futures):
+        if future in future_to_task:
+            task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, doc_index = future_to_task[future]
+            doc_id = base_meta.get("document_id") or os.path.basename(file_key)
+            
+            print(f"[CLEANUP] Cleaning up phantom worker {worker_id} stuck on {doc_id}")
+            
+            # Force the progress tracker to finish this document as failed
+            progress_tracker.finish_document_processing(worker_id, success=False, skipped=False)
+            
+            # Try to cancel the future
+            try:
+                future.cancel()
+            except Exception as cancel_err:
+                print(f"[CLEANUP] Could not cancel future for {doc_id}: {cancel_err}")
+            
+            # Remove from tracking
+            all_futures.discard(future)
+            del future_to_task[future]
+            cleaned_count += 1
+    
+    print(f"[CLEANUP] Forced cleanup completed. Cleaned {cleaned_count} phantom workers.")
+    print(f"[CLEANUP] Progress tracker should now show 0 active workers.")
