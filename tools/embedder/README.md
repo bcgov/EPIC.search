@@ -8,6 +8,7 @@ The EPIC.search Embedder is a robust, production-grade document processing syste
 - **🔍 OCR Support**: Automatic text extraction from scanned PDFs using Tesseract or Azure Document Intelligence
 - **🧠 Semantic Search**: Vector embeddings for intelligent document search
 - **⚡ High Performance**: Optimized parallel processing with configurable concurrency
+- **🛡️ Smart Recovery**: Dynamic timeouts and phantom worker detection prevent hung processes
 - **🏷️ Smart Tagging**: AI-powered keyword and tag extraction
 - **📊 Rich Analytics**: Comprehensive processing metrics and failure analysis
 - **🔧 Production Ready**: Docker support, robust error handling, and monitoring
@@ -450,7 +451,8 @@ The embedder includes automated progress tracking that provides real-time summar
 - **Document Progress**: Documents processed, failed, and skipped with percentages
 - **Processing Rate**: Documents per hour throughput
 - **Data Throughput**: Pages per hour and MB per hour processing rates
-- **Active Workers**: Currently processing documents with worker IDs, page counts, and file sizes
+- **Active Workers**: Currently processing documents with worker IDs, page counts, file sizes, and dynamic timeouts
+- **Phantom Worker Detection**: Automatic detection and cleanup of stuck workers using document-specific timeouts
 - **Current Project**: Name of the project being processed
 
 #### Sample Progress Output
@@ -470,14 +472,14 @@ Documents: 385/1,250 (30.8%) [Success: 380, Failed: 3, Skipped: 2]
 Rate: 756.0 docs/hour | Pages: 8,547 (17,094/hr) | Data: 234.8 MB (469.6 MB/hr) | ETA: 1:08:45
 Current Project: Highway 97 Expansion Project
 Active Workers (8):
-  [1] Worker-w4: Environmental_Impact_Assessment.pdf (47p, 12.3MB)
-  [2] Worker-w7: Traffic_Analysis_Report.pdf (23p, 5.8MB)
-  [3] Worker-w9: Geological_Survey_2024.pdf (156p, 45.2MB)
-  [4] Worker-w11: Public_Consultation_Summary.pdf (8p, 2.1MB)
-  [5] Worker-w12: Engineering_Drawings_Phase1.pdf (34p, 18.7MB)
-  [6] Worker-w15: Cost_Benefit_Analysis.pdf (19p, 3.4MB)
-  [7] Worker-w18: Archaeological_Assessment.pdf (67p, 23.9MB)
-  [8] Worker-w21: Project_Timeline_Updated.pdf (12p, 2.8MB)
+  [1] Worker-w4: Environmental_Impact_Assessment.pdf (47p, 12.3MB, 1820s, timeout:124m)
+  [2] Worker-w7: Traffic_Analysis_Report.pdf (23p, 5.8MB, 890s, timeout:76m)
+  [3] Worker-w9: Geological_Survey_2024.pdf (156p, 45.2MB, 3240s, timeout:240m)
+  [4] Worker-w11: Public_Consultation_Summary.pdf (8p, 2.1MB, 340s, timeout:46m)
+  [5] Worker-w12: Engineering_Drawings_Phase1.pdf (34p, 18.7MB, 1260s, timeout:98m)
+  [6] Worker-w15: Cost_Benefit_Analysis.pdf (19p, 3.4MB, 720s, timeout:68m)
+  [7] Worker-w18: Archaeological_Assessment.pdf (67p, 23.9MB, 2580s, timeout:164m) [WARNING - 12m until timeout]
+  [8] Worker-w21: Project_Timeline_Updated.pdf (12p, 2.8MB, 450s, timeout:54m)
 --------------------------------------------------------------------------------
 
 ================================================================================

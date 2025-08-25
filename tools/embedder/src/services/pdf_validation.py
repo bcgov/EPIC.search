@@ -31,22 +31,25 @@ def validate_pdf_file(temp_path, s3_key):
     # Verify the file can be opened as a PDF
     try:
         test_doc = fitz.open(temp_path)
-        if test_doc.page_count == 0:
-            test_doc.close()
-            print(f"[WARN] PDF file {s3_key} has no pages")
-            return False, "precheck_failed", None, ocr_info
-        test_doc.close()
+        try:
+            if test_doc.page_count == 0:
+                print(f"[WARN] PDF file {s3_key} has no pages")
+                return False, "precheck_failed", None, ocr_info
+        finally:
+            test_doc.close()  # Ensure the document is always closed
     except Exception as pdf_validation_err:
         print(f"[WARN] File {s3_key} cannot be opened as a valid PDF: {pdf_validation_err}")
         return False, "precheck_failed", None, ocr_info
     
     try:
         doc = fitz.open(temp_path)
-        metadata = doc.metadata
-        creator = metadata.get('creator', '').lower()
-        producer = metadata.get('producer', '').lower()
-        first_page_text = doc[0].get_text().strip() if doc.page_count > 0 else ""
-        doc.close()
+        try:
+            metadata = doc.metadata
+            creator = metadata.get('creator', '').lower()
+            producer = metadata.get('producer', '').lower()
+            first_page_text = doc[0].get_text().strip() if doc.page_count > 0 else ""
+        finally:
+            doc.close()  # Ensure the document is always closed
     except Exception as precheck_err:
         print(f"[WARN] Could not pre-check PDF {s3_key}: {precheck_err}")
         return False, "precheck_failed", None, ocr_info

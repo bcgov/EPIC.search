@@ -42,6 +42,49 @@ from src.config.settings import get_settings
 from src.config.document_types import get_document_type, resolve_document_type
 settings = get_settings()
 
+
+def _safe_delete_temp_file(temp_path: str, max_retries: int = 3, delay: float = 0.5) -> bool:
+    """
+    Safely delete a temporary file with retries to handle Windows file locking issues.
+    
+    Args:
+        temp_path: Path to the temporary file to delete
+        max_retries: Maximum number of deletion attempts
+        delay: Delay between attempts in seconds
+        
+    Returns:
+        bool: True if file was successfully deleted, False otherwise
+    """
+    import gc
+    
+    # Force garbage collection to ensure all file handles are released
+    gc.collect()
+    
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return True
+        except PermissionError as e:
+            if "being used by another process" in str(e):
+                if attempt < max_retries - 1:
+                    print(f"[DEBUG] File {temp_path} in use, retrying deletion in {delay}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(delay)
+                    delay *= 1.5  # Exponential backoff
+                    # Force another garbage collection before retry
+                    gc.collect()
+                    continue
+                else:
+                    print(f"[WARN] Could not delete temp file {temp_path} after {max_retries} attempts: {e}")
+                    return False
+            else:
+                print(f"[WARN] Could not delete temp file {temp_path}: {e}")
+                return False
+        except Exception as e:
+            print(f"[WARN] Could not delete temp file {temp_path}: {e}")
+            return False
+    return False
+
 def sanitize_text_for_postgres(text):
     """
     Sanitize text to remove null bytes that PostgreSQL cannot handle.
@@ -130,6 +173,7 @@ def chunk_and_embed_pages(
     pages: List[Dict[str, Any]],
     base_metadata: Dict[str, Any],
     s3_key: str,
+    doc_id: str = None,
     metrics: dict = None
 ) -> Tuple[List[Dict[str, Any]], List[str], List[str], List[str], Any]:
     """
@@ -141,6 +185,7 @@ def chunk_and_embed_pages(
         pages: List of page dicts with 'text' key.
         base_metadata: Metadata to attach to each chunk.
         s3_key: S3 key for the document.
+        doc_id: Document ID for logging purposes.
         metrics: Optional dictionary to collect per-chunk metrics.
 
     Returns:
@@ -246,7 +291,9 @@ def chunk_and_embed_pages(
             # Parallel tag extraction for all chunks on this page
             t_tag = time.perf_counter() if chunk_metrics is not None else None
             try:
-                tag_results = extract_tags_from_chunks(chunk_dicts, document_id=s3_key)
+                # Use doc_id for logging consistency if provided, otherwise fall back to s3_key
+                document_id_for_logging = doc_id if doc_id else s3_key
+                tag_results = extract_tags_from_chunks(chunk_dicts, document_id=document_id_for_logging)
                 if chunk_metrics is not None:
                     chunk_metrics["_get_tags_times"].append(time.perf_counter() - t_tag)
                     
@@ -284,7 +331,9 @@ def chunk_and_embed_pages(
             t_kw = time.perf_counter() if chunk_metrics is not None else None
             
             # Use the factory pattern for keyword extraction (mode is configured via KEYWORD_EXTRACTION_MODE in .env)
-            chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts, document_id=s3_key)
+            # Use doc_id for logging consistency if provided, otherwise fall back to s3_key
+            document_id_for_logging = doc_id if doc_id else s3_key
+            chunk_dicts, page_keywords = extract_keywords_from_chunks(chunk_dicts, document_id=document_id_for_logging)
             
             if chunk_metrics is not None:
                 chunk_metrics["_get_keywords_times"].append(time.perf_counter() - t_kw)
@@ -369,10 +418,7 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
         file_size = os.path.getsize(temp_path)
         if file_size == 0:
             print(f"[ERROR] Downloaded file is empty (0 bytes): {s3_key}")
-            try:
-                os.unlink(temp_path)  # Clean up empty file
-            except:
-                pass
+            _safe_delete_temp_file(temp_path)
             raise ValueError(f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues.")
         
         print(f"[DEBUG] Downloaded {s3_key}: {file_size} bytes to {temp_path}")
@@ -381,9 +427,11 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
         if original_ext.lower() == '.pdf':
             try:
                 doc = pymupdf.open(temp_path)
-                doc_info["metadata"] = doc.metadata
-                doc_info["page_count"] = doc.page_count
-                doc.close()
+                try:
+                    doc_info["metadata"] = doc.metadata
+                    doc_info["page_count"] = doc.page_count
+                finally:
+                    doc.close()  # Ensure the document is always closed
             except Exception as pdf_meta_err:
                 print(f"[WARN] Could not extract PDF metadata from {s3_key}: {pdf_meta_err}")
         
@@ -423,10 +471,8 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
                 print(f"[SKIP] File {s3_key} skipped due to page limit: {reason}. Will be marked as skipped.")
             else:
                 print(f"[FAIL] File {s3_key} failed PDF validation: {reason}. Will be marked as failure.")
-            try:
-                os.remove(temp_path)
-            except Exception as cleanup_err:
-                print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
+            
+            _safe_delete_temp_file(temp_path)
             return None, doc_info
         
         # If OCR was used, store summary information instead of full page content
@@ -515,7 +561,7 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
     # Insert in batches to prevent connection timeouts
     batch_size = settings.multi_processing_settings.chunk_insert_batch_size
     total_chunks = len(chunk_objs)
-    print(f"[DB] Inserting {total_chunks} chunks in batches of {batch_size}...")
+    print(f"[DB] [{doc_id}] Inserting {total_chunks} chunks in batches of {batch_size}...")
     
     for i in range(0, total_chunks, batch_size):
         batch = chunk_objs[i:i + batch_size]
@@ -528,18 +574,18 @@ def _process_and_insert_chunks(session, chunks_to_upsert, doc_id, project_id):
             try:
                 session.add_all(batch)
                 session.commit()
-                print(f"[DB] Inserted batch {batch_num}/{total_batches} ({len(batch)} chunks)")
+                print(f"[DB] [{doc_id}] Inserted batch {batch_num}/{total_batches} ({len(batch)} chunks)")
                 break
             except OperationalError as e:
                 if "SSL SYSCALL error" in str(e) or "EOF detected" in str(e):
-                    print(f"[DB] Connection error on batch {batch_num}, attempt {attempt + 1}/{max_retries}: {e}")
+                    print(f"[DB] [{doc_id}] Connection error on batch {batch_num}, attempt {attempt + 1}/{max_retries}: {e}")
                     if attempt < max_retries - 1:
                         # Rollback and wait before retry
                         session.rollback()
                         time.sleep(2 ** attempt)  # Exponential backoff
                         continue
                     else:
-                        print(f"[DB] Failed to insert batch {batch_num} after {max_retries} attempts")
+                        print(f"[DB] [{doc_id}] Failed to insert batch {batch_num} after {max_retries} attempts")
                         raise
                 else:
                     # Non-connection error, re-raise immediately
@@ -956,10 +1002,7 @@ def load_data(
         
         if not has_text:
             print(f"[WARN] No readable text found in any page of file {s3_key}. Skipping file.")
-            try:
-                os.remove(temp_path)
-            except Exception as cleanup_err:
-                print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
+            _safe_delete_temp_file(temp_path)
             
             # Log failure with document info
             log = session.query(ProcessingLog).filter_by(document_id=doc_id, project_id=project_id).first()
@@ -987,7 +1030,7 @@ def load_data(
         base_metadata_with_doc = {**base_metadata, "document_metadata": document_metadata}
 
         t2 = time.perf_counter()
-        chunks_to_upsert, all_tags, all_keywords, all_headings, _ = chunk_and_embed_pages(pages, base_metadata_with_doc, s3_key, metrics)
+        chunks_to_upsert, all_tags, all_keywords, all_headings, _ = chunk_and_embed_pages(pages, base_metadata_with_doc, s3_key, doc_id, metrics)
         metrics["chunk_and_embed_pages_time"] = time.perf_counter() - t2
         
         # Build document-level semantic embedding with metadata
@@ -1089,7 +1132,4 @@ def load_data(
     finally:
         session.close()
         if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception as cleanup_err:
-                print(f"[WARN] Could not delete temp file {temp_path}: {cleanup_err}")
+            _safe_delete_temp_file(temp_path)
