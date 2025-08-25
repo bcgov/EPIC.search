@@ -69,7 +69,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
         project_filter = ""
         if project_ids:
             project_list = "', '".join(project_ids)
-            project_filter = f"AND pl.project_id IN ('{project_list}')"
+            project_filter = f"AND pl.project_id IN ('{project_list}')'"
         
         # Get all failed document IDs
         failed_docs_query = text(f"""
@@ -85,7 +85,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
         
         if not failed_docs:
             print("No failed documents found to clean up.")
-            return {'documents_cleaned': 0, 'chunks_deleted': 0, 'document_records_deleted': 0}
+            return {'documents_cleaned': 0, 'chunks_deleted': 0, 'document_records_deleted': 0, 'processing_logs_deleted': 0}
         
         print(f"Found {len(failed_docs)} failed documents to clean up")
         
@@ -93,6 +93,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
             'documents_cleaned': 0,
             'chunks_deleted': 0,
             'document_records_deleted': 0,
+            'processing_logs_deleted': 0,  # Add this field to track log deletions
             'projects_affected': set(),
             'cleaned_files': []  # Track the actual files that were cleaned
         }
@@ -127,14 +128,20 @@ def bulk_cleanup_failed_documents(project_ids=None):
                 Document.document_id.in_(doc_ids)
             ).delete(synchronize_session=False)
             
+            # Bulk delete processing logs for this batch (THIS WAS MISSING!)
+            logs_deleted = session.query(ProcessingLog).filter(
+                ProcessingLog.document_id.in_(doc_ids)
+            ).delete(synchronize_session=False)
+            
             session.commit()
             
             cleanup_summary['documents_cleaned'] += len(batch)
             cleanup_summary['chunks_deleted'] += chunks_deleted
             cleanup_summary['document_records_deleted'] += docs_deleted
+            cleanup_summary['processing_logs_deleted'] = cleanup_summary.get('processing_logs_deleted', 0) + logs_deleted
             cleanup_summary['projects_affected'].update(project_ids_batch)
             
-            print(f"  Batch complete: {chunks_deleted} chunks, {docs_deleted} document records deleted")
+            print(f"  Batch complete: {chunks_deleted} chunks, {docs_deleted} document records, {logs_deleted} processing logs deleted")
         
         # Convert set to count for final summary
         cleanup_summary['projects_affected'] = len(cleanup_summary['projects_affected'])
@@ -143,6 +150,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
         print(f"   Documents cleaned: {cleanup_summary['documents_cleaned']}")
         print(f"   Chunks deleted: {cleanup_summary['chunks_deleted']}")
         print(f"   Document records deleted: {cleanup_summary['document_records_deleted']}")
+        print(f"   Processing logs deleted: {cleanup_summary['processing_logs_deleted']}")
         print(f"   Projects affected: {cleanup_summary['projects_affected']}")
         
         return cleanup_summary
