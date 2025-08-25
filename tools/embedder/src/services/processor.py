@@ -1,17 +1,18 @@
 import os
-import time
-import tempfile
+
 from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from concurrent.futures.process import BrokenProcessPool
-
 from .logger import log_processing_result
 from .loader import load_data
 from src.utils.progress_tracker import progress_tracker
 
-def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False, timed_mode=False, time_limit_seconds=None, start_time=None, max_pages=None):
+def process_project_files(document_tasks, file_keys, metadata_list, api_docs_list, batch_size=4, temp_dir=None, is_retry=False, timed_mode=False, time_limit_seconds=None, start_time=None, max_pages=None):
     """
-    Process files from multiple projects concurrently using a unified worker pool with dynamic queuing.
+    Process files from one or more projects concurrently using a unified worker pool with dynamic queuing.
     Workers continuously pull new documents as they finish, maximizing CPU utilization.
+    
+    This function handles both single-project and multi-project processing with the same
+    efficient dynamic queuing approach.
     
     Args:
         document_tasks (list): List of DocumentTask namedtuples containing project info for each document
@@ -110,7 +111,7 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
             future_to_task[future] = (task, file_key, base_meta, api_doc, worker_id, doc_name, estimated_pages, size_mb, document_index)
             
             # Update progress tracker (no need to update current_project repeatedly in cross-project mode)
-            progress_tracker.start_document_processing(worker_id, doc_name, estimated_pages, size_mb)
+            progress_tracker.start_document_processing(worker_id, doc_id, estimated_pages, size_mb)
             
             document_index += 1
         
@@ -133,25 +134,25 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                 
                 # If timeout occurred and we're in timed mode, check for phantom workers
                 if not done_futures and time_limit_reached:
-                    print(f"[TIMED MODE] Checking for phantom workers (processing >4 hours)...")
-                    phantom_count = progress_tracker.force_cleanup_phantom_workers(max_hours=4)
+                    print(f"[TIMED MODE] Checking for phantom workers using dynamic timeouts...")
+                    phantom_count = progress_tracker.force_cleanup_phantom_workers()
                     
                     if phantom_count > 0:
                         print(f"[TIMED MODE] Cleaned up {phantom_count} phantom workers. Forcing shutdown.")
                         _force_cleanup_phantom_workers(all_futures, future_to_task)
                         break
                     else:
-                        # All workers are still within reasonable processing time, continue waiting
+                        # All workers are still within their dynamic timeout limits
                         active_workers = len([f for f in all_futures if not f.done()])
-                        print(f"[TIMED MODE] All {active_workers} workers still within reasonable processing time. Continuing to wait...")
+                        print(f"[TIMED MODE] All {active_workers} workers still within their timeout limits. Continuing to wait...")
                         continue
                 
-                # For both timed and non-timed modes: periodic phantom worker cleanup
+                # For both timed and non-timed modes: periodic phantom worker cleanup using dynamic timeouts
                 if not done_futures:  # Only check when no workers completed recently
-                    phantom_count = progress_tracker.force_cleanup_phantom_workers(max_hours=4)
+                    phantom_count = progress_tracker.force_cleanup_phantom_workers()
                     
                     if phantom_count > 0:
-                        print(f"[PHANTOM CLEANUP] Detected and cleaned {phantom_count} workers stuck >4h")
+                        print(f"[PHANTOM CLEANUP] Detected and cleaned {phantom_count} workers using dynamic timeouts")
                         # Force cleanup futures for these phantom workers
                         _force_cleanup_phantom_workers(all_futures, future_to_task)
                         
@@ -316,8 +317,8 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                 
                 # Submit next document immediately 
                 try:
-                    # Assign a worker ID for the new document (cycle through available workers)
-                    next_worker_id = document_index % batch_size + 1
+                    # Reuse the worker ID from the worker that just finished
+                    next_worker_id = worker_id  # Use the same worker ID that just completed
                     
                     next_future = executor.submit(load_data, next_file_key, next_base_meta, temp_dir, next_api_doc, is_retry, max_pages)
                     future_to_task[next_future] = (next_task, next_file_key, next_base_meta, next_api_doc, next_worker_id, next_doc_name, next_estimated_pages, next_size_mb, document_index)
@@ -326,7 +327,7 @@ def process_mixed_project_files(document_tasks, file_keys, metadata_list, api_do
                     all_futures.add(next_future)
                     
                     # Update progress tracker for new document (no need to update current_project repeatedly)
-                    progress_tracker.start_document_processing(next_worker_id, next_doc_name, next_estimated_pages, next_size_mb)
+                    progress_tracker.start_document_processing(next_worker_id, next_doc_id, next_estimated_pages, next_size_mb)
                     
                     print(f"[DYNAMIC] Worker {next_worker_id} immediately started next document: {next_doc_name} ({document_index + 1}/{total_documents} queued)")
                     document_index += 1

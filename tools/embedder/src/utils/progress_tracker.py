@@ -24,7 +24,7 @@ class ProgressTracker:
         self.lock = threading.Lock()
         self._stop_logging = False
         
-    def start(self, total_projects, total_documents, project_ids=None, is_retry_mode=False, retry_document_ids=None):
+    def start(self, total_projects, total_documents, project_ids=None, is_retry_mode=False, retry_document_ids=None, timed_mode=False, time_limit_minutes=None):
         """Initialize progress tracking"""
         with self.lock:
             self.start_time = datetime.now()
@@ -33,6 +33,8 @@ class ProgressTracker:
             self.current_project_ids = project_ids or []
             self.is_retry_mode = is_retry_mode
             self.retry_document_ids = set(retry_document_ids or [])
+            self.timed_mode = timed_mode
+            self.time_limit_minutes = time_limit_minutes
             
             if not self.is_retry_mode:
                 # For normal mode, get the highest processing log ID before we start
@@ -80,12 +82,45 @@ class ProgressTracker:
     def start_document_processing(self, worker_id, document_name, pages=None, size_mb=None):
         """Register that a worker started processing a document"""
         with self.lock:
+            # Calculate dynamic timeout based on document size
+            timeout_minutes = self._calculate_dynamic_timeout(pages)
+            
             self.active_documents[worker_id] = {
                 'name': document_name,
                 'pages': pages,
                 'size_mb': size_mb,
-                'start_time': time.time()
+                'start_time': time.time(),
+                'timeout_minutes': timeout_minutes,
+                'timeout_seconds': timeout_minutes * 60
             }
+    
+    def _calculate_dynamic_timeout(self, pages):
+        """
+        Calculate dynamic timeout based on document pages.
+        
+        Formula:
+        - Base: 30 minutes for any document
+        - Per-page: 2 minutes per page
+        - Min: 30 minutes (for small/unknown docs)
+        - Max: 240 minutes (4 hours safety cap)
+        
+        Args:
+            pages (int or None): Number of pages in document
+            
+        Returns:
+            int: Timeout in minutes
+        """
+        base_timeout = 30  # 30 minutes base
+        per_page_timeout = 2  # 2 minutes per page
+        max_timeout = 240  # 4 hours max
+        min_timeout = 30  # 30 minutes min
+        
+        if pages and pages > 0:
+            calculated_timeout = base_timeout + (pages * per_page_timeout)
+            return min(max(calculated_timeout, min_timeout), max_timeout)
+        else:
+            # Unknown page count - use conservative default
+            return min_timeout
     
     def finish_document_processing(self, worker_id, success=True, skipped=False, pages=None, size_mb=None):
         """Register that a worker finished processing a document"""
@@ -127,28 +162,39 @@ class ProgressTracker:
         with self.lock:
             self.processed_projects += 1
     
-    def force_cleanup_phantom_workers(self, max_hours=4):
+    def force_cleanup_phantom_workers(self, max_hours=None):
         """
-        Force cleanup of workers that have been processing for too long.
-        Conservative approach: flag workers >2h as likely stuck, kill after 4h.
+        Force cleanup of workers that have exceeded their dynamic timeouts.
+        Uses document-specific timeouts instead of a fixed global timeout.
+        
+        Args:
+            max_hours (int, optional): Legacy parameter - ignored in favor of dynamic timeouts
+            
+        Returns:
+            int: Number of phantom workers cleaned up
         """
         with self.lock:
             if not self.active_documents:
                 return 0
             
             current_time = time.time()
-            max_seconds = max_hours * 3600
             phantom_workers = []
             
             for worker_id, doc_info in list(self.active_documents.items()):
                 start_time = doc_info.get('start_time', current_time)
                 processing_seconds = current_time - start_time
                 
-                if processing_seconds > max_seconds:
+                # Get document-specific timeout
+                timeout_seconds = doc_info.get('timeout_seconds', 1800)  # 30min default
+                timeout_minutes = doc_info.get('timeout_minutes', 30)
+                
+                if processing_seconds > timeout_seconds:
                     phantom_workers.append(worker_id)
                     doc_name = doc_info.get('name', 'unknown')
-                    hours = processing_seconds / 3600
-                    print(f"[CLEANUP] Removing worker {worker_id} stuck on {doc_name} for {hours:.1f} hours (timeout after {max_hours}h)")
+                    overtime_minutes = (processing_seconds / 60) - timeout_minutes
+                    pages = doc_info.get('pages', 'unknown')
+                    
+                    print(f"[CLEANUP] Removing worker {worker_id} stuck on {doc_name} ({pages}p) - {overtime_minutes:.0f}m over {timeout_minutes}m limit")
                     
                     # Remove from active documents
                     del self.active_documents[worker_id]
@@ -156,7 +202,7 @@ class ProgressTracker:
                     self.failed_documents += 1
             
             if phantom_workers:
-                print(f"[CLEANUP] Removed {len(phantom_workers)} phantom workers from progress tracker")
+                print(f"[CLEANUP] Removed {len(phantom_workers)} phantom workers using dynamic timeouts")
             
             return len(phantom_workers)
 
@@ -271,7 +317,15 @@ class ProgressTracker:
             
             print(f"\n{'-'*80}")
             print(f"PROGRESS SUMMARY - {datetime.now().strftime('%H:%M:%S')}")
-            print(f"Runtime: {str(elapsed).split('.')[0]}")
+            
+            # Show timed mode info if applicable
+            if getattr(self, 'timed_mode', False) and getattr(self, 'time_limit_minutes', None):
+                elapsed_minutes = elapsed.total_seconds() / 60
+                remaining_minutes = max(0, self.time_limit_minutes - elapsed_minutes)
+                print(f"Runtime: {str(elapsed).split('.')[0]} [TIMED MODE: {self.time_limit_minutes}m limit, {remaining_minutes:.1f}m remaining]")
+            else:
+                print(f"Runtime: {str(elapsed).split('.')[0]}")
+                
             print(f"Projects: {self.processed_projects}/{self.total_projects} ({project_pct:.1f}%)")
             print(f"Documents: {total_processed}/{self.total_documents} ({doc_pct:.1f}%) "
                   f"[Success: {success_count}, Failed: {failure_count}, Skipped: {skipped_count}]")
@@ -304,12 +358,18 @@ class ProgressTracker:
                     # Calculate processing time
                     start_time = doc_info.get('start_time', current_time)
                     processing_seconds = int(current_time - start_time)
+                    processing_minutes = processing_seconds / 60
                     
-                    # Detect phantom workers (processing for more than 2 hours)
-                    if processing_seconds > 7200:  # 2 hours - flag as likely stuck
-                        phantom_workers.append((worker_id, processing_seconds, doc_name))
+                    # Get dynamic timeout for this document
+                    timeout_seconds = doc_info.get('timeout_seconds', 7200)  # Default 2h fallback
+                    timeout_minutes = doc_info.get('timeout_minutes', 120)  # Default 2h fallback
                     
-                    # Add page count and size info if available
+                    # Check if worker exceeded its dynamic timeout
+                    is_stuck = processing_seconds > timeout_seconds
+                    if is_stuck:
+                        phantom_workers.append((worker_id, processing_seconds, doc_name, timeout_minutes))
+                    
+                    # Add page count, size info, and timeout info if available
                     extra_info = ""
                     has_page_info = doc_info.get('pages') is not None
                     has_size_info = doc_info.get('size_mb') is not None
@@ -318,23 +378,31 @@ class ProgressTracker:
                         extra_info += f" ({doc_info['pages']}p"
                         if has_size_info:
                             extra_info += f", {doc_info['size_mb']:.1f}MB"
-                        extra_info += f", {processing_seconds}s)"
+                        extra_info += f", {processing_seconds}s, timeout:{timeout_minutes}m)"
                     elif has_size_info:
-                        extra_info += f" ({doc_info['size_mb']:.1f}MB, {processing_seconds}s)"
+                        extra_info += f" ({doc_info['size_mb']:.1f}MB, {processing_seconds}s, timeout:{timeout_minutes}m)"
                     else:
                         # No size or page info available
-                        extra_info += f" ({processing_seconds}s)"
+                        extra_info += f" ({processing_seconds}s, timeout:{timeout_minutes}m)"
                     
-                    # Mark phantom workers with warning (processing > 2 hours)
-                    warning = f" [LIKELY STUCK - {processing_seconds//3600}h]" if processing_seconds > 7200 else ""
+                    # Mark workers with dynamic timeout warning
+                    if is_stuck:
+                        overtime_minutes = processing_minutes - timeout_minutes
+                        warning = f" [STUCK - {overtime_minutes:.0f}m OVER {timeout_minutes}m LIMIT]"
+                    elif processing_seconds > (timeout_seconds * 0.8):  # Warning at 80% of timeout
+                        remaining_minutes = (timeout_seconds - processing_seconds) / 60
+                        warning = f" [WARNING - {remaining_minutes:.0f}m until timeout]"
+                    else:
+                        warning = ""
+                    
                     print(f"  [{i}] Worker-{worker_id}: {display_name}{extra_info}{warning}")
                 
-                # Report phantom workers
+                # Report phantom workers with dynamic timeout info
                 if phantom_workers:
-                    print(f"[WARN] Detected {len(phantom_workers)} workers processing >2 hours (likely stuck):")
-                    for worker_id, seconds, doc_name in phantom_workers:
-                        hours = seconds / 3600
-                        print(f"[WARN]   Worker-{worker_id}: {doc_name} ({hours:.1f} hours)")
+                    print(f"[WARN] Detected {len(phantom_workers)} workers exceeded their dynamic timeouts:")
+                    for worker_id, seconds, doc_name, timeout_mins in phantom_workers:
+                        overtime_mins = (seconds / 60) - timeout_mins
+                        print(f"[WARN]   Worker-{worker_id}: {doc_name} ({overtime_mins:.0f}m over {timeout_mins}m limit)")
             else:
                 print("Active Workers: None (waiting for documents)")
             print(f"{'-'*80}")

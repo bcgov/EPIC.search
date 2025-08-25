@@ -42,6 +42,30 @@ The system now includes intelligent cross-project parallel processing to maximiz
 - Single project processing only
 - Maintains compatibility with existing processing logic
 
+### 🆕 Smart Phantom Worker Detection & Recovery
+
+The system includes intelligent phantom worker detection and recovery to prevent hung processes and ensure reliable completion:
+
+- **Dynamic Timeouts**: Document-specific timeouts based on page count instead of fixed limits
+- **Early Warning System**: Flags workers at 80% of their timeout limit
+- **Automatic Recovery**: Cleans up stuck workers and continues processing with healthy workers
+- **Timed Mode Support**: Ensures timed runs complete even with stuck workers
+
+**Dynamic Timeout Formula**:
+
+- **Base**: 30 minutes for any document
+- **Per-page**: +2 minutes per page
+- **Range**: 30 minutes (minimum) to 240 minutes (4-hour cap)
+- **Examples**: 1-page = 32min, 10-page = 50min, 50-page = 2.2hrs, 100+ pages = 4hrs
+
+**Behavior**:
+
+- **Progress Display**: Shows individual timeouts and warnings: `(10p, 2.5MB, 1800s, timeout:50m)`
+- **Early Warning**: `[WARNING - 5m until timeout]` at 80% of limit
+- **Stuck Detection**: `[STUCK - 15m OVER 32m LIMIT]` when exceeded
+- **Automatic Cleanup**: Removes stuck workers, marks documents as failed, continues with healthy workers
+- **Timed Mode**: Forces graceful shutdown after cleaning up phantom workers
+
 ### 🆕 Smart File Type Pre-Filtering
 
 The system now includes intelligent file type filtering to optimize processing performance and avoid unnecessary S3 download failures:
@@ -543,18 +567,21 @@ The system uses two distinct models for different NLP tasks, both configurable a
 The system supports three configurable keyword extraction modes via `KEYWORD_EXTRACTION_MODE`:
 
 **Standard Mode (`standard`)**
+
 - Full KeyBERT implementation with highest semantic quality
 - Uses complete n-gram range (1,3) and MMR (Maximal Marginal Relevance)
 - Highest quality results but slowest performance (baseline)
 - Best for: Offline processing where quality is paramount
 
 **Fast Mode (`fast`)**
+
 - Optimized KeyBERT with reduced parameters for faster processing
 - Uses reduced n-gram range (1,2) and disables MMR for speed
 - 5-10x faster than standard mode while maintaining good quality
 - Best for: Real-time processing where KeyBERT quality is preferred
 
 **Simplified Mode (`simplified`)**
+
 - Enhanced TF-IDF implementation with domain-specific optimizations
 - Custom term weighting and environmental assessment keyword preferences
 - 30-60x faster than standard mode with good domain-optimized quality

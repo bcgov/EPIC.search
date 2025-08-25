@@ -32,7 +32,7 @@ from .loader import load_data
 from .logger import log_processing_result, get_processing_logs, load_completed_files, load_incomplete_files
 from .markdown_reader import read_as_pages
 from .markdown_splitter import chunk_markdown_text
-from .processor import process_mixed_project_files
+from .processor import process_project_files
 from .s3_reader import read_file_from_s3
 from .tags.tag_extractor import get_tags
 from .ocr.ocr_factory import extract_text_with_ocr, is_ocr_available, initialize_ocr, get_ocr_info
