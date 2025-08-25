@@ -1126,6 +1126,11 @@ Choosing the appropriate model loading strategy depends on your specific deploym
 The Tools API provides lightweight utility endpoints for external tools and MCP (Model Context Protocol) systems. It offers simplified access to project listings and document type information without the overhead of processing statistics.
 
 #### Projects List
+The API provides two distinct success rate metrics:
+
+* **Overall Success Rate**: Includes all files (successful / total_files) - provides insight into file selection and processing pipeline
+* **Processing Success Rate**: Excludes skipped files (successful / processed_files) - focuses on actual processing pipeline effectiveness
+
 
 ```http
 GET /api/tools/projects
@@ -1407,7 +1412,8 @@ GET /api/stats/processing
         "successful_files": 140,
         "failed_files": 8,
         "skipped_files": 2,
-        "success_rate": 93.33
+        "overall_success_rate": 93.33,
+        "processing_success_rate": 94.59
       }
     ],
     "summary": {
@@ -1416,7 +1422,8 @@ GET /api/stats/processing
       "total_successful_files": 720,
       "total_failed_files": 25,
       "total_skipped_files": 5,
-      "overall_success_rate": 96.0
+      "overall_success_rate": 96.0,
+      "overall_processing_success_rate": 96.64
     }
   }
 }
@@ -1454,7 +1461,8 @@ Provides detailed processing logs for a specific project including individual do
       "successful_files": 46,
       "failed_files": 2,
       "skipped_files": 2,
-      "success_rate": 96.0
+      "overall_success_rate": 92.0,
+      "processing_success_rate": 95.83
     }
   }
 }
@@ -1478,7 +1486,9 @@ Provides a high-level summary of processing statistics across the entire system.
     "total_successful_files": 720,
     "total_failed_files": 30,
     "overall_success_rate": 96.0,
+    "overall_processing_success_rate": 96.0,
     "projects_with_failures": 2,
+    "projects_with_skipped_files": 1,
     "avg_success_rate_per_project": 95.5
   }
 }

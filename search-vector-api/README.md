@@ -15,7 +15,7 @@ A high-performance hybrid search Python Flask API that provides document-level a
 * **Project-Based Filtering**: Filter search results by specific projects
 * **Multi-Level Fallback Logic**: Ensures relevant results are always returned when possible
 * **Document Similarity Search**: Find documents similar to a given document using embeddings
-* **Processing Statistics Service**: Comprehensive statistics about document processing success/failure rates by project
+* **Processing Statistics Service**: Comprehensive statistics about document processing success/failure rates by project, including both overall success rates (with skipped files) and processing success rates (excluding skipped files)
 * **Comprehensive Performance Metrics**: Detailed timing for each search stage
 * **User-Friendly Messaging**: Clear feedback when queries may need refinement
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
@@ -94,7 +94,7 @@ The application uses typed configuration classes for different aspects of the sy
 
 > **🎯 Perfect Alignment Required**: The API's keyword extraction implementations are precisely engineered to match the embedder processing methods. **Query keywords must be extracted using the exact same method that was used to embed the documents.** Mismatched extraction methods will result in poor search relevance because the query keywords won't align with how document keywords were originally processed. All modes include comprehensive domain-specific stopword filtering (50+ environmental assessment terms) to ensure consistency.
 
-> **Configuration Validation**: Always verify that your search API's `DOCUMENT_KEYWORD_EXTRACTION_METHOD` matches your embedder's keyword extraction configuration. The three modes (standard/fast/simplified) use identical algorithms, parameters, and filtering to guarantee query-document keyword compatibility.
+**Configuration Validation**: Always verify that your search API's `DOCUMENT_KEYWORD_EXTRACTION_METHOD` matches your embedder's keyword extraction configuration. The three modes (standard/fast/simplified) use identical algorithms, parameters, and filtering to guarantee query-document keyword compatibility.
 
 #### Search Strategy Configuration
 
@@ -628,7 +628,7 @@ GET /api/stats/processing
 POST /api/stats/processing
 ```
 
-Retrieves aggregated processing statistics across projects, including total files processed, success rates, and failure counts.
+Retrieves aggregated processing statistics across projects, including total files processed, overall success rates (with skipped files), processing success rates (excluding skipped files), and failure counts.
 
 **GET Request:** Returns statistics for all projects.
 
@@ -639,6 +639,11 @@ Retrieves aggregated processing statistics across projects, including total file
   "projectIds": ["project-123", "project-456"]
 }
 ```
+
+**Success Rate Metrics:**
+
+* **Overall Success Rate**: `(successful_files / total_files) * 100` - includes skipped files, useful for understanding file selection effectiveness
+* **Processing Success Rate**: `(successful_files / processed_files) * 100` - excludes skipped files, focuses on processing pipeline effectiveness
 
 ### Project Processing Details
 

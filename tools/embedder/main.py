@@ -29,7 +29,7 @@ from src.services.api_utils import (
     get_files_for_project,
     get_projects_count,
 )
-from src.services.processor import process_mixed_project_files
+from src.services.processor import process_project_files
 from src.services.data_formatter import format_metadata
 from src.services.project_utils import upsert_project
 from src.services.ocr.ocr_factory import initialize_ocr
@@ -523,7 +523,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
     if is_retry and document_queue:
         retry_doc_ids = [task.metadata.get("document_id", f"unknown_{i}") for i, task in enumerate(document_queue)]
     
-    progress_tracker.start(len(projects), total_documents, project_ids, is_retry_mode=is_retry, retry_document_ids=retry_doc_ids)
+    progress_tracker.start(len(projects), total_documents, project_ids, is_retry_mode=is_retry, retry_document_ids=retry_doc_ids, timed_mode=timed_mode, time_limit_minutes=time_limit_seconds/60 if time_limit_seconds else None)
     
     if total_documents == 0:
         print(f"No {mode_desc} to process across all projects")
@@ -535,9 +535,9 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
     print(f"Processing {total_documents} documents with {files_concurrency_size} workers using continuous queue")
     print(f"Workers will continuously pull from queue - maximizing CPU utilization")
     
-    # Use the mixed-project processor with all documents at once
+    # Use the unified project processor with all documents at once
     # This creates a true continuous queue where workers pull documents as they finish
-    processing_result = process_mixed_project_files(
+    processing_result = process_project_files(
         document_queue,  # Pass all documents as one big queue
         [task.s3_key for task in document_queue],
         [task.metadata for task in document_queue],
