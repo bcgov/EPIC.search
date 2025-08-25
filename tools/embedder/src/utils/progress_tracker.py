@@ -102,7 +102,13 @@ class ProgressTracker:
         - Base: 30 minutes for any document
         - Per-page: 2 minutes per page
         - Min: 30 minutes (for small/unknown docs)
-        - Max: 240 minutes (4 hours safety cap)
+        - Max: 480 minutes (8 hours safety cap - increased from 4 hours for large documents)
+        
+        Examples:
+        - 10 pages: 30 + (10 × 2) = 50 minutes
+        - 50 pages: 30 + (50 × 2) = 130 minutes (~2.2 hours)
+        - 100 pages: 30 + (100 × 2) = 230 minutes (~3.8 hours)
+        - 225+ pages: Capped at 480 minutes (8 hours max)
         
         Args:
             pages (int or None): Number of pages in document
@@ -112,7 +118,7 @@ class ProgressTracker:
         """
         base_timeout = 30  # 30 minutes base
         per_page_timeout = 2  # 2 minutes per page
-        max_timeout = 240  # 4 hours max
+        max_timeout = 480  # 8 hours max (increased from 240 minutes/4 hours)
         min_timeout = 30  # 30 minutes min
         
         if pages and pages > 0:
