@@ -315,7 +315,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         print(f"Failed documents cleaned: {cleanup_result['documents_cleaned']}")
         print(f"Failed files to reprocess: {len(cleanup_result.get('cleaned_files', []))}")
         print(f"{'='*80}")
-        print("Starting targeted processing - cleaned failed documents will be queued for reprocessing")
+        print("FAILED CLEANUP COMPLETE - cleaned failed documents will be queued for reprocessing")
         print(f"{'='*80}\n")
         
     if retry_skipped_only:
@@ -330,7 +330,7 @@ def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_
         print(f"Skipped documents cleaned: {cleanup_result['documents_cleaned']}")
         print(f"Skipped files to reprocess: {len(cleanup_result.get('cleaned_files', []))}")
         print(f"{'='*80}")
-        print("Starting targeted processing - cleaned skipped documents will be queued for reprocessing")
+        print("SKIPPED CLEANUP COMPLETE - cleaned skipped documents will be queued for reprocessing")
         print(f"{'='*80}\n")
     
     # Create a unified queue of all documents across all projects
