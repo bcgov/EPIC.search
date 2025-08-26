@@ -69,7 +69,7 @@ def bulk_cleanup_failed_documents(project_ids=None):
         project_filter = ""
         if project_ids:
             project_list = "', '".join(project_ids)
-            project_filter = f"AND pl.project_id IN ('{project_list}')'"
+            project_filter = f"AND pl.project_id IN ('{project_list}')"
         
         # Get all failed document IDs
         failed_docs_query = text(f"""
