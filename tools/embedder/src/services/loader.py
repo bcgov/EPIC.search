@@ -18,7 +18,6 @@ import tempfile
 import traceback
 import strip_markdown
 import time
-import json
 import numpy as np
 
 from typing import List, Dict, Any, Tuple
@@ -417,9 +416,11 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
         # Check if downloaded file is empty (this causes workers to hang)
         file_size = os.path.getsize(temp_path)
         if file_size == 0:
-            print(f"[ERROR] Downloaded file is empty (0 bytes): {s3_key}")
+            print(f"[SKIP] Downloaded file is empty (0 bytes): {s3_key}. Marking as skipped due to S3 corruption or access issues.")
             _safe_delete_temp_file(temp_path)
-            raise ValueError(f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues.")
+            doc_info["validation_status"] = "skipped"
+            doc_info["validation_reason"] = f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues."
+            return None, doc_info
         
         print(f"[DEBUG] Downloaded {s3_key}: {file_size} bytes to {temp_path}")
         
