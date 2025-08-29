@@ -1,4 +1,5 @@
 import fitz
+import os
 
 from .ocr.ocr_factory import extract_text_with_ocr, is_ocr_available
 from .word_reader import is_word_supported, get_word_document_metadata
@@ -354,6 +355,10 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
     try:
         print(f"[IMAGE_PDF] Converting PDF {s3_key} to image for processing...")
         
+        # Get DPI setting for image analysis (default to 150 for smaller file sizes)
+        image_analysis_dpi = int(os.getenv('IMAGE_ANALYSIS_DPI', '150'))
+        print(f"[IMAGE_PDF] Using {image_analysis_dpi} DPI for image conversion to optimize file size...")
+        
         # Open the PDF and convert first page to image
         doc = fitz.open(temp_path)
         if doc.page_count == 0:
@@ -361,15 +366,20 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
             print(f"[ERROR] PDF {s3_key} has no pages")
             return False, "no_pages", None, ocr_info
         
-        # Convert first page to image (high DPI for better quality)
+        # Convert first page to image using configurable DPI
         page = doc[0]
-        mat = fitz.Matrix(300/72, 300/72)  # 300 DPI
+        mat = fitz.Matrix(image_analysis_dpi/72, image_analysis_dpi/72)  # Use configurable DPI
         pix = page.get_pixmap(matrix=mat)
         
         # Save as temporary PNG file
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_image:
             temp_image_path = temp_image.name
             pix.save(temp_image_path)
+        
+        # Log the converted image size
+        image_file_size = os.path.getsize(temp_image_path)
+        image_width, image_height = pix.width, pix.height
+        print(f"[IMAGE_PDF] Converted image: {image_width}x{image_height}px, {image_file_size:,} bytes ({image_file_size/1024/1024:.1f} MB)")
         
         doc.close()
         

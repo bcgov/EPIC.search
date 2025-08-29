@@ -69,6 +69,9 @@ AZURE_VISION_KEY=your_azure_computer_vision_key
 
 # Confidence threshold for analysis results
 IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5
+
+# Image processing optimization (prevents "image too large" errors)
+IMAGE_ANALYSIS_DPI=150              # Lower DPI creates smaller images for Azure (default: 150)
 ```
 
 ### What Gets Processed
@@ -660,6 +663,25 @@ azure.core.exceptions.ClientAuthenticationError: Invalid API key
 - **Poor text quality**: Increase `OCR_DPI` (e.g., 400-600 for high-quality scans)
 - **Wrong language**: Set `OCR_LANGUAGE` to correct language code
 - **Complex layouts**: Consider switching to Azure Document Intelligence for better layout understanding
+
+#### Azure Vision Image Size Issues
+
+If you see errors like "Image too large" when processing PDFs:
+
+```text
+Error: Image dimensions exceed Azure Vision limits
+```
+
+**Solutions:**
+
+1. **Reduce image DPI**: Lower `IMAGE_ANALYSIS_DPI` setting (default: 150):
+
+   ```env
+   IMAGE_ANALYSIS_DPI=100  # Reduces image size
+   ```
+
+2. **Azure Vision limits**: Maximum image size is 20MB, dimensions up to 10,000x10,000 pixels
+3. **Large PDFs**: Consider enabling additional preprocessing or contact support for enterprise solutions
 
 ### Known Issues
 

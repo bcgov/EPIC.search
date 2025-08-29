@@ -615,6 +615,13 @@ Documents from these devices automatically trigger OCR processing:
 - Service limit and quota management
 - Automatic retry with exponential backoff
 
+**Azure Vision Image Size Handling:**
+
+- Automatic PDF-to-image DPI optimization (`IMAGE_ANALYSIS_DPI` setting)
+- Respects Azure Vision limits: 20MB max file size, 10,000x10,000 max dimensions
+- Clear error messages when images exceed service limits
+- Graceful fallback when image processing fails
+
 **Provider Fallback:**
 
 - No automatic fallback between providers (explicit configuration required)
@@ -675,6 +682,7 @@ The system now includes AI-powered image analysis for both pure images and PDF d
 IMAGE_ANALYSIS_ENABLED=true              # Enable/disable image content analysis
 IMAGE_ANALYSIS_PREFERRED_PROVIDER=azure  # 'azure' (currently supported)
 IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5  # Minimum confidence (0.0-1.0)
+IMAGE_ANALYSIS_DPI=150                   # DPI for PDF-to-image conversion (prevents "image too large" errors)
 
 # Azure Computer Vision
 AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
@@ -696,6 +704,7 @@ AZURE_DOCUMENT_INTELLIGENCE_KEY=your_api_key_here
 
 # Image Analysis Configuration (enables fallback for OCR failures)
 IMAGE_ANALYSIS_ENABLED=true
+IMAGE_ANALYSIS_DPI=150  # Optimize image size for Azure Vision (prevents "image too large" errors)
 AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
 AZURE_VISION_KEY=your_azure_computer_vision_key
 
