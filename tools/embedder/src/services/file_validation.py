@@ -180,32 +180,22 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages=None):
                     ocr_info["pages_processed"] = len(ocr_pages) if ocr_pages else 0
                     ocr_info["ocr_error"] = "No meaningful text extracted from OCR processing"
                     
-                    # If OCR fails and this looks like an image PDF, try image processing
-                    if is_likely_image_pdf:
-                        print(f"[IMAGE_PDF] OCR failed for image-based PDF {s3_key}, trying image analysis...")
-                        return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
-                    
-                    return False, "ocr_failed", None, ocr_info
+                    # NEW: Try image analysis fallback for ALL PDFs when OCR fails
+                    print(f"[PDF_IMAGE_ANALYSIS] OCR failed, attempting image analysis fallback for PDF {s3_key}...")
+                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
             except Exception as ocr_err:
                 error_msg = str(ocr_err)
                 print(f"[ERROR] OCR processing failed with exception for {s3_key}: {error_msg}")
+                print(f"[PDF_IMAGE_ANALYSIS] Attempting image analysis fallback for PDF {s3_key}...")
                 ocr_info["ocr_error"] = error_msg
                 ocr_info["ocr_error_type"] = type(ocr_err).__name__
                 
-                # If OCR fails and this looks like an image PDF, try image processing
-                if is_likely_image_pdf:
-                    print(f"[IMAGE_PDF] OCR failed for image-based PDF {s3_key}, trying image analysis...")
-                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
-                
-                return False, "ocr_failed", None, ocr_info
-        else:
-            # If no OCR available but this looks like an image PDF, try image processing
-            if is_likely_image_pdf:
-                print(f"[IMAGE_PDF] No OCR available for image-based PDF {s3_key}, trying image analysis...")
+                # NEW: Try image analysis fallback for ALL PDFs when OCR fails
                 return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
-            
-            print(f"[SKIP] Document {s3_key} appears to be scanned but OCR is not available")
-            return False, "scanned_or_image_pdf", None, ocr_info
+        else:
+            # OCR not available, try image analysis fallback for ALL PDFs
+            print(f"[PDF_IMAGE_ANALYSIS] OCR not available, attempting image analysis for PDF {s3_key}...")
+            return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
     
     # Secondary check: scanning device creator/producer with minimal text content
     if is_likely_scanned and len(first_page_text) < 200:
@@ -258,16 +248,22 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages=None):
                     print(f"[OCR] OCR processing failed to extract meaningful text from {s3_key}")
                     ocr_info["pages_processed"] = len(ocr_pages) if ocr_pages else 0
                     ocr_info["ocr_error"] = "No meaningful text extracted from OCR processing"
-                    return False, "ocr_failed", None, ocr_info
+                    
+                    # NEW: Try image analysis fallback for ALL PDFs when OCR fails
+                    print(f"[PDF_IMAGE_ANALYSIS] OCR failed for scanning device PDF, attempting image analysis fallback for {s3_key}...")
+                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
             except Exception as ocr_err:
                 error_msg = str(ocr_err)
                 print(f"[ERROR] OCR processing failed with exception for {s3_key}: {error_msg}")
+                print(f"[PDF_IMAGE_ANALYSIS] Attempting image analysis fallback for scanning device PDF {s3_key}...")
                 ocr_info["ocr_error"] = error_msg
                 ocr_info["ocr_error_type"] = type(ocr_err).__name__
-                return False, "ocr_failed", None, ocr_info
+                
+                # NEW: Try image analysis fallback for ALL PDFs when OCR fails
+                return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
         else:
-            print(f"[SKIP] Document {s3_key} from scanning device but OCR is not available")
-            return False, "scanned_or_image_pdf", None, ocr_info
+            print(f"[PDF_IMAGE_ANALYSIS] OCR not available for scanning device PDF, attempting image analysis for {s3_key}...")
+            return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
     
     # Check for image-based PDFs with some text content
     if is_likely_image_pdf and len(first_page_text) < 500:  # Higher threshold for image PDFs

@@ -4,8 +4,11 @@ The EPIC.search Embedder is a robust, production-grade document processing syste
 
 ## ✨ Key Features
 
-- **📄 Advanced PDF Processing**: Handles both regular and scanned PDF documents
+- **📄 Advanced PDF Processing**: Handles both regular and scanned PDF documents with intelligent fallback chains
 - **🔍 OCR Support**: Automatic text extraction from scanned PDFs using Tesseract or Azure Document Intelligence
+- **🆕 🖼️ Image Analysis**: AI-powered visual content analysis for PDFs and images when OCR fails
+- **🆕 📋 Multi-Format Support**: PDFs, Images (PNG/JPG/etc.), Word documents (DOCX), and text files
+- **🆕 🛡️ Universal Fallback**: No document left behind - if text extraction fails, visual analysis ensures searchability
 - **🧠 Semantic Search**: Vector embeddings for intelligent document search
 - **⚡ High Performance**: Optimized parallel processing with configurable concurrency
 - **🛡️ Smart Recovery**: Dynamic timeouts and phantom worker detection prevent hung processes
@@ -35,6 +38,49 @@ OCR_PROVIDER=tesseract
 ```
 
 See the [OCR Documentation](#ocr-processing) section for detailed setup instructions.
+
+## 🆕 Image Analysis for PDFs and Images
+
+The embedder now includes **AI-powered image analysis** that ensures no document is left unprocessed. When OCR fails to extract text, the system automatically analyzes visual content to generate searchable descriptions.
+
+### Universal Processing Chain
+
+**For PDFs:**
+
+```text
+PDF → Text Extraction → OCR → PDF→Image Conversion → Image OCR → Azure Vision Analysis → ✅ Success
+```
+
+**For Images:**
+
+```text
+Image → OCR → Azure Vision Analysis → ✅ Success
+```
+
+### Quick Image Analysis Setup
+
+```env
+# Enable image content analysis
+IMAGE_ANALYSIS_ENABLED=true
+
+# Azure Computer Vision (recommended)
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# Confidence threshold for analysis results
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5
+```
+
+### What Gets Processed
+
+- **🖼️ Pure Images**: Photos, charts, diagrams, screenshots (PNG, JPG, BMP, TIFF, GIF)
+- **📄 Image-Based PDFs**: PDFs containing scanned photos or graphics
+- **⚠️ OCR-Resistant Documents**: Any PDF where text extraction and OCR both fail
+- **🔄 Automatic Fallback**: Seamless transition from text processing to visual analysis
+
+**Result**: Every document becomes searchable, either through extracted text or AI-generated visual descriptions.
+
+See the [Image Analysis Documentation](DOCUMENTATION.md#image-analysis-for-images-and-pdfs) section for detailed setup instructions.
 
 ## Installation
 
