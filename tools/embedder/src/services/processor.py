@@ -215,7 +215,7 @@ def process_project_files(document_tasks, file_keys, metadata_list, api_docs_lis
                         
                 except BrokenProcessPool as bpp_error:
                     print(f"[{completed_count + 1}/{total_documents}] CRITICAL: Process pool broken while processing {doc_id}: {bpp_error}")
-                    print(f"[RESILIENCE] Worker crashed, likely due to OCR memory issues. Document marked as failed, continuing with others.")
+                    print(f"[RESILIENCE] Worker crashed during document processing. Document marked as failed, continuing with others.")
                     log_processing_result(project_id, doc_id, "failure")
                     progress_tracker.finish_document_processing(worker_id, success=False, skipped=False)
                     
