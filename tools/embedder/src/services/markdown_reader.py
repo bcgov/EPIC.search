@@ -29,6 +29,19 @@ def read_as_pages(path):
         # Try PyMuPDF4LLM markdown extraction (preferred method)
         pages = pymupdf4llm.to_markdown(path, page_chunks=True)
         if pages and len(pages) > 0:
+            # Check if pymupdf4llm returned valid content or just formatting characters
+            total_meaningful_chars = 0
+            for page in pages:
+                text = page.get("text", "").strip()
+                # Count characters that aren't just formatting (dashes, newlines, etc.)
+                meaningful_chars = len([c for c in text if c not in ['-', '\n', '\r', ' ', '\t']])
+                total_meaningful_chars += meaningful_chars
+            
+            # If we have very little meaningful content, consider it a failure
+            if total_meaningful_chars < 10:  # Threshold for meaningful content
+                print(f"[WARN] PyMuPDF4LLM returned only formatting characters ({total_meaningful_chars} meaningful chars) for {path}, falling back to basic text extraction")
+                raise ValueError("Insufficient meaningful content from PyMuPDF4LLM")
+            
             return pages
         else:
             print(f"[WARN] PyMuPDF4LLM returned empty pages for {path}, falling back to basic text extraction")

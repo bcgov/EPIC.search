@@ -4,8 +4,11 @@ The EPIC.search Embedder is a robust, production-grade document processing syste
 
 ## ✨ Key Features
 
-- **📄 Advanced PDF Processing**: Handles both regular and scanned PDF documents
+- **📄 Advanced PDF Processing**: Handles both regular and scanned PDF documents with intelligent fallback chains
 - **🔍 OCR Support**: Automatic text extraction from scanned PDFs using Tesseract or Azure Document Intelligence
+- **🆕 🖼️ Image Analysis**: AI-powered visual content analysis for PDFs and images when OCR fails
+- **🆕 📋 Multi-Format Support**: PDFs, Images (PNG/JPG/etc.), Word documents (DOCX), and text files
+- **🆕 🛡️ Universal Fallback**: No document left behind - if text extraction fails, visual analysis ensures searchability
 - **🧠 Semantic Search**: Vector embeddings for intelligent document search
 - **⚡ High Performance**: Optimized parallel processing with configurable concurrency
 - **🛡️ Smart Recovery**: Dynamic timeouts and phantom worker detection prevent hung processes
@@ -35,6 +38,52 @@ OCR_PROVIDER=tesseract
 ```
 
 See the [OCR Documentation](#ocr-processing) section for detailed setup instructions.
+
+## 🆕 Image Analysis for PDFs and Images
+
+The embedder now includes **AI-powered image analysis** that ensures no document is left unprocessed. When OCR fails to extract text, the system automatically analyzes visual content to generate searchable descriptions.
+
+### Universal Processing Chain
+
+**For PDFs:**
+
+```text
+PDF → Text Extraction → OCR → PDF→Image Conversion → Image OCR → Azure Vision Analysis → ✅ Success
+```
+
+**For Images:**
+
+```text
+Image → OCR → Azure Vision Analysis → ✅ Success
+```
+
+### Quick Image Analysis Setup
+
+```env
+# Enable image content analysis
+IMAGE_ANALYSIS_ENABLED=true
+
+# Azure Computer Vision (recommended)
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# Confidence threshold for analysis results
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5
+
+# Image processing optimization (prevents "image too large" errors)
+IMAGE_ANALYSIS_DPI=150              # Lower DPI creates smaller images for Azure (default: 150)
+```
+
+### What Gets Processed
+
+- **🖼️ Pure Images**: Photos, charts, diagrams, screenshots (PNG, JPG, BMP, TIFF, GIF)
+- **📄 Image-Based PDFs**: PDFs containing scanned photos or graphics
+- **⚠️ OCR-Resistant Documents**: Any PDF where text extraction and OCR both fail
+- **🔄 Automatic Fallback**: Seamless transition from text processing to visual analysis
+
+**Result**: Every document becomes searchable, either through extracted text or AI-generated visual descriptions.
+
+See the [Image Analysis Documentation](DOCUMENTATION.md#image-analysis-for-images-and-pdfs) section for detailed setup instructions.
 
 ## Installation
 
@@ -614,6 +663,25 @@ azure.core.exceptions.ClientAuthenticationError: Invalid API key
 - **Poor text quality**: Increase `OCR_DPI` (e.g., 400-600 for high-quality scans)
 - **Wrong language**: Set `OCR_LANGUAGE` to correct language code
 - **Complex layouts**: Consider switching to Azure Document Intelligence for better layout understanding
+
+#### Azure Vision Image Size Issues
+
+If you see errors like "Image too large" when processing PDFs:
+
+```text
+Error: Image dimensions exceed Azure Vision limits
+```
+
+**Solutions:**
+
+1. **Reduce image DPI**: Lower `IMAGE_ANALYSIS_DPI` setting (default: 150):
+
+   ```env
+   IMAGE_ANALYSIS_DPI=100  # Reduces image size
+   ```
+
+2. **Azure Vision limits**: Maximum image size is 20MB, dimensions up to 10,000x10,000 pixels
+3. **Large PDFs**: Consider enabling additional preprocessing or contact support for enterprise solutions
 
 ### Known Issues
 

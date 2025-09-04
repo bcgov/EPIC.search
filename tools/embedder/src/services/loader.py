@@ -18,7 +18,6 @@ import tempfile
 import traceback
 import strip_markdown
 import time
-import json
 import numpy as np
 
 from typing import List, Dict, Any, Tuple
@@ -417,9 +416,11 @@ def _download_and_validate_pdf(s3_key: str, temp_dir: str = None, metrics: dict 
         # Check if downloaded file is empty (this causes workers to hang)
         file_size = os.path.getsize(temp_path)
         if file_size == 0:
-            print(f"[ERROR] Downloaded file is empty (0 bytes): {s3_key}")
+            print(f"[SKIP] Downloaded file is empty (0 bytes): {s3_key}. Marking as skipped due to S3 corruption or access issues.")
             _safe_delete_temp_file(temp_path)
-            raise ValueError(f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues.")
+            doc_info["validation_status"] = "skipped"
+            doc_info["validation_reason"] = f"Downloaded file {s3_key} is empty (0 bytes). This may indicate S3 corruption or access issues."
+            return None, doc_info
         
         print(f"[DEBUG] Downloaded {s3_key}: {file_size} bytes to {temp_path}")
         
@@ -902,6 +903,7 @@ def load_data(
         if not temp_path:
             # Determine status based on validation reason - distinguish between failures and skipped files
             validation_reason = doc_info.get("validation_reason") if doc_info else None
+            validation_status = doc_info.get("validation_status") if doc_info else None
             print(f"[DEBUG] Processing failed document {s3_key} with validation_reason: '{validation_reason}'")
             
             if validation_reason == "precheck_failed":
@@ -916,6 +918,14 @@ def load_data(
                 # Files exceeding page count should be marked as skipped
                 status = "skipped"
                 print(f"[SKIP] File {s3_key} exceeded page count limit. Marking as skipped.")
+            elif validation_reason and "is empty (0 bytes)" in validation_reason:
+                # Empty/corrupted files should be marked as skipped
+                status = "skipped"
+                print(f"[SKIP] File {s3_key} is empty or corrupted. Marking as skipped.")
+            elif validation_status == "skipped":
+                # Any other case where validation_status is explicitly set to skipped
+                status = "skipped"
+                print(f"[SKIP] File {s3_key} was marked as skipped during validation. Marking as skipped.")
             elif validation_reason in ["image_pdf_analysis_failed", "image_pdf_processing_failed", "image_analysis_failed", "no_content_analysis_available"]:
                 # Image processing failures should be marked as failure
                 status = "failure"

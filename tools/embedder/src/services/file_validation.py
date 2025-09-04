@@ -1,4 +1,5 @@
 import fitz
+import os
 
 from .ocr.ocr_factory import extract_text_with_ocr, is_ocr_available
 from .word_reader import is_word_supported, get_word_document_metadata
@@ -180,32 +181,22 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages=None):
                     ocr_info["pages_processed"] = len(ocr_pages) if ocr_pages else 0
                     ocr_info["ocr_error"] = "No meaningful text extracted from OCR processing"
                     
-                    # If OCR fails and this looks like an image PDF, try image processing
-                    if is_likely_image_pdf:
-                        print(f"[IMAGE_PDF] OCR failed for image-based PDF {s3_key}, trying image analysis...")
-                        return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
-                    
-                    return False, "ocr_failed", None, ocr_info
+                    # NEW: Try image analysis fallback for ALL PDFs when OCR fails
+                    print(f"[PDF_IMAGE_ANALYSIS] OCR failed, attempting image analysis fallback for PDF {s3_key}...")
+                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
             except Exception as ocr_err:
                 error_msg = str(ocr_err)
                 print(f"[ERROR] OCR processing failed with exception for {s3_key}: {error_msg}")
+                print(f"[PDF_IMAGE_ANALYSIS] Attempting image analysis fallback for PDF {s3_key}...")
                 ocr_info["ocr_error"] = error_msg
                 ocr_info["ocr_error_type"] = type(ocr_err).__name__
                 
-                # If OCR fails and this looks like an image PDF, try image processing
-                if is_likely_image_pdf:
-                    print(f"[IMAGE_PDF] OCR failed for image-based PDF {s3_key}, trying image analysis...")
-                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
-                
-                return False, "ocr_failed", None, ocr_info
-        else:
-            # If no OCR available but this looks like an image PDF, try image processing
-            if is_likely_image_pdf:
-                print(f"[IMAGE_PDF] No OCR available for image-based PDF {s3_key}, trying image analysis...")
+                # NEW: Try image analysis fallback for ALL PDFs when OCR fails
                 return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
-            
-            print(f"[SKIP] Document {s3_key} appears to be scanned but OCR is not available")
-            return False, "scanned_or_image_pdf", None, ocr_info
+        else:
+            # OCR not available, try image analysis fallback for ALL PDFs
+            print(f"[PDF_IMAGE_ANALYSIS] OCR not available, attempting image analysis for PDF {s3_key}...")
+            return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
     
     # Secondary check: scanning device creator/producer with minimal text content
     if is_likely_scanned and len(first_page_text) < 200:
@@ -258,16 +249,22 @@ def _validate_pdf_file(temp_path, s3_key, ocr_info, max_pages=None):
                     print(f"[OCR] OCR processing failed to extract meaningful text from {s3_key}")
                     ocr_info["pages_processed"] = len(ocr_pages) if ocr_pages else 0
                     ocr_info["ocr_error"] = "No meaningful text extracted from OCR processing"
-                    return False, "ocr_failed", None, ocr_info
+                    
+                    # NEW: Try image analysis fallback for ALL PDFs when OCR fails
+                    print(f"[PDF_IMAGE_ANALYSIS] OCR failed for scanning device PDF, attempting image analysis fallback for {s3_key}...")
+                    return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
             except Exception as ocr_err:
                 error_msg = str(ocr_err)
                 print(f"[ERROR] OCR processing failed with exception for {s3_key}: {error_msg}")
+                print(f"[PDF_IMAGE_ANALYSIS] Attempting image analysis fallback for scanning device PDF {s3_key}...")
                 ocr_info["ocr_error"] = error_msg
                 ocr_info["ocr_error_type"] = type(ocr_err).__name__
-                return False, "ocr_failed", None, ocr_info
+                
+                # NEW: Try image analysis fallback for ALL PDFs when OCR fails
+                return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
         else:
-            print(f"[SKIP] Document {s3_key} from scanning device but OCR is not available")
-            return False, "scanned_or_image_pdf", None, ocr_info
+            print(f"[PDF_IMAGE_ANALYSIS] OCR not available for scanning device PDF, attempting image analysis for {s3_key}...")
+            return _handle_image_pdf_processing(temp_path, s3_key, ocr_info)
     
     # Check for image-based PDFs with some text content
     if is_likely_image_pdf and len(first_page_text) < 500:  # Higher threshold for image PDFs
@@ -358,6 +355,10 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
     try:
         print(f"[IMAGE_PDF] Converting PDF {s3_key} to image for processing...")
         
+        # Get DPI setting for image analysis (default to 150 for smaller file sizes)
+        image_analysis_dpi = int(os.getenv('IMAGE_ANALYSIS_DPI', '150'))
+        print(f"[IMAGE_PDF] Using {image_analysis_dpi} DPI for image conversion to optimize file size...")
+        
         # Open the PDF and convert first page to image
         doc = fitz.open(temp_path)
         if doc.page_count == 0:
@@ -365,15 +366,20 @@ def _handle_image_pdf_processing(temp_path, s3_key, ocr_info):
             print(f"[ERROR] PDF {s3_key} has no pages")
             return False, "no_pages", None, ocr_info
         
-        # Convert first page to image (high DPI for better quality)
+        # Convert first page to image using configurable DPI
         page = doc[0]
-        mat = fitz.Matrix(300/72, 300/72)  # 300 DPI
+        mat = fitz.Matrix(image_analysis_dpi/72, image_analysis_dpi/72)  # Use configurable DPI
         pix = page.get_pixmap(matrix=mat)
         
         # Save as temporary PNG file
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_image:
             temp_image_path = temp_image.name
             pix.save(temp_image_path)
+        
+        # Log the converted image size
+        image_file_size = os.path.getsize(temp_image_path)
+        image_width, image_height = pix.width, pix.height
+        print(f"[IMAGE_PDF] Converted image: {image_width}x{image_height}px, {image_file_size:,} bytes ({image_file_size/1024/1024:.1f} MB)")
         
         doc.close()
         

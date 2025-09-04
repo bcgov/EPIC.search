@@ -112,9 +112,12 @@ graph TB
         
         subgraph Document Processing
             PDF[PDF Document]
-            VAL{PDF Validation}
+            IMG[Image Files]
+            VAL{File Validation}
             TXT[Text Extraction]
             OCR[OCR Processing]
+            IMGCONV[🆕 PDF→Image<br/>Conversion]
+            IMGANALYSIS[🆕 Image Analysis<br/>Fallback]
             MD[Markdown Conversion]
             chunks[Text Chunks]
             KW[Keywords/Tags]
@@ -123,6 +126,7 @@ graph TB
         subgraph AI Models
             EM[Embedding Model]
             KM[Keyword Model]
+            VISION[🆕 Azure Computer<br/>Vision]
         end
         
         subgraph OCR Providers
@@ -140,14 +144,23 @@ graph TB
     API -->|Get Document IDs| MP
     MP -->|Continuous Queue| PS
     PS -->|Process Files| LS
-    S3 -->|Download PDFs| LS
+    S3 -->|Download Files| LS
     LS --> VAL
-    VAL -->|Regular PDF| TXT
-    VAL -->|Scanned PDF| OCR
+    VAL -->|PDF Files| PDF
+    VAL -->|Image Files| IMG
+    PDF -->|Regular PDF| TXT
+    PDF -->|Scanned PDF| OCR
+    IMG -->|Try OCR First| OCR
     OCR --> TESS
     OCR --> AZURE
+    OCR -->|🆕 OCR Fails| IMGCONV
+    IMG -->|🆕 OCR Fails| IMGANALYSIS
+    IMGCONV -->|🆕 Try Image OCR| OCR
+    IMGCONV -->|🆕 OCR Still Fails| IMGANALYSIS
+    IMGANALYSIS --> VISION
     TXT --> MD
     OCR --> MD
+    IMGANALYSIS --> MD
     LS -->|Convert| PDF
     PDF -->|Transform| MD
     MD -->|Split| chunks
@@ -162,11 +175,13 @@ graph TB
     classDef secondary fill:#ff7e67,stroke:#ff7e67,color:#fff
     classDef storage fill:#78bc61,stroke:#78bc61,color:#fff
     classDef input fill:#d4a5a5,stroke:#d4a5a5,color:#fff
+    classDef new fill:#FF9800,stroke:#FF9800,color:#fff
     
     class MP,PS,LS primary
-    class PDF,MD,chunks,KW secondary
+    class PDF,IMG,MD,chunks,KW secondary
     class VDB,LDB storage
     class API,S3 input
+    class IMGCONV,IMGANALYSIS,VISION new
 ```
 
 ### Data Flow
@@ -177,8 +192,13 @@ graph TB
 4. Each document is:
    - Downloaded from S3
    - **Validated for format and content** (routes files to appropriate processing pipeline)
-   - Processed via format-specific extraction (PDF text, OCR, or Word document processing)
-   - Converted to markdown format
+   - Processed via format-specific extraction with intelligent fallback chains:
+     - **PDF documents**: Text extraction → OCR → PDF-to-image conversion → Image OCR → Vision analysis
+     - **Image files**: OCR text extraction → Vision analysis fallback  
+     - **Word documents**: Direct text extraction with structure preservation
+     - **Text files**: Multi-encoding text extraction with chunking
+   - 🆕 **Enhanced with AI vision** when text extraction fails (PDFs and images)
+   - Converted to markdown format with preserved metadata
    - Chunked into smaller text segments
    - Embedded using a configurable vector model
    - Tagged/keyworded using parallelized KeyBERT extraction
@@ -193,8 +213,11 @@ The EPIC.search Embedder supports multiple document formats for text extraction 
 
 - **Native Text PDFs**: Direct text extraction with high accuracy
 - **Scanned/Image PDFs**: OCR processing using Tesseract or Azure Document Intelligence
+- **🆕 OCR-Resistant PDFs**: When OCR fails, automatic PDF-to-image conversion with vision analysis fallback
+- **🆕 Image-Based PDFs**: PDFs containing photos/graphics processed with Azure Computer Vision
 - **Mixed Content PDFs**: Automatic detection and routing to appropriate processing pipeline
 - **Format Support**: All standard PDF versions and encodings
+- **🆕 Universal Fallback**: No PDF is left unprocessed - if all text extraction fails, visual content analysis ensures searchability
 
 ### Microsoft Word Documents
 
@@ -371,7 +394,110 @@ OCR_PROVIDER=tesseract    # or 'azure'
 processor = OCRFactory.create_processor(provider_type)
 ```
 
-### OCR Processing Flow
+### Complete Document Processing Flows
+
+The system now provides comprehensive processing flows for all document types with intelligent fallback mechanisms:
+
+#### 📄 PDF Document Processing Flow
+
+```mermaid
+graph TB
+    PDF[PDF Document] --> VAL{PDF Validation}
+    VAL -->|✅ Valid| META[Extract Metadata]
+    VAL -->|❌ Invalid| FAIL1[precheck_failed]
+    
+    META --> TXT_CHECK{Text Content?}
+    TXT_CHECK -->|📄 Standard Text| EXTRACT[Direct Text Extraction]
+    TXT_CHECK -->|🖨️ Minimal/No Text| OCR_FLOW[OCR Processing]
+    TXT_CHECK -->|🖼️ Image PDF| IMG_PDF[Image PDF Processing]
+    
+    OCR_FLOW --> OCR_AVAIL{OCR Available?}
+    OCR_AVAIL -->|✅ Yes| OCR_PROC[OCR Processing]
+    OCR_AVAIL -->|❌ No| PDF_IMG_FALLBACK[🆕 PDF → Image Analysis]
+    
+    OCR_PROC --> OCR_SUCCESS{OCR Success?}
+    OCR_SUCCESS -->|✅ Text Found| OCR_RESULT[✅ ocr_processed]
+    OCR_SUCCESS -->|❌ No Text/Failed| PDF_IMG_FALLBACK
+    
+    PDF_IMG_FALLBACK --> IMG_CONV[Convert PDF → Image]
+    IMG_CONV --> IMG_OCR{Try OCR on Image}
+    IMG_OCR -->|✅ Success| IMG_OCR_RESULT[✅ image_pdf_ocr_processed]
+    IMG_OCR -->|❌ Failed| VISION[Azure Vision Analysis]
+    
+    VISION --> VISION_SUCCESS{Vision Success?}
+    VISION_SUCCESS -->|✅ Content Found| VISION_RESULT[✅ image_pdf_analysis_processed]
+    VISION_SUCCESS -->|❌ Failed| FAIL2[image_pdf_analysis_failed]
+    
+    IMG_PDF --> IMG_CONV
+    EXTRACT --> SUCCESS[✅ success]
+    
+    classDef success fill:#4CAF50,stroke:#4CAF50,color:#fff
+    classDef failure fill:#f44336,stroke:#f44336,color:#fff
+    classDef processing fill:#2196F3,stroke:#2196F3,color:#fff
+    classDef new fill:#FF9800,stroke:#FF9800,color:#fff
+    
+    class SUCCESS,OCR_RESULT,IMG_OCR_RESULT,VISION_RESULT success
+    class FAIL1,FAIL2 failure
+    class OCR_FLOW,OCR_PROC,IMG_CONV,VISION processing
+    class PDF_IMG_FALLBACK new
+```
+
+#### 🖼️ Image File Processing Flow
+
+```mermaid
+graph TB
+    IMG[Image File] --> IMG_VAL{Image Valid?}
+    IMG_VAL -->|✅ Valid| IMG_OCR_CHECK{OCR Available?}
+    IMG_VAL -->|❌ Invalid| IMG_FAIL1[precheck_failed]
+    
+    IMG_OCR_CHECK -->|✅ Yes| IMG_OCR_PROC[OCR Processing]
+    IMG_OCR_CHECK -->|❌ No| IMG_ANALYSIS[Image Analysis]
+    
+    IMG_OCR_PROC --> IMG_OCR_SUCCESS{OCR Success?}
+    IMG_OCR_SUCCESS -->|✅ Text Found| IMG_OCR_RESULT[✅ ocr_processed]
+    IMG_OCR_SUCCESS -->|❌ No Text/Failed| IMG_ANALYSIS
+    
+    IMG_ANALYSIS --> IMG_VISION{Vision Available?}
+    IMG_VISION -->|✅ Yes| IMG_VISION_PROC[Azure Vision Analysis]
+    IMG_VISION -->|❌ No| IMG_FAIL2[no_content_analysis_available]
+    
+    IMG_VISION_PROC --> IMG_VISION_SUCCESS{Vision Success?}
+    IMG_VISION_SUCCESS -->|✅ Content Found| IMG_VISION_RESULT[✅ image_analysis_processed]
+    IMG_VISION_SUCCESS -->|❌ Failed| IMG_FAIL3[image_analysis_failed]
+    
+    classDef success fill:#4CAF50,stroke:#4CAF50,color:#fff
+    classDef failure fill:#f44336,stroke:#f44336,color:#fff
+    classDef processing fill:#2196F3,stroke:#2196F3,color:#fff
+    
+    class IMG_OCR_RESULT,IMG_VISION_RESULT success
+    class IMG_FAIL1,IMG_FAIL2,IMG_FAIL3 failure
+    class IMG_OCR_PROC,IMG_ANALYSIS,IMG_VISION_PROC processing
+```
+
+#### 📝 Word & Text File Processing
+
+```mermaid
+graph TB
+    DOC[DOCX/Text File] --> DOC_VAL{File Valid?}
+    DOC_VAL -->|✅ Valid| DOC_EXTRACT[Extract Text Content]
+    DOC_VAL -->|❌ Invalid| DOC_FAIL[validation_failed]
+    
+    DOC_EXTRACT --> DOC_CHECK{Sufficient Content?}
+    DOC_CHECK -->|✅ Yes| DOC_SUCCESS[✅ success]
+    DOC_CHECK -->|❌ No| DOC_INSUFFICIENT[insufficient_text_content]
+    
+    classDef success fill:#4CAF50,stroke:#4CAF50,color:#fff
+    classDef failure fill:#f44336,stroke:#f44336,color:#fff
+    classDef processing fill:#2196F3,stroke:#2196F3,color:#fff
+    
+    class DOC_SUCCESS success
+    class DOC_FAIL,DOC_INSUFFICIENT failure
+    class DOC_EXTRACT processing
+```
+
+### 🆕 Enhanced OCR Processing Flow
+
+**Key Improvement**: ALL PDF OCR failures now trigger image analysis fallback (previously only for detected "image PDFs"):
 
 1. **Document Validation**: PDF is analyzed for extractable text content and device metadata
 2. **Multi-Level Scanned Detection**:
@@ -383,8 +509,9 @@ processor = OCRFactory.create_processor(provider_type)
    - **Tesseract**: PDF pages converted to high-quality images, then OCR processed
    - **Azure**: Document uploaded directly to Document Intelligence API
 5. **Quality Assurance**: OCR results validated for meaningful text extraction
-6. **Graceful Fallback**: If OCR fails on scanning device documents, falls back to standard extraction
-7. **Result Integration**: OCR text integrated into standard processing pipeline with proper metadata tagging
+6. **🆕 Universal Image Analysis Fallback**: **ALL** PDFs with OCR failures now get image analysis fallback
+7. **🆕 Multi-Step Fallback**: PDF → OCR → Image Conversion → Image OCR → Vision Analysis
+8. **Result Integration**: Final content integrated into standard processing pipeline with proper metadata tagging
 
 ### OCR Processing Behavior
 
@@ -396,13 +523,54 @@ The system automatically triggers OCR processing in these scenarios:
 2. **🖨️ Scanning Device + Minimal Text**: Documents from devices like RICOH, HP scanners with < 200 characters
 3. **🔧 Quality Enhancement**: **ALL** documents from known scanning devices get OCR for better text quality
 
-#### **Status Outcomes**
+#### **🆕 Enhanced Status Outcomes**
 
-- **✅ Success + OCR**: Document processed with OCR-extracted text, marked with `extraction_method: "ocr_tesseract"`
+**Successful Processing:**
+
+- **✅ Success + Standard Text**: Regular PDF with extractable text, marked with `extraction_method: "standard"`
+- **✅ Success + OCR**: Document processed with OCR-extracted text, marked with `extraction_method: "ocr_tesseract"` or `"ocr_azure"`
+- **✅ Success + Image PDF OCR**: PDF converted to image and OCR processed, status: `"image_pdf_ocr_processed"`
+- **🆕 ✅ Success + Image Analysis**: PDF processed with visual content analysis, status: `"image_pdf_analysis_processed"`
+
+**Image Files:**
+
+- **✅ Success + Image OCR**: Image file with OCR-extracted text, status: `"ocr_processed"`
+- **✅ Success + Image Analysis**: Pure image with AI-generated description, status: `"image_analysis_processed"`
+
+**Failures and Skips:**
+
 - **⚠️ Skipped**: Scanned documents when OCR is not available (status: `"skipped"`)
-- **❌ Failed**: OCR was attempted but failed to extract meaningful text (status: `"failure"`)
+- **❌ OCR Failed**: OCR was attempted but failed to extract meaningful text, **now triggers image analysis fallback**
+- **❌ Analysis Failed**: Both OCR and image analysis failed (status: `"image_pdf_analysis_failed"` or `"image_analysis_failed"`)
+- **❌ No Analysis Available**: Neither OCR nor image analysis configured (status: `"no_content_analysis_available"`)
 
-> 💡 **Retry Tip**: Use `--retry-skipped` to reprocess documents that were skipped due to missing OCR, `--retry-failed` to retry documents where OCR processing failed, or both flags together (`--retry-failed --retry-skipped`) for comprehensive reprocessing. This is useful when enabling OCR or fixing configuration issues.
+#### **🆕 Processing Path Examples**
+
+##### Example 1: Scanned PDF with Poor Quality
+
+```text
+Input: scanned_report.pdf (contains images of text, OCR fails)
+Path: PDF → OCR Fails → Convert to Image → Image OCR Fails → Azure Vision → ✅ Success
+Result: "image_pdf_analysis_processed" with visual content description
+```
+
+##### Example 2: Image-Based PDF
+
+```text
+Input: photo_document.pdf (PDF containing a photo, no text)
+Path: PDF → OCR Fails → Convert to Image → Azure Vision → ✅ Success  
+Result: "image_pdf_analysis_processed" with photo description
+```
+
+##### Example 3: Pure Image File
+
+```text
+Input: chart.png (graph/diagram image)
+Path: Image → OCR Fails → Azure Vision → ✅ Success
+Result: "image_analysis_processed" with chart/diagram description
+```
+
+> 💡 **Retry Tip**: Use `--retry-failed` to reprocess documents that were skipped due to missing OCR, `--retry-skipped` to retry documents where OCR processing failed, or both flags together (`--retry-failed --retry-skipped`) for comprehensive reprocessing. This is useful when enabling OCR or fixing configuration issues.
 
 #### **Known Scanning Device Detection**
 
@@ -447,23 +615,41 @@ Documents from these devices automatically trigger OCR processing:
 - Service limit and quota management
 - Automatic retry with exponential backoff
 
+**Azure Vision Image Size Handling:**
+
+- Automatic PDF-to-image DPI optimization (`IMAGE_ANALYSIS_DPI` setting)
+- Respects Azure Vision limits: 20MB max file size, 10,000x10,000 max dimensions
+- Clear error messages when images exceed service limits
+- Graceful fallback when image processing fails
+
 **Provider Fallback:**
 
 - No automatic fallback between providers (explicit configuration required)
 - Clear error messages guide users to alternative providers
 - Validation ensures provider dependencies are available
 
-## 🆕 Image Analysis for Pure Images
+## 🆕 Image Analysis for Images and PDFs
 
-The system now includes AI-powered image analysis for pure images (photos, graphics, etc.) that don't contain readable text. When OCR fails to extract meaningful text from image files, the system automatically attempts to analyze and describe the visual content.
+The system now includes AI-powered image analysis for both pure images and PDF documents when OCR fails. This ensures that visual content is never lost and becomes searchable through AI-generated descriptions.
 
 ### How It Works
+
+#### For Image Files
 
 1. **Image Validation**: Verify the file can be opened as a valid image format
 2. **OCR Attempt**: First try to extract any text content using OCR
 3. **Image Analysis Fallback**: If OCR fails or finds no text, analyze visual content
 4. **Description Generation**: Create searchable text describing the image content
 5. **Indexing**: Store the generated description for semantic search
+
+#### 🆕 For PDF Documents
+
+1. **PDF Processing**: Standard PDF text extraction and OCR attempts
+2. **OCR Failure Detection**: When OCR fails to extract meaningful text
+3. **PDF → Image Conversion**: Convert first page to high-resolution image (300 DPI)
+4. **Image OCR Retry**: Attempt OCR on the converted image
+5. **Vision Analysis Fallback**: If image OCR also fails, analyze visual content
+6. **Enhanced PDF Context**: Generate PDF-specific searchable content with document metadata
 
 ### Supported Image Formats
 
@@ -494,16 +680,46 @@ The system now includes AI-powered image analysis for pure images (photos, graph
 ```env
 # Image Analysis Configuration
 IMAGE_ANALYSIS_ENABLED=true              # Enable/disable image content analysis
-IMAGE_ANALYSIS_PREFERRED_PROVIDER=azure  # 'azure' or 'openai'
+IMAGE_ANALYSIS_PREFERRED_PROVIDER=azure  # 'azure' (currently supported)
 IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5  # Minimum confidence (0.0-1.0)
+IMAGE_ANALYSIS_DPI=150                   # DPI for PDF-to-image conversion (prevents "image too large" errors)
 
 # Azure Computer Vision
 AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
 AZURE_VISION_KEY=your_azure_computer_vision_key
-
-# OpenAI GPT-4 Vision
-OPENAI_API_KEY=your_openai_api_key
 ```
+
+### 🆕 Enhanced Configuration for PDF Processing
+
+The new PDF image analysis fallback works automatically with the existing OCR configuration:
+
+```env
+# OCR Configuration (enables primary text extraction)
+OCR_ENABLED=true
+OCR_PROVIDER=azure  # or 'tesseract'
+
+# Azure Document Intelligence (for OCR)
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://yourresource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your_api_key_here
+
+# Image Analysis Configuration (enables fallback for OCR failures)
+IMAGE_ANALYSIS_ENABLED=true
+IMAGE_ANALYSIS_DPI=150  # Optimize image size for Azure Vision (prevents "image too large" errors)
+AZURE_VISION_ENDPOINT=https://yourregion.cognitiveservices.azure.com/
+AZURE_VISION_KEY=your_azure_computer_vision_key
+
+# Optional: Tune confidence thresholds
+IMAGE_ANALYSIS_CONFIDENCE_THRESHOLD=0.5
+```
+
+**Processing Behavior with Both Enabled:**
+
+1. **Text PDFs**: Direct text extraction (fast, high accuracy)
+2. **Scanned PDFs**: Azure Document Intelligence OCR (good accuracy)
+3. **OCR-Resistant PDFs**: PDF→Image conversion + Azure Computer Vision (ensures no document is lost)
+4. **Image Files**: OCR first, then Azure Computer Vision fallback
+
+This configuration ensures maximum document coverage while maintaining processing efficiency.
 
 ### Example: Badger Photo Processing
 

@@ -133,6 +133,9 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
                 - duration_seconds: Time taken to process the project
     """
     
+    # Track total function runtime
+    function_start_time = datetime.now()
+    
     # Print performance configuration
     files_concurrency = settings.multi_processing_settings.files_concurrency_size
     keyword_workers = settings.multi_processing_settings.keyword_extraction_workers
@@ -291,7 +294,19 @@ def process_projects(project_ids=None, skip_hnsw_indexes=False, retry_failed_onl
     
     progress_tracker.stop(reason)
 
-    return {"message": "Processing completed", "results": results}
+    # Calculate total function runtime
+    function_end_time = datetime.now()
+    total_function_runtime = function_end_time - function_start_time
+    total_runtime_seconds = total_function_runtime.total_seconds()
+    
+    print(f"\n[FUNCTION RUNTIME] Total process_projects runtime: {str(total_function_runtime).split('.')[0]} ({total_runtime_seconds:.1f} seconds)")
+
+    return {
+        "message": "Processing completed", 
+        "results": results,
+        "total_runtime_seconds": total_runtime_seconds,
+        "total_runtime_formatted": str(total_function_runtime).split('.')[0]
+    }
 
 
 def process_projects_in_parallel(projects, embedder_temp_dir, start_time, timed_mode, time_limit_seconds, retry_failed_only=False, retry_skipped_only=False, max_pages=None):
