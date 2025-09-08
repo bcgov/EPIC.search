@@ -309,62 +309,30 @@ class AgenticService:
     @staticmethod
     def _fallback_suggest_search_strategy(query: str, user_intent: str = "find_documents") -> Dict[str, Any]:
         """Fallback search strategy suggestions when MCP server is unavailable."""
-        current_app.logger.info("Using fallback search strategy logic")
+        current_app.logger.info("Using fallback search strategy logic - defaulting to HYBRID_SEMANTIC_FALLBACK")
         
-        # Enhanced rule-based strategy selection
+        # When MCP is unavailable, always use HYBRID_SEMANTIC_FALLBACK as the safest option
+        # This provides both keyword and semantic capabilities without requiring MCP intelligence
+        strategy = "HYBRID_SEMANTIC_FALLBACK"
+        explanation = "MCP server unavailable, using hybrid approach as fallback for balanced results"
+        
+        # For specific cases where we can be confident without MCP
         query_lower = query.lower()
         
-        # Check for generic document requests (should use DOCUMENT_ONLY)
-        generic_document_patterns = [
-            'all the', 'all documents', 'all correspondence', 'all reports', 'all files',
-            'want all', 'need all', 'get all', 'find all', 'show all', 'give me all',
-            'i want all', 'i need all', 'all of the', 'everything', 'any documents',
-            'any correspondence', 'any reports', 'any files'
-        ]
-        
-        document_type_keywords = [
-            'correspondence', 'reports', 'documents', 'files', 'memos', 'letters',
-            'emails', 'communications', 'records', 'submissions', 'applications'
-        ]
-        
-        # Check if this is a generic document request
-        is_generic_request = False
-        has_document_type = any(doc_type in query_lower for doc_type in document_type_keywords)
-        has_generic_pattern = any(pattern in query_lower for pattern in generic_document_patterns)
-        
-        if has_generic_pattern and has_document_type:
-            is_generic_request = True
-        elif any(f"all {doc_type}" in query_lower for doc_type in document_type_keywords):
-            is_generic_request = True
-        elif any(f"want {doc_type}" in query_lower for doc_type in document_type_keywords):
-            is_generic_request = True
-        
-        # Strategy selection logic
-        if any(pattern in query_lower for pattern in ['id:', 'number:', 'code:', '#']):
+        # Only override for very specific patterns we can handle confidently
+        if any(pattern in query_lower for pattern in ['id:', 'number:', 'code:', '#']) and len(query.split()) <= 3:
             strategy = "KEYWORD_ONLY"
             explanation = "Detected specific identifiers, using keyword matching"
-        elif is_generic_request:
-            strategy = "DOCUMENT_ONLY"
-            explanation = "Detected generic document request, using document-focused search"
-        elif user_intent == "specific_lookup":
+        elif user_intent == "specific_lookup" and len(query.split()) <= 2:
             strategy = "KEYWORD_ONLY"
-            explanation = "Specific lookup intent, prioritizing keyword matching"
-        elif user_intent in ["explore_topic", "get_overview"]:
-            strategy = "SEMANTIC_ONLY"
-            explanation = "Exploratory intent, using semantic search for broader results"
-        elif len(query.split()) <= 2:
-            strategy = "KEYWORD_ONLY"
-            explanation = "Short query, using keyword-focused approach"
-        else:
-            strategy = "HYBRID_SEMANTIC_FALLBACK"
-            explanation = "General query, using hybrid approach for balanced results"
+            explanation = "Specific lookup intent with short query, prioritizing keyword matching"
         
         return {
             "result": {
                 "recommended_strategy": strategy,
                 "confidence": 0.6,
                 "explanation": explanation,
-                "alternative_strategies": ["HYBRID_SEMANTIC_FALLBACK"],
+                "alternative_strategies": ["HYBRID_SEMANTIC_FALLBACK", "KEYWORD_ONLY", "SEMANTIC_ONLY"],
                 "query": query,
                 "user_intent": user_intent
             },
