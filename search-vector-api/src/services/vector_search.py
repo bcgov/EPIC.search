@@ -157,17 +157,12 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     
     This function serves as the primary interface for search functionality. It handles:
     1. Parameter validation and configuration setup
-    2. Special case detection for generic document requests (routes to direct metadata search)
-    3. Strategy selection and execution via the search strategy factory
-    4. Fallback error handling
+    2. Strategy selection and execution via the search strategy factory
+    3. Fallback error handling
     
     The actual search implementation is delegated to modular strategy classes located in
     the search_strategies package. Each strategy implements its own multi-stage pipeline
     optimized for different use cases (semantic-first, keyword-first, parallel, etc.).
-    
-    Special Cases:
-    - Generic document requests with type/project filters → Direct metadata search
-    - DOCUMENT_ONLY strategy → Metadata-based document retrieval
     
     Strategy Options:
     - HYBRID_SEMANTIC_FALLBACK (default): Document filtering → semantic → keyword fallback
@@ -175,7 +170,7 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     - SEMANTIC_ONLY: Pure semantic vector search
     - KEYWORD_ONLY: Pure keyword-based search  
     - HYBRID_PARALLEL: Parallel semantic and keyword search
-    - DOCUMENT_ONLY: Metadata-based document browsing
+    - DOCUMENT_ONLY: Metadata-based document browsing (explicit user choice only)
     
     Args:
         question (str): The search query text
@@ -250,24 +245,14 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     # Instantiate VectorStore
     vec_store = VectorStore()
     
-    # Check if this should be a direct metadata search (generic document request)
-    # This can happen either:
-    # 1. When both project_ids and document_type_ids are provided (original condition)
-    # 2. When document_type_ids are provided and it's a generic request (document browsing)
-    # 3. When search strategy is explicitly set to DOCUMENT_ONLY
-    
-    # Determine if this is an explicit user choice or automatic detection
+    # Check if this should be a direct metadata search (DOCUMENT_ONLY strategy)
+    # This only happens when the user explicitly requests DOCUMENT_ONLY strategy
     explicit_document_only = (search_strategy == "DOCUMENT_ONLY")
-    auto_detected_document_only = ((project_ids and document_type_ids and is_generic_document_request(question)) or
-                                  (document_type_ids and is_generic_document_request(question)))
     
-    if explicit_document_only or auto_detected_document_only:
+    if explicit_document_only:
         
         import logging
-        if explicit_document_only:
-            logging.info(f"Direct metadata search mode: User explicitly requested DOCUMENT_ONLY strategy for query: '{question}'")
-        else:
-            logging.info(f"Direct metadata search mode: Auto-detected generic document request for query: '{question}' with strategy: {search_strategy}")
+        logging.info(f"Direct metadata search mode: User explicitly requested DOCUMENT_ONLY strategy for query: '{question}'")
         logging.info(f"Project IDs: {project_ids}, Document Type IDs: {document_type_ids}")
               
         # Perform direct metadata search
@@ -276,12 +261,7 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
         )
         metrics["metadata_search_ms"] = metadata_search_time
         metrics["search_mode"] = "direct_metadata"
-        
-        # Only set strategy_override if this was auto-detected, not if user explicitly requested it
-        if not explicit_document_only:
-            metrics["strategy_override"] = f"Switched from {search_strategy} to DOCUMENT_ONLY for generic document request"
-        else:
-            metrics["strategy_used"] = "DOCUMENT_ONLY (user requested)"
+        metrics["strategy_used"] = "DOCUMENT_ONLY (user requested)"
         
         # Format the document results directly (no re-ranking needed for date-ordered results)
         format_start = time.time()
@@ -873,8 +853,11 @@ def format_similar_documents(similar_docs_df):
 def is_generic_document_request(query: str) -> bool:
     """Check if the query is a generic document request (not seeking specific content).
     
-    Generic queries are those that ask for documents of a certain type without
-    seeking specific information within those documents. This includes:
+    This function is used by the inference pipeline to determine appropriate query cleaning
+    strategies. Generic queries are those that ask for documents of a certain type without
+    seeking specific information within those documents.
+    
+    Generic queries include:
     1. Explicit generic patterns like "show me all letters"
     2. Very short queries after inference cleaning (e.g., "Packages", "Reports")
     3. Simple document type words without context

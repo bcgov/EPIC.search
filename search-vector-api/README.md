@@ -132,10 +132,9 @@ The API supports multiple configurable search strategies to optimize for differe
 
 * **DOCUMENT_ONLY**: Direct document-level search without chunk analysis
   * Returns document-level results based on metadata filtering only
-  * Automatically used for generic document requests (e.g., "show me all letters")
-  * Fastest option for document browsing and type-based filtering
-  * No semantic analysis or relevance scoring applied
-  * **Smart Override**: When explicitly requested but the query requires content search, the system will automatically fall back to appropriate semantic/hybrid strategies for better results
+  * **Explicit use only**: Must be specifically requested via the `searchStrategy` parameter
+  * Fastest option for document browsing and type-based filtering when you need all documents of certain types
+  * No semantic analysis or relevance scoring applied - results ordered by date
 
 The search strategy can be overridden per-request using the `searchStrategy` parameter:
 
@@ -146,45 +145,43 @@ The search strategy can be overridden per-request using the `searchStrategy` par
 }
 ```
 
-**Important**: The `DOCUMENT_ONLY` strategy includes intelligent behavior that will automatically fall back to semantic search when the query requires content analysis rather than document browsing:
+**Important**: The `DOCUMENT_ONLY` strategy performs pure metadata-based document retrieval without content analysis. Use this strategy when you need:
 
 ```json
-// ✅ DOCUMENT_ONLY will be used - generic document request
+// ✅ DOCUMENT_ONLY - Best for document browsing and discovery
 {
   "query": "show me all correspondence letters",
   "searchStrategy": "DOCUMENT_ONLY"
 }
 
-// ❌ DOCUMENT_ONLY will be overridden - content-specific query
+// ⚠️ DOCUMENT_ONLY - May return no results for content-specific queries
 {
   "query": "What are the projected greenhouse gas emissions?",
   "searchStrategy": "DOCUMENT_ONLY"
 }
-// → System automatically uses HYBRID_SEMANTIC_FALLBACK instead
+// → Consider using HYBRID_SEMANTIC_FALLBACK for content-specific searches
 ```
 
-This intelligent override ensures optimal results regardless of the specified strategy.
+**When to use DOCUMENT_ONLY:**
 
-#### Strategy Override Behavior
+* Document browsing and discovery ("show me all reports", "list all correspondence")
+* When you need all documents of specific types within a project
+* Fast document enumeration without content relevance scoring
 
-The search system includes intelligent strategy selection that can override explicitly requested strategies when they would produce suboptimal results:
+**When to use other strategies:**
 
-**DOCUMENT_ONLY Strategy Overrides:**
+* Content-specific queries requiring semantic understanding
+* When you need documents ranked by relevance to query content
+* Searches for specific topics, concepts, or information within documents
 
-* **When it works**: Generic document browsing queries ("show me all letters", "find correspondence", "list reports")
-* **When it's overridden**: Content-specific queries ("What are the emissions?", "How does the process work?", "Tell me about safety concerns")
-* **Override behavior**: Automatically falls back to `HYBRID_SEMANTIC_FALLBACK` for content-specific queries
-
-**Why this happens**: `DOCUMENT_ONLY` returns document-level metadata without content analysis. For queries seeking specific information within documents, semantic search provides much better results.
-
-**Response indicators**: Check the `strategy_metrics` in the response to see if your requested strategy was overridden:
+The `strategy_metrics` in the response shows which strategy was actually used:
 
 ```json
 {
   "strategy_metrics": {
-    "search_strategy": "HYBRID_SEMANTIC_FALLBACK",
-    "strategy_applied": "HYBRID_SEMANTIC_FALLBACK", 
-    "strategy_source": "intelligent_override"  // Instead of "user_requested"
+    "search_strategy": "DOCUMENT_ONLY",
+    "strategy_applied": "DOCUMENT_ONLY", 
+    "strategy_source": "user_requested"
   }
 }
 ```

@@ -153,7 +153,7 @@ class ProjectInferenceService:
                     continue
                 
                 # Skip overly generic single words that appear in many project names
-                if n == 1 and ngram in {'project', 'development', 'pipeline', 'mine', 'dam', 'terminal', 'facility', 'energy', 'gas', 'oil', 'hydro'}:
+                if n == 1 and ngram in {'project', 'development', 'pipeline', 'mine', 'dam', 'terminal', 'facility', 'energy', 'gas', 'oil', 'hydro', 'south', 'north', 'east', 'west', 'mountain', 'river', 'creek', 'island', 'point', 'road', 'bridge', 'resort', 'park', 'extension', 'expansion', 'phase'}:
                     continue
                 
                 # Only include if at least one word appears in known project names
@@ -350,18 +350,52 @@ class ProjectInferenceService:
         high_confidence_projects = []
         individual_confidences = []
         
-        for match in top_matches:
-            individual_similarity = match["similarity"]
-            
-            # Apply individual project confidence thresholds
-            # Use a lower threshold (0.75) to catch more multi-project scenarios
-            individual_threshold = max(0.75, confidence_threshold - 0.05)
-            
-            if individual_similarity >= individual_threshold:
+        # First pass: Look for very high similarity matches (0.95+) which indicate exact/near-exact matches
+        excellent_matches = [match for match in top_matches if match["similarity"] >= 0.95]
+        
+        if excellent_matches:
+            # If we have excellent matches, prefer those and be very selective
+            # Only take the top 2 excellent matches to avoid over-inference
+            for match in excellent_matches[:2]:
                 high_confidence_projects.append(match["project_id"])
-                individual_confidences.append(individual_similarity)
+                individual_confidences.append(match["similarity"])
+                logging.debug(f"Selected high-confidence project '{match['project_name']}' with similarity {match['similarity']:.3f}")
                 
-                logging.debug(f"Selected project '{match['project_name']}' with similarity {individual_similarity:.3f}")
+                # If we have a perfect or near-perfect match (0.98+), stop here
+                if match["similarity"] >= 0.98:
+                    logging.info(f"Found near-perfect project match, stopping inference: {match['project_name']} ({match['similarity']:.3f})")
+                    break
+        else:
+            # Second pass: Look for good matches but be much more selective
+            accepted_matches = 0
+            for match in top_matches:
+                individual_similarity = match["similarity"]
+                entity = match.get("entity", "")
+                entity_words = len(entity.split())
+                
+                # Very strict thresholds to prevent over-inference
+                if entity_words >= 4 and individual_similarity >= 0.90:
+                    # 4+ word entities (like "south anderson mountain resort") with very high similarity
+                    individual_threshold = 0.90
+                elif entity_words == 3 and individual_similarity >= 0.93:
+                    # 3-word entities need very high similarity
+                    individual_threshold = 0.93
+                elif entity_words == 2 and individual_similarity >= 0.95:
+                    # Two-word entities need near-perfect similarity
+                    individual_threshold = 0.95
+                else:
+                    # Single words or low similarity - skip
+                    continue
+                
+                if individual_similarity >= individual_threshold:
+                    high_confidence_projects.append(match["project_id"])
+                    individual_confidences.append(individual_similarity)
+                    accepted_matches += 1
+                    logging.debug(f"Selected project '{match['project_name']}' with similarity {individual_similarity:.3f} (entity: '{entity}', words: {entity_words})")
+                
+                # Very strict limit - only accept 1 project unless we have multiple excellent matches
+                if accepted_matches >= 1:
+                    break
         
         # Calculate overall confidence based on selected projects
         if high_confidence_projects:
