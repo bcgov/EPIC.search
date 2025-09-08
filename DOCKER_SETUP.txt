@@ -1,0 +1,73 @@
+# EPIC Search System - Docker Setup
+
+Copy this file to the root directory as README_DOCKER.md
+
+## Quick Start
+
+1. **Copy environment files:**
+   ```bash
+   cp .env.example .env
+   cp docker-compose.override.yml.example docker-compose.override.yml
+   ```
+
+2. **Update the `.env` file with your actual values:**
+   ```bash
+   # Required: Update these with your actual S3 credentials
+   S3_BUCKET_NAME=your-actual-bucket-name
+   S3_ACCESS_KEY_ID=your-actual-access-key
+   S3_SECRET_ACCESS_KEY=your-actual-secret-key
+   
+   # Optional: Customize other settings as needed
+   DB_PASSWORD=your-secure-password
+   ```
+
+3. **Start the complete EPIC Search system:**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Access the services:**
+   - Search API: http://localhost:3200
+   - Vector API: http://localhost:3300
+   - Ollama Model: http://localhost:11434
+   - Database: localhost:5432 (PostgreSQL with pgvector)
+
+## Services
+
+- **epic-search-db**: PostgreSQL database with pgvector extension
+- **epic-search-model**: Ollama LLM service with Qwen2.5 model
+- **epic-search-vector-api**: Vector search and embedding API
+- **epic-search-api**: Main search API with agentic capabilities
+
+## File Structure
+
+- `docker-compose.yml` - Base configuration (safe for source control)
+- `docker-compose.override.yml` - Local development overrides (ignored by git)
+- `.env` - Environment variables (ignored by git)
+- `.env.example` - Template for environment variables (committed to git)
+
+## Security Notes
+
+- Never commit `.env` or `docker-compose.override.yml` files
+- Use placeholder values in base configuration files
+- Keep sensitive data (S3 credentials, passwords) in local override files only
+
+## Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `S3_BUCKET_NAME` | S3 bucket for document storage | `epic-documents` |
+| `S3_ACCESS_KEY_ID` | S3 access key | `AKIA...` |
+| `S3_SECRET_ACCESS_KEY` | S3 secret key | `abc123...` |
+| `DB_PASSWORD` | Database password | `secure-password` |
+| `MODEL_NAME` | Ollama model name | `qwen2.5` |
+| `LLM_PROVIDER` | LLM provider (ollama/openai) | `ollama` |
+
+## Troubleshooting
+
+1. **Port conflicts:** Update port mappings in `.env` file
+2. **Permission issues:** Ensure Docker has proper file access
+3. **Model loading:** First startup may take time to download models
+4. **S3 connection:** Verify S3 credentials and endpoint
+
+For more details, see the search-api [DOCUMENTATION.md](search-api/DOCUMENTATION.md) file.

@@ -152,7 +152,7 @@ def get_document_display_name(document_metadata, chunk_metadata=None):
     return None
 
 
-def search(question, project_ids=None, document_type_ids=None, min_relevance_score=None, top_n=None, search_strategy=None):
+def search(question, project_ids=None, document_type_ids=None, min_relevance_score=None, top_n=None, search_strategy=None, semantic_query=None):
     """Main search entry point that routes requests to appropriate search strategies.
     
     This function serves as the primary interface for search functionality. It handles:
@@ -191,6 +191,9 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
                                        Valid values: 'HYBRID_SEMANTIC_FALLBACK', 'HYBRID_KEYWORD_FALLBACK',
                                        'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL', 'DOCUMENT_ONLY'.
                                        If None, uses 'HYBRID_SEMANTIC_FALLBACK'.
+        semantic_query (str, optional): Override the automatic semantic query cleaning with a user-provided
+                                      optimized query for vector search. If None, the system will automatically
+                                      clean and optimize the question for semantic search.
         
     Returns:
         tuple: A tuple containing:
@@ -252,24 +255,33 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     # 1. When both project_ids and document_type_ids are provided (original condition)
     # 2. When document_type_ids are provided and it's a generic request (document browsing)
     # 3. When search strategy is explicitly set to DOCUMENT_ONLY
-    if ((project_ids and document_type_ids and is_generic_document_request(question)) or
-        (document_type_ids and is_generic_document_request(question)) or
-        (search_strategy == "DOCUMENT_ONLY")):
+    
+    # Determine if this is an explicit user choice or automatic detection
+    explicit_document_only = (search_strategy == "DOCUMENT_ONLY")
+    auto_detected_document_only = ((project_ids and document_type_ids and is_generic_document_request(question)) or
+                                  (document_type_ids and is_generic_document_request(question)))
+    
+    if explicit_document_only or auto_detected_document_only:
         
         import logging
-        logging.info(f"Direct metadata search mode activated for query: '{question}' with strategy: {search_strategy}")
+        if explicit_document_only:
+            logging.info(f"Direct metadata search mode: User explicitly requested DOCUMENT_ONLY strategy for query: '{question}'")
+        else:
+            logging.info(f"Direct metadata search mode: Auto-detected generic document request for query: '{question}' with strategy: {search_strategy}")
         logging.info(f"Project IDs: {project_ids}, Document Type IDs: {document_type_ids}")
-        
-        # For generic requests with document type filtering, use document-only search
-        effective_strategy = "DOCUMENT_ONLY"
-        
+              
         # Perform direct metadata search
         documents, metadata_search_time = perform_direct_metadata_search(
             vec_store, project_ids, document_type_ids, doc_limit
         )
         metrics["metadata_search_ms"] = metadata_search_time
         metrics["search_mode"] = "direct_metadata"
-        metrics["strategy_override"] = f"Switched from {search_strategy} to DOCUMENT_ONLY for generic document request"
+        
+        # Only set strategy_override if this was auto-detected, not if user explicitly requested it
+        if not explicit_document_only:
+            metrics["strategy_override"] = f"Switched from {search_strategy} to DOCUMENT_ONLY for generic document request"
+        else:
+            metrics["strategy_used"] = "DOCUMENT_ONLY (user requested)"
         
         # Format the document results directly (no re-ranking needed for date-ordered results)
         format_start = time.time()
@@ -311,7 +323,8 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
             top_n=top_n,
             min_relevance_score=min_relevance_score,
             metrics=metrics,
-            start_time=start_time
+            start_time=start_time,
+            semantic_query=semantic_query
         )
     except Exception as e:
         # Fallback to default strategy if something goes wrong
@@ -333,7 +346,8 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
                 top_n=top_n,
                 min_relevance_score=min_relevance_score,
                 metrics=metrics,
-                start_time=start_time
+                start_time=start_time,
+                semantic_query=semantic_query
             )
         except Exception as fallback_error:
             logging.error(f"Critical error: Default strategy fallback also failed: {fallback_error}")
@@ -899,12 +913,17 @@ def is_generic_document_request(query: str) -> bool:
         r'\b(about|regarding|related to|concerning)\b',
         r'\b(contain|containing|with|have|having|include|including)\b',
         r'\b(mention|mentioning|discuss|discussing|address|addressing)\b',
-        r'\b(refer|referring|reference|references)\s+(to|the|a|an)\b',
+        r'\b(refer|refers|referring|reference|references)\s+(to|the|a|an)\b',
+        r'\b(refer|refers|referring|reference|references)\s+to\b',  # More flexible refer pattern
+        r'\bthat\s+(refer|refers|referring|reference|references)\b',  # "that refers"
         r'\b(talk|talking|speak|speaking)\s+(about|of|on)\b',
         r'\b(environmental|safety|health|regulatory|compliance)\b',
         r'\b(impact|effect|consequence|result|outcome)\b',
-        r'\bthat\s+(talk|speak|discuss|mention|refer|address|cover)\b',
-        r'\b(nation|first nation|indigenous|aboriginal|métis|inuit)\b'
+        r'\bthat\s+(talk|talks|speak|speaks|discuss|discusses|mention|mentions|refer|refers|address|addresses|cover|covers)\b',
+        r'\b(nation|first nation|indigenous|aboriginal|métis|inuit)\b',
+        r'\b(band|tribe|tribal|nation)\b',  # Additional indigenous/band references
+        r'\bnamed?\s+["\']?[A-Z][^"\']*["\']?\b',  # Named entities (proper nouns in quotes)
+        r'\bcalled\s+["\']?[A-Z][^"\']*["\']?\b'  # "called X" patterns
     ]
     
     # If query contains content-specific terms, it's NOT generic

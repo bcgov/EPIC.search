@@ -87,7 +87,8 @@ class HybridSemanticFallbackStrategy(BaseSearchStrategy):
         top_n: Optional[int] = None, 
         min_relevance_score: Optional[float] = None, 
         metrics: Dict[str, Any] = None, 
-        start_time: float = None
+        start_time: float = None,
+        semantic_query: Optional[str] = None
     ) -> Tuple[List[Dict], Dict[str, Any]]:
         """Execute the hybrid semantic fallback search strategy.
         
@@ -102,6 +103,8 @@ class HybridSemanticFallbackStrategy(BaseSearchStrategy):
             min_relevance_score (float, optional): Minimum relevance threshold
             metrics (dict): Metrics dictionary to update
             start_time (float): Search start time
+            semantic_query (str, optional): Pre-optimized semantic query for vector search.
+                                          If provided, this takes precedence over question for vector operations.
             
         Returns:
             tuple: (formatted_data, metrics)
@@ -115,6 +118,10 @@ class HybridSemanticFallbackStrategy(BaseSearchStrategy):
             format_data
         )
         
+        # Determine the query to use for semantic search operations
+        # Use semantic_query if provided, otherwise fall back to question
+        search_query = semantic_query if semantic_query is not None else question
+        
         # Validate parameters
         self._validate_parameters(question, vec_store, top_n, min_relevance_score)
         
@@ -124,6 +131,8 @@ class HybridSemanticFallbackStrategy(BaseSearchStrategy):
         
         # Log strategy start
         self._log_strategy_start(question, project_ids, document_type_ids)
+        if semantic_query:
+            logging.info(f"Using provided semantic query for vector search: '{semantic_query}'")
         
         # Stage 1: Find relevant documents using document-level metadata
         relevant_documents, doc_search_time = perform_document_level_search(
@@ -139,7 +148,7 @@ class HybridSemanticFallbackStrategy(BaseSearchStrategy):
         if not relevant_documents.empty:
             document_ids = relevant_documents["document_id"].tolist()
             chunk_results, chunk_search_time = perform_chunk_search_within_documents(
-                vec_store, document_ids, question, chunk_limit
+                vec_store, document_ids, search_query, chunk_limit
             )
             metrics["chunk_search_ms"] = chunk_search_time
             chunk_count = len(chunk_results) if not chunk_results.empty else 0
@@ -148,7 +157,7 @@ class HybridSemanticFallbackStrategy(BaseSearchStrategy):
             # Alternative path: if no documents found, perform semantic search across all chunks
             logging.info("HYBRID_SEMANTIC_FALLBACK - Stage 2: No documents found, using semantic search across all chunks")
             chunk_results, semantic_search_time = perform_semantic_search_all_chunks(
-                vec_store, question, chunk_limit, project_ids, document_type_ids
+                vec_store, search_query, chunk_limit, project_ids, document_type_ids
             )
             metrics["semantic_search_ms"] = semantic_search_time
             chunk_count = len(chunk_results) if not chunk_results.empty else 0

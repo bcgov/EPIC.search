@@ -637,7 +637,123 @@ The search response includes ranking information in the metrics:
 }
 ```
 
+## Semantic Query Control
+
+The search API supports optional user-provided semantic queries for advanced search optimization through the `semanticQuery` parameter. This feature allows advanced users to bypass automatic query cleaning and provide pre-optimized queries specifically for semantic/vector search operations.
+
+### Semantic Query Overview
+
+The `semanticQuery` parameter provides direct control over the query used for semantic search operations while preserving the original query for logging, display, and non-semantic operations.
+
+### Semantic Query Use Cases
+
+* **Query Optimization**: Provide a cleaned, focused query when you know the exact terms for semantic search
+* **Bypassing Inference**: Skip automatic query processing when you have already optimized the query
+* **Advanced Search Control**: Full control over semantic search while maintaining original query context
+* **Testing and Debugging**: Compare results between original and optimized queries
+* **Integration Workflows**: Allow external systems to provide pre-processed queries
+
+### Semantic Query Parameter
+
+The search request accepts an optional `semanticQuery` string:
+
+```json
+{
+  "query": "find information about machine learning algorithms in the Coyote project",
+  "semanticQuery": "machine learning algorithms",  // Optional: pre-optimized semantic query
+  "projectIds": ["coyote-project-id"],
+  "ranking": {
+    "minScore": -6.0,
+    "topN": 10
+  }
+}
+```
+
+### Semantic Query Behavior
+
+The system determines which query to use for semantic operations using this priority:
+
+1. **If `semanticQuery` is provided**: Use it directly for all semantic/vector search operations without modification
+2. **If `semanticQuery` is not provided**: Apply automatic query cleaning and use inference results
+3. **Always-applied cleaning**: Even with explicit project/document type IDs, semantic cleaning is applied unless `semanticQuery` is provided
+
+### Semantic Query vs Original Query Usage
+
+| Operation Type | Uses semanticQuery When Provided | Uses Original Query When semanticQuery Not Provided |
+|---------------|-----------------------------------|---------------------------------------------------|
+| Vector/Semantic Search | ✓ Direct usage, no cleaning | ✓ After automatic cleaning |
+| Document-level Keyword Search | ✗ Always uses original query | ✓ Uses original query |
+| Final Keyword Fallback | ✗ Always uses original query | ✓ Uses original query |
+| Logging and Display | ✗ Always shows original query | ✓ Shows original query |
+| Project Inference | ✗ Always uses original query | ✓ Uses original query |
+
+### Response Indicators
+
+The API response includes several fields to indicate semantic query processing:
+
+```json
+{
+  "vector_search": {
+    "document_chunks": [...],
+    "search_metrics": {...},
+    "original_query": "find information about machine learning algorithms",
+    "final_semantic_query": "machine learning algorithms",
+    "user_semantic_query_provided": true,
+    "semantic_cleaning_applied": false,
+    "additional_semantic_cleaning_applied": false,
+    "query_processed": false
+  }
+}
+```
+
+### Response Field Descriptions
+
+* **`original_query`**: The original query provided by the user
+* **`final_semantic_query`**: The actual query used for semantic/vector search operations
+* **`user_semantic_query_provided`**: Boolean indicating if user provided a `semanticQuery` parameter
+* **`semantic_cleaning_applied`**: Boolean indicating if automatic semantic cleaning was applied
+* **`additional_semantic_cleaning_applied`**: Boolean indicating if cleaning was applied for explicit ID cases
+* **`query_processed`**: Boolean indicating if any query modification occurred
+
+### Semantic Query Examples
+
+#### Basic Usage
+
+```json
+{
+  "query": "show me documents about renewable energy storage systems",
+  "semanticQuery": "renewable energy storage"
+}
+```
+
+#### With Project Filtering
+
+```json
+{
+  "query": "find environmental assessments for the Wind Farm project",
+  "semanticQuery": "environmental assessment",
+  "projectIds": ["wind-farm-proj-001"]
+}
+```
+
+#### Debugging Query Processing
+
+```json
+{
+  "query": "look for information about machine learning algorithms"
+  // No semanticQuery - compare automatic cleaning results
+}
+```
+
 ### API Endpoints
+
+The Vector Search API provides several endpoint categories:
+
+1. **Vector Search** (`/api/vector-search`) - Primary search functionality for documents
+2. **Document Similarity** (`/api/document-similarity`) - Find similar documents
+3. **Tools** (`/api/tools/*`) - Lightweight utilities for external systems and MCP tools
+4. **Statistics** (`/api/stats/*`) - Processing metrics and project statistics
+5. **Health** (`/healthz`, `/readyz`) - Service health and readiness checks
 
 ### Vector Search
 
@@ -652,9 +768,10 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ```json
 {
   "query": "climate change impacts on wildlife",
-  "projectIds": ["project-123", "project-456"],  // Optional project filtering
-  "documentTypeIds": ["doc-type-123"],           // Optional document type filtering
-  "inference": ["PROJECT", "DOCUMENTTYPE"]       // Optional inference control
+  "semanticQuery": "climate change wildlife impact",    // Optional pre-optimized semantic query
+  "projectIds": ["project-123", "project-456"],        // Optional project filtering
+  "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
+  "inference": ["PROJECT", "DOCUMENTTYPE"]             // Optional inference control
 }
 ```
 
@@ -1113,36 +1230,282 @@ docker run -p 8080:8080 vector-search-api
 
 Choosing the appropriate model loading strategy depends on your specific deployment needs, performance requirements, and infrastructure constraints. Build-time preloading is ideal for production deployments where response time consistency is critical, while lazy loading may be more suitable for development environments.
 
-### Statistics API
+### Tools API
 
-The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, skipped counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
+The Tools API provides lightweight utility endpoints for external tools and MCP (Model Context Protocol) systems. It offers simplified access to project listings and document type information without the overhead of processing statistics.
 
+#### Projects List
 The API provides two distinct success rate metrics:
 
 * **Overall Success Rate**: Includes all files (successful / total_files) - provides insight into file selection and processing pipeline
 * **Processing Success Rate**: Excludes skipped files (successful / processed_files) - focuses on actual processing pipeline effectiveness
 
+
+```http
+GET /api/tools/projects
+```
+
+Retrieves a simple list of all projects with basic information (ID and name only).
+
+**Response:**
+
+```json
+{
+  "projects": [
+    {
+      "project_id": "project-123",
+      "project_name": "Site C Clean Energy Project"
+    },
+    {
+      "project_id": "project-456", 
+      "project_name": "Trans Mountain Pipeline"
+    }
+  ],
+  "total_projects": 2
+}
+```
+
+#### Document Types List
+
+```http
+GET /api/tools/document-types
+```
+
+Retrieves comprehensive document type information including names, IDs, and aliases for both 2002 Act and 2018 Act terms.
+
+**Response:**
+
+```json
+{
+  "document_types": {
+    "5cf00c03a266b7e1877504ca": {
+      "name": "Request",
+      "aliases": ["request", "requests", "inquiry", "inquiries"],
+      "act": "2002_act_terms"
+    },
+    "5cf00c03a266b7e1877504cb": {
+      "name": "Letter",
+      "aliases": ["letter", "letters", "correspondence", "email", "emails"],
+      "act": "2002_act_terms"
+    }
+  },
+  "lookup_only": {
+    "5cf00c03a266b7e1877504ca": "Request",
+    "5cf00c03a266b7e1877504cb": "Letter"
+  },
+  "total_types": 42,
+  "act_breakdown": {
+    "2002_act_terms": 20,
+    "2018_act_terms": 22
+  }
+}
+```
+
+#### Document Type Details
+
+```http
+GET /api/tools/document-types/{type_id}
+```
+
+Retrieves detailed information for a specific document type by ID.
+
+**Response:**
+
+```json
+{
+  "document_type": {
+    "id": "5cf00c03a266b7e1877504ca",
+    "name": "Request", 
+    "aliases": ["request", "requests", "inquiry", "inquiries"],
+    "act": "2002_act_terms"
+  }
+}
+```
+
+**Error Response (404):**
+
+```json
+{
+  "document_type": null,
+  "error": "Document type ID 'invalid-id' not found"
+}
+```
+
+#### Search Strategies
+
+```http
+GET /api/tools/search-strategies
+```
+
+Retrieves all available search strategies supported by the API, including semantic, keyword, hybrid, and metadata search options with their descriptions and capabilities.
+
+**Response:**
+
+```json
+{
+  "search_strategies": [
+    {
+      "name": "semantic",
+      "description": "AI-powered semantic search using embeddings",
+      "capabilities": ["natural_language", "contextual_understanding", "similarity_matching"],
+      "parameters": ["embedding_model", "similarity_threshold"]
+    },
+    {
+      "name": "keyword", 
+      "description": "Traditional keyword-based search",
+      "capabilities": ["exact_match", "boolean_operators", "phrase_matching"],
+      "parameters": ["query_string", "case_sensitive"]
+    },
+    {
+      "name": "hybrid",
+      "description": "Combined semantic and keyword search with ranking",
+      "capabilities": ["best_of_both", "weighted_results", "precision_recall_balance"],
+      "parameters": ["semantic_weight", "keyword_weight", "ranking_algorithm"]
+    },
+    {
+      "name": "metadata",
+      "description": "Search based on document metadata fields",
+      "capabilities": ["structured_search", "faceted_filtering", "date_ranges"],
+      "parameters": ["metadata_fields", "filter_criteria", "date_range"]
+    }
+  ]
+}
+```
+
+#### Inference Options
+
+```http
+GET /api/tools/inference-options
+```
+
+Retrieves all available inference options for document classification, including document type classification and project inference services.
+
+**Response:**
+
+```json
+{
+  "inference_options": [
+    {
+      "service": "document_type_inference",
+      "description": "Automatic document type classification using ML models",
+      "input_format": "text_content",
+      "output_format": {
+        "document_type": "string",
+        "confidence_score": "float",
+        "alternatives": "array"
+      },
+      "capabilities": ["multi_class_classification", "confidence_scoring", "alternative_suggestions"]
+    },
+    {
+      "service": "project_inference", 
+      "description": "Automatic project classification and assignment",
+      "input_format": "document_metadata",
+      "output_format": {
+        "project_id": "string",
+        "project_name": "string", 
+        "confidence_score": "float"
+      },
+      "capabilities": ["project_matching", "metadata_analysis", "confidence_scoring"]
+    }
+  ]
+}
+```
+
+#### API Capabilities
+
+```http
+GET /api/tools/api-capabilities
+```
+
+Retrieves comprehensive information about API capabilities, endpoints, methods, and parameters. Useful for MCP tools and external integrations to discover API functionality.
+
+**Response:**
+
+```json
+{
+  "api_capabilities": {
+    "version": "1.0",
+    "base_url": "/api",
+    "endpoints": {
+      "search": {
+        "path": "/vector-search",
+        "methods": ["POST"],
+        "capabilities": ["semantic_search", "keyword_search", "hybrid_search", "metadata_filtering"],
+        "parameters": {
+          "required": ["query"],
+          "optional": ["project_ids", "document_types", "limit", "offset", "search_strategy"]
+        }
+      },
+      "similarity": {
+        "path": "/document-similarity",
+        "methods": ["POST"],
+        "capabilities": ["similarity_search", "document_matching", "content_recommendation"],
+        "parameters": {
+          "required": ["document_id"],
+          "optional": ["project_ids", "limit"]
+        }
+      },
+      "tools": {
+        "path": "/tools",
+        "methods": ["GET"],
+        "capabilities": ["project_listing", "document_type_lookup", "api_discovery"],
+        "endpoints": [
+          "/tools/projects",
+          "/tools/document-types", 
+          "/tools/document-types/{type_id}",
+          "/tools/search-strategies",
+          "/tools/inference-options",
+          "/tools/api-capabilities"
+        ]
+      },
+      "stats": {
+        "path": "/stats", 
+        "methods": ["GET"],
+        "capabilities": ["processing_statistics", "project_metrics", "failure_analysis"],
+        "endpoints": [
+          "/stats/processing",
+          "/stats/processing/{project_id}",
+          "/stats/summary"
+        ]
+      },
+      "health": {
+        "path": "/",
+        "methods": ["GET"],
+        "capabilities": ["health_monitoring", "readiness_check", "service_status"],
+        "endpoints": [
+          "/healthz",
+          "/readyz"
+        ]
+      }
+    },
+    "data_formats": {
+      "input": ["application/json", "text/plain"],
+      "output": ["application/json"]
+    },
+    "authentication": {
+      "required": false,
+      "methods": []
+    }
+  }
+}
+```
+
+### Statistics API
+
+The Stats API provides comprehensive processing statistics and metrics for document processing operations. It tracks document processing success rates, failure counts, skipped counts, and detailed logs by joining data from the `processing_logs` and `projects` tables.
+
 #### Processing Statistics
 
 ```http
 GET /api/stats/processing
-POST /api/stats/processing
 ```
 
-Retrieves aggregated processing statistics across all projects or filtered by specific project IDs.
+Retrieves aggregated processing statistics across all projects.
 
-**GET Request (All Projects):**
+**Request:**
 
 ```http
 GET /api/stats/processing
-```
-
-**POST Request (Filtered Projects):**
-
-```json
-{
-  "projectIds": ["project-123", "project-456"]
-}
 ```
 
 **Response:**
@@ -1178,7 +1541,7 @@ GET /api/stats/processing
 #### Project Processing Details
 
 ```http
-GET /api/stats/project/{project_id}
+GET /api/stats/processing/{project_id}
 ```
 
 Provides detailed processing logs for a specific project including individual document processing records.

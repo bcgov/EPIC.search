@@ -1,0 +1,46 @@
+# EPIC Search System Environment Variables
+# Copy this file to the root directory as .env.example and update with your actual values
+
+# Database Configuration
+DB_USERNAME=postgres
+DB_PASSWORD=password
+DB_NAME=postgres
+DB_PORT=5432
+
+# Model Configuration
+MODEL_NAME=qwen2.5
+MODEL_VERSION=0.5b
+OLLAMA_PORT=11434
+
+# Vector API Configuration
+FLASK_ENV=development
+VECTOR_TABLE=document_tags
+EMBEDDING_DIMENSIONS=768
+KEYWORD_FETCH_COUNT=100
+SEMANTIC_FETCH_COUNT=100
+TOP_RECORD_COUNT=10
+RERANKER_BATCH_SIZE=8
+CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-2-v2
+EMBEDDING_MODEL_NAME=all-mpnet-base-v2
+KEYWORD_MODEL_NAME=all-mpnet-base-v2
+PRELOAD_MODELS=true
+MIN_RELEVANCE_SCORE=-8.0
+VECTOR_API_PORT=3300
+
+# Search API Configuration
+CORS_ORIGIN=*
+SEARCH_API_PORT=3200
+
+# S3 Storage Configuration (Required - Update with actual values)
+S3_BUCKET_NAME=your-bucket-name
+S3_ACCESS_KEY_ID=your-access-key-id
+S3_SECRET_ACCESS_KEY=your-secret-access-key
+S3_REGION=us-east-1
+S3_ENDPOINT_URI=https://nrs.objectstore.gov.bc.ca
+
+# LLM Configuration
+LLM_PROVIDER=ollama
+LLM_TEMPERATURE=0.3
+LLM_MAX_TOKENS=1000
+LLM_MAX_CONTEXT_LENGTH=8192
+LLM_MODEL=qwen2.5:0.5b

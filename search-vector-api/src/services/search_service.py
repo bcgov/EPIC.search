@@ -39,7 +39,7 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None, search_strategy: str = None) -> Dict[str, Any]:
+    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None, search_strategy: str = None, semantic_query: str = None) -> Dict[str, Any]:
         """Retrieve relevant documents using an advanced two-stage search strategy with intelligent project inference.
         
         This method implements a modern search approach that leverages document-level
@@ -171,7 +171,8 @@ class SearchService:
             "HYBRID_KEYWORD_FALLBACK", 
             "SEMANTIC_ONLY", 
             "KEYWORD_ONLY", 
-            "HYBRID_PARALLEL"
+            "HYBRID_PARALLEL",
+            "DOCUMENT_ONLY"
         }
         
         if search_strategy not in valid_strategies:
@@ -236,20 +237,36 @@ class SearchService:
         logging.info(f"About to call search with: project_ids={project_ids}, document_type_ids={document_type_ids}, is_generic={is_generic_request}")
         logging.info(f"Document type inference results: applied={inference_results.get('document_type_inference', {}).get('applied', False)}, ids={inference_results.get('document_type_inference', {}).get('inferred_document_type_ids', [])}")
         
-        # Use original query for generic requests, processed query for specific content searches
-        # However, if inference was applied and document types are inferred, we should use the cleaned query
-        # for generic detection to work properly after inference cleaning
-        if is_generic_request and not inference_results.get("document_type_inference", {}).get("applied", False):
+        # Determine the final semantic query to use
+        if semantic_query:
+            # User provided a semantic query - use it directly
+            final_search_query = semantic_query
+            logging.info(f"Using user-provided semantic query: '{semantic_query}'")
+        elif is_generic_request and not inference_results.get("document_type_inference", {}).get("applied", False):
             # Pure generic request without document type inference - use original query
             final_search_query = query
         else:
             # Content search or document type was inferred - use processed query
             final_search_query = search_query
+            
+        # For cases where explicit project/document type IDs are provided but no user semantic query,
+        # we still want to apply semantic cleaning to improve search quality
+        if not semantic_query and not is_generic_request and (project_ids or document_type_ids):
+            # Apply semantic cleaning even when explicit IDs are provided
+            cleaned_query = pipeline._perform_semantic_cleaning(query)
+            if cleaned_query != query:
+                final_search_query = cleaned_query
+                logging.info(f"Applied semantic cleaning for explicit ID search: '{cleaned_query}'")
         logging.info(f"Using search query: '{final_search_query}' (is_generic: {is_generic_request}, doc_type_applied: {inference_results.get('document_type_inference', {}).get('applied', False)})")
+        
+        # Track whether we applied additional semantic cleaning for explicit ID cases
+        additional_semantic_cleaning_applied = False
+        if not semantic_query and not is_generic_request and (project_ids or document_type_ids) and final_search_query != query:
+            additional_semantic_cleaning_applied = True
         
         # Track search stage timing
         search_start_time = time.time()
-        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n, search_strategy)
+        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n, search_strategy, semantic_query)
         search_time_ms = round((time.time() - search_start_time) * 1000, 2)
         
         # Create comprehensive stage-specific metrics
@@ -306,7 +323,9 @@ class SearchService:
                 "search_quality": search_quality,
                 "original_query": query,
                 "final_semantic_query": final_search_query,  # Show the actual query sent to vector search
-                "semantic_cleaning_applied": "semantic_cleaning" in inference_results["query_processing"]["steps_applied"],
+                "user_semantic_query_provided": semantic_query is not None,
+                "semantic_cleaning_applied": "semantic_cleaning" in inference_results["query_processing"]["steps_applied"] or additional_semantic_cleaning_applied,
+                "additional_semantic_cleaning_applied": additional_semantic_cleaning_applied,
                 "search_mode": search_mode,
                 "query_processed": inference_results["query_processing"]["query_changed"],  # Indicates if query was modified through cleaning
                 "inference_settings": {

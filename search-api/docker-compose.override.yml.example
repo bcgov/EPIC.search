@@ -1,0 +1,25 @@
+# Docker Compose Override for Local Development
+# This file contains local development values and should NOT be committed to source control
+# Copy this to docker-compose.override.yml and update with your actual values
+
+version: "3.9"
+
+services:
+  search-api:
+    environment:
+      # Vector Search API (local development)
+      - VECTOR_SEARCH_API_URL=http://host.docker.internal:8080/api
+      
+      # Azure OpenAI Configuration (replace with your actual values)
+      - AZURE_OPENAI_API_KEY=your-azure-openai-api-key-here
+      - AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+      - AZURE_OPENAI_DEPLOYMENT=your-deployment-name
+      
+      # Local development CORS
+      - CORS_ORIGIN=*
+      
+      # Debug settings
+      - LOG_LEVEL=DEBUG
+
+# Note: Database credentials and other settings use defaults from main docker-compose.yml
+# which are suitable for local development

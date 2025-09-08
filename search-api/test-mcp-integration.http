@@ -1,0 +1,114 @@
+# MCP Integration Test Cases
+# Test the new agentic endpoints with your MCP server
+
+### Variables
+@baseUrl = http://localhost:8081/api
+@contentType = application/json
+
+###
+# =============================================================================
+# MCP STATUS AND HEALTH CHECKS
+# =============================================================================
+
+###
+# Check MCP Server Status
+GET {{baseUrl}}/agentic/mcp-status
+Accept: application/json
+
+###
+# =============================================================================
+# AGENTIC SEARCH ENDPOINTS
+# =============================================================================
+
+###
+# Test AI-Powered Filter Suggestions
+POST {{baseUrl}}/agentic/suggest-filters
+Content-Type: {{contentType}}
+
+{
+  "query": "environmental impact assessment for mining projects",
+  "context": "Looking for documents related to mining environmental assessments in British Columbia"
+}
+
+###
+# Test Search with Auto-Inference
+POST {{baseUrl}}/agentic/search-with-inference
+Content-Type: {{contentType}}
+
+{
+  "query": "forest management plans",
+  "context": "User is looking for forestry planning documents",
+  "confidence_threshold": 0.7,
+  "max_results": 5
+}
+
+###
+# Test Orchestrated Multi-Strategy Search
+POST {{baseUrl}}/agentic/orchestrated-search
+Content-Type: {{contentType}}
+
+{
+  "query": "First Nations consultation requirements",
+  "context": "Research on indigenous consultation processes",
+  "user_intent": "find_documents",
+  "max_results": 10,
+  "include_stats": true
+}
+
+###
+# =============================================================================
+# TESTING ERROR HANDLING
+# =============================================================================
+
+###
+# Test missing required field
+POST {{baseUrl}}/agentic/suggest-filters
+Content-Type: {{contentType}}
+
+{
+  "context": "No query provided"
+}
+
+###
+# Test invalid confidence threshold
+POST {{baseUrl}}/agentic/search-with-inference
+Content-Type: {{contentType}}
+
+{
+  "query": "test query",
+  "confidence_threshold": 1.5,
+  "max_results": 5
+}
+
+###
+# =============================================================================
+# TESTING VECTOR SEARCH CLIENT AGENTIC METHODS
+# =============================================================================
+
+###
+# Test VectorSearchClient.suggest_filters via original search endpoint
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "wildlife habitat protection measures",
+  "searchStrategy": "HYBRID_SEMANTIC_FALLBACK",
+  "ranking": {
+    "topN": 3
+  }
+}
+
+###
+# =============================================================================
+# TESTING BACKWARDS COMPATIBILITY
+# =============================================================================
+
+###
+# Verify existing endpoints still work
+GET {{baseUrl}}/tools/projects
+Accept: application/json
+
+###
+# Verify stats endpoints still work
+GET {{baseUrl}}/stats/summary
+Accept: application/json

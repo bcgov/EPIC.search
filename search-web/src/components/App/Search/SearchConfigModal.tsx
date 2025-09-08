@@ -20,8 +20,8 @@ import { Close, HelpOutline } from "@mui/icons-material";
 import { BCDesignTokens } from "epic.theme";
 import { useState } from "react";
 import { SearchStrategy } from "@/hooks/useSearch";
+import { useSearchStrategies } from "@/hooks/useSearchStrategies";
 import { 
-  searchStrategyOptions,
   RankingConfig,
   getStoredRankingConfig,
   setStoredRankingConfig
@@ -43,7 +43,9 @@ const SearchConfigModal = ({
   const [selectedStrategy, setSelectedStrategy] = useState<SearchStrategy | undefined>(currentStrategy);
   const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [showHelp, setShowHelp] = useState<string | null>(null);
-
+  
+  const { data: searchStrategyOptions, isLoading: strategiesLoading, isError: strategiesError } = useSearchStrategies(open);
+  
   const handleSave = () => {
     onSave(selectedStrategy, rankingConfig);
     setStoredRankingConfig(rankingConfig);
@@ -75,6 +77,7 @@ const SearchConfigModal = ({
       }}
     >
       <DialogTitle
+        component="div"
         sx={{
           display: "flex",
           justifyContent: "space-between",
@@ -100,31 +103,45 @@ const SearchConfigModal = ({
           Search Strategy
         </Typography>
 
-        <RadioGroup
-          value={selectedStrategy || ""}
-          onChange={(e) => setSelectedStrategy(e.target.value as SearchStrategy || undefined)}
-        >
-          {searchStrategyOptions.map((option) => (
-            <Box key={option.value || "default"} sx={{ mb: 2 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <FormControlLabel
-                  value={option.value || ""}
-                  control={<Radio />}
-                  label={option.label}
-                  sx={{ flex: 1 }}
-                />
-                <Tooltip title="Click for more information">
-                  <IconButton
-                    size="small"
-                    onClick={() => toggleHelp(option.value || "default")}
-                    sx={{ 
-                      color: BCDesignTokens.themeBlue70,
-                      "&:hover": { color: BCDesignTokens.themeBlue90 }
-                    }}
-                  >
-                    <HelpOutline fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+        {strategiesLoading && (
+          <Typography>Loading search strategies...</Typography>
+        )}
+        
+        {strategiesError && (
+          <Typography color="error">Failed to load search strategies. Using defaults.</Typography>
+        )}
+
+        {!strategiesLoading && searchStrategyOptions && (
+          <RadioGroup
+            value={selectedStrategy || ""}
+            onChange={(e) => {
+              const value = e.target.value;
+              setSelectedStrategy(value === "" ? undefined : value as SearchStrategy);
+            }}
+          >
+            {searchStrategyOptions.map((option) => {
+              const radioValue = option.value === undefined ? "" : option.value;
+              return (
+                <Box key={option.value || "default"} sx={{ mb: 2 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <FormControlLabel
+                      value={radioValue}
+                      control={<Radio />}
+                      label={option.label}
+                      sx={{ flex: 1 }}
+                    />
+                    <Tooltip title="Click for more information">
+                      <IconButton
+                        size="small"
+                      onClick={() => toggleHelp(option.value || "default")}
+                      sx={{ 
+                        color: BCDesignTokens.themeBlue70,
+                        "&:hover": { color: BCDesignTokens.themeBlue90 }
+                      }}
+                    >
+                      <HelpOutline fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
               </Box>
               
               {showHelp === (option.value || "default") && (
@@ -144,8 +161,10 @@ const SearchConfigModal = ({
                 </Box>
               )}
             </Box>
-          ))}
-        </RadioGroup>
+          );
+            })}
+          </RadioGroup>
+        )}
 
         <Divider sx={{ my: 3 }} />
 

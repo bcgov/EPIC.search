@@ -1,87 +1,146 @@
 """Service for managing statistics and processing information from the vector search API.
 
 This service provides methods to retrieve system-wide, per-project, and filtered processing statistics
-by wrapping the VectorSearchClient stats endpoints.
+by wrapping the VectorSearchClient stats endpoints. Also provides access to projects and document types.
 """
 
 import time
 from datetime import datetime, timezone
 from flask import current_app
-from .vector_search_client import VectorSearchClient
+from search_api.clients.vector_search_client import VectorSearchClient
+from ..utils.cache import cache_with_ttl
 
 class StatsService:
-    @staticmethod
-    def get_document_type_mappings():
-        """Return document type mappings grouped by Act year (2002 and 2018)."""
-        # Document type mappings for both 2002 Act and 2018 Act terms
-        document_type_lookup = {
-            # 2002 Act Terms
-            "5cf00c03a266b7e1877504ca": "Request",
-            "5cf00c03a266b7e1877504cb": "Letter",
-            "5cf00c03a266b7e1877504cc": "Meeting Notes",
-            "5cf00c03a266b7e1877504cd": "Comment Period",
-            "5cf00c03a266b7e1877504ce": "Plan",
-            "5cf00c03a266b7e1877504cf": "Report/Study",
-            "5cf00c03a266b7e1877504d0": "Decision Materials",
-            "5cf00c03a266b7e1877504d1": "Order",
-            "5cf00c03a266b7e1877504d2": "Project Descriptions",
-            "5cf00c03a266b7e1877504d3": "Application Information Requirement",
-            "5cf00c03a266b7e1877504d4": "Application Materials",
-            "5cf00c03a266b7e1877504d5": "Certificate Package",
-            "5cf00c03a266b7e1877504d6": "Exception Package",
-            "5cf00c03a266b7e1877504d7": "Amendment Package",
-            "5cf00c03a266b7e1877504d9": "Inspection Record",
-            "5cf00c03a266b7e1877504da": "Other",
-            "5d0d212c7d50161b92a80ee3": "Comment/Submission",
-            "5d0d212c7d50161b92a80ee4": "Tracking Table",
-            "5d0d212c7d50161b92a80ee5": "Scientific Memo",
-            "5d0d212c7d50161b92a80ee6": "Agreement",
-            # 2018 Act Terms
-            "5df79dd77b5abbf7da6f51bd": "Project Description",
-            "5df79dd77b5abbf7da6f51be": "Letter",
-            "5df79dd77b5abbf7da6f51bf": "Order",
-            "5df79dd77b5abbf7da6f51c0": "Independent Memo",
-            "5df79dd77b5abbf7da6f51c1": "Report/Study",
-            "5df79dd77b5abbf7da6f51c2": "Management Plan",
-            "5df79dd77b5abbf7da6f51c3": "Plan",
-            "5df79dd77b5abbf7da6f51c4": "Tracking Table",
-            "5df79dd77b5abbf7da6f51c5": "Ad/News Release",
-            "5df79dd77b5abbf7da6f51c6": "Comment/Submission",
-            "5df79dd77b5abbf7da6f51c7": "Comment Period",
-            "5df79dd77b5abbf7da6f51c8": "Notification",
-            "5df79dd77b5abbf7da6f51c9": "Application Materials",
-            "5df79dd77b5abbf7da6f51ca": "Inspection Record",
-            "5df79dd77b5abbf7da6f51cb": "Agreement",
-            "5df79dd77b5abbf7da6f51cc": "Certificate Package",
-            "5df79dd77b5abbf7da6f51cd": "Decision Materials",
-            "5df79dd77b5abbf7da6f51ce": "Amendment Information",
-            "5df79dd77b5abbf7da6f51cf": "Amendment Package",
-            "5df79dd77b5abbf7da6f51d0": "Other",
-            "5dfc209bc596f00eb48b2b8e": "Presentation",
-            "5dfc209bc596f00eb48b2b8f": "Meeting Notes",
-            "5dfc209bc596f00eb48b2b90": "Process Order Materials",
-        }
-        # Group by Act year
-        act_2002_ids = {
-            "5cf00c03a266b7e1877504ca", "5cf00c03a266b7e1877504cb", "5cf00c03a266b7e1877504cc", "5cf00c03a266b7e1877504cd",
-            "5cf00c03a266b7e1877504ce", "5cf00c03a266b7e1877504cf", "5cf00c03a266b7e1877504d0", "5cf00c03a266b7e1877504d1",
-            "5cf00c03a266b7e1877504d2", "5cf00c03a266b7e1877504d3", "5cf00c03a266b7e1877504d4", "5cf00c03a266b7e1877504d5",
-            "5cf00c03a266b7e1877504d6", "5cf00c03a266b7e1877504d7", "5cf00c03a266b7e1877504d9", "5cf00c03a266b7e1877504da",
-            "5d0d212c7d50161b92a80ee3", "5d0d212c7d50161b92a80ee4", "5d0d212c7d50161b92a80ee5", "5d0d212c7d50161b92a80ee6"
-        }
-        act_2018_ids = set(document_type_lookup.keys()) - act_2002_ids
-        mappings = {
-            "2002 Act Terms": {k: v for k, v in document_type_lookup.items() if k in act_2002_ids},
-            "2018 Act Terms": {k: v for k, v in document_type_lookup.items() if k in act_2018_ids}
-        }
-        return {"result": {"document_type_mappings": mappings}}
-    """Service class for handling statistics and processing info operations."""
+    """Service class for handling statistics, projects, and document type operations."""
+
+    @classmethod
+    @cache_with_ttl(ttl_seconds=3600)  # Cache for 1 hour
+    def get_document_type_mappings(cls):
+        """Get document type mappings from the vector API with caching.
+        
+        Returns:
+            dict: Response containing:
+                - result.document_types: All document types with names and aliases from the vector API
+                - result.grouped_by_act: Legacy grouped format for backward compatibility
+                - result.metrics: Performance timing data for this API call
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Get document types from vector API
+        document_types_response = VectorSearchClient.get_document_types()
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        if document_types_response and "document_types" in document_types_response:
+            document_types = document_types_response["document_types"]
+            
+            # Create legacy grouped format using the 'act' field from the response
+            legacy_mappings = {
+                "2002 Act Terms": {},
+                "2018 Act Terms": {}
+            }
+            
+            for type_id, type_info in document_types.items():
+                act_key = "2002 Act Terms" if type_info.get("act") == "2002_act_terms" else "2018 Act Terms"
+                legacy_mappings[act_key][type_id] = type_info["name"]
+            
+            result = {
+                "document_types": document_types,  # Full data with aliases
+                "grouped_by_act": legacy_mappings,  # Legacy format
+                "total_types": len(document_types),
+                "act_2002_count": len(legacy_mappings["2002 Act Terms"]),
+                "act_2018_count": len(legacy_mappings["2018 Act Terms"])
+            }
+        else:
+            # Fallback to empty response if API call fails
+            current_app.logger.warning("Failed to get document types from vector API, returning empty response")
+            result = {
+                "document_types": {},
+                "grouped_by_act": {"2002 Act Terms": {}, "2018 Act Terms": {}},
+                "total_types": 0,
+                "act_2002_count": 0,
+                "act_2018_count": 0,
+                "error": "Failed to retrieve document types from vector API"
+            }
+        
+        result["metrics"] = metrics
+        return {"result": result}
+
+    @classmethod
+    @cache_with_ttl(ttl_seconds=1800)  # Cache for 30 minutes
+    def get_projects_list(cls):
+        """Get lightweight list of all projects with caching.
+        
+        Returns:
+            dict: Response containing:
+                - result.projects: Array of projects with project_id and project_name
+                - result.total_projects: Count of projects
+                - result.metrics: Performance timing data for this API call
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Get projects from vector API
+        projects_array = VectorSearchClient.get_projects_list()
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        if projects_array:
+            result = {
+                "projects": projects_array,
+                "total_projects": len(projects_array)
+            }
+        else:
+            # Fallback to empty response if API call fails
+            current_app.logger.warning("Failed to get projects from vector API, returning empty response")
+            result = {
+                "projects": [],
+                "total_projects": 0,
+                "error": "Failed to retrieve projects from vector API"
+            }
+        
+        result["metrics"] = metrics
+        return {"result": result}
+
+    @classmethod
+    def get_document_type_details(cls, type_id):
+        """Get detailed information for a specific document type.
+        
+        Args:
+            type_id (str): The document type ID to get details for
+            
+        Returns:
+            dict: Response containing:
+                - result.document_type: Document type details with id, name, and aliases
+                - result.metrics: Performance timing data for this API call
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Get document type details from vector API
+        type_response = VectorSearchClient.get_document_type_details(type_id)
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        if type_response and "document_type" in type_response:
+            result = {"document_type": type_response["document_type"]}
+        else:
+            # Fallback to empty response if API call fails
+            current_app.logger.warning(f"Failed to get document type {type_id} from vector API")
+            result = {
+                "document_type": None,
+                "error": f"Failed to retrieve document type {type_id} from vector API"
+            }
+        
+        result["metrics"] = metrics
+        return {"result": result}
 
     @classmethod
     def get_processing_stats(cls, project_ids=None):
-        """Get processing statistics for all projects or filtered by project IDs.
+        """Get processing statistics for all projects.
         Args:
-            project_ids (list, optional): List of project IDs to filter by.
+            project_ids (list, optional): DEPRECATED - No longer supported by vector API. All projects returned.
         Returns:
             dict: Response containing:
                 - result.processing_stats: Statistics data from the vector search API
@@ -92,7 +151,11 @@ class StatsService:
         metrics = {}
         start_time = time.time()
         metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-        stats = VectorSearchClient.get_processing_stats(project_ids)
+        
+        if project_ids:
+            current_app.logger.warning(f"project_ids parameter ({project_ids}) is deprecated and ignored. Vector API returns all projects.")
+        
+        stats = VectorSearchClient.get_processing_stats()
         metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
         
         # Add metrics to the existing response and wrap in result
@@ -150,3 +213,172 @@ class StatsService:
             return {"result": summary}
         else:
             return {"result": {"metrics": metrics}}
+
+    @classmethod
+    @cache_with_ttl(ttl_seconds=3600)  # Cache for 1 hour
+    def get_search_strategies(cls):
+        """Get available search strategies from the vector API with caching.
+        
+        Returns:
+            dict: Response containing:
+                - result.strategies: List of available search strategies with descriptions
+                - result.total_strategies: Count of available strategies
+                - result.metrics: Performance timing data for this API call
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Get search strategies from vector API
+        strategies_response = VectorSearchClient.get_search_strategies()
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        if strategies_response and "search_strategies" in strategies_response:
+            # Convert the search_strategies dict to a list format for easier consumption
+            strategies_dict = strategies_response["search_strategies"]
+            strategies_list = []
+            
+            for strategy_name, strategy_info in strategies_dict.items():
+                strategies_list.append({
+                    "name": strategy_name,
+                    "description": strategy_info.get("description", ""),
+                    "use_cases": strategy_info.get("use_cases", []),
+                    "steps": strategy_info.get("steps", []),
+                    "performance": strategy_info.get("performance", ""),
+                    "accuracy": strategy_info.get("accuracy", "")
+                })
+            
+            result = {
+                "strategies": strategies_list,
+                "total_strategies": strategies_response.get("total_strategies", len(strategies_list)),
+                "default_strategy": strategies_response.get("default_strategy", "HYBRID_SEMANTIC_FALLBACK"),
+                "metrics": metrics
+            }
+            return {"result": result}
+        else:
+            return {"result": {"strategies": [], "total_strategies": 0, "metrics": metrics}}
+
+    @classmethod
+    @cache_with_ttl(ttl_seconds=3600)  # Cache for 1 hour
+    def get_inference_options(cls):
+        """Get available ML inference options from the vector API with caching.
+        
+        Returns:
+            dict: Response containing:
+                - result.inference_options: List of available ML inference options and capabilities
+                - result.total_options: Count of available inference options
+                - result.metrics: Performance timing data for this API call
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Get inference options from vector API
+        options_response = VectorSearchClient.get_inference_options()
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        if options_response and "inference_options" in options_response:
+            inference_options = options_response["inference_options"]
+            
+            result = {
+                "inference_options": inference_options,
+                "total_options": len(inference_options),
+                "metrics": metrics
+            }
+            return {"result": result}
+        else:
+            return {"result": {"inference_options": [], "total_options": 0, "metrics": metrics}}
+
+    @classmethod
+    @cache_with_ttl(ttl_seconds=3600)  # Cache for 1 hour
+    def get_api_capabilities(cls):
+        """Get complete API metadata and capabilities from the vector API with caching.
+        
+        Returns:
+            dict: Response containing:
+                - result.capabilities: Complete API metadata including endpoints, schemas, and features
+                - result.endpoints_count: Count of documented endpoints
+                - result.metrics: Performance timing data for this API call
+        """
+        metrics = {}
+        start_time = time.time()
+        metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        
+        # Get API capabilities from vector API
+        capabilities_response = VectorSearchClient.get_api_capabilities()
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        if capabilities_response and "capabilities" in capabilities_response:
+            capabilities = capabilities_response["capabilities"]
+            
+            result = {
+                "capabilities": capabilities,
+                "endpoints_count": len(capabilities.get("endpoints", [])),
+                "metrics": metrics
+            }
+            return {"result": result}
+        else:
+            # Provide basic fallback capabilities if vector API doesn't support this endpoint
+            fallback_capabilities = {
+                "api_version": "1.0",
+                "name": "Vector Search API",
+                "description": "Semantic and keyword search with ML inference",
+                "endpoints": [
+                    {
+                        "method": "POST",
+                        "path": "/api/vector-search",
+                        "description": "Main semantic/keyword search"
+                    },
+                    {
+                        "method": "POST", 
+                        "path": "/api/document-similarity",
+                        "description": "Find similar documents"
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/api/tools/projects",
+                        "description": "List all projects"
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/api/tools/document-types",
+                        "description": "List all document types"
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/api/tools/search-strategies",
+                        "description": "Get available search strategies"
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/api/tools/inference-options",
+                        "description": "Get ML inference services"
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/api/stats/processing",
+                        "description": "All projects processing statistics"
+                    },
+                    {
+                        "method": "GET",
+                        "path": "/api/stats/summary",
+                        "description": "Overall system summary statistics"
+                    }
+                ],
+                "features": [
+                    "semantic_search",
+                    "keyword_search", 
+                    "hybrid_search",
+                    "document_similarity",
+                    "project_filtering",
+                    "document_type_filtering",
+                    "ml_inference"
+                ]
+            }
+            
+            result = {
+                "capabilities": fallback_capabilities,
+                "endpoints_count": len(fallback_capabilities["endpoints"]),
+                "metrics": metrics
+            }
+            return {"result": result}

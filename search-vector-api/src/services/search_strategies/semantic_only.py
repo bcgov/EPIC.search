@@ -44,7 +44,8 @@ class SemanticOnlyStrategy(BaseSearchStrategy):
         top_n: Optional[int] = None, 
         min_relevance_score: Optional[float] = None, 
         metrics: Dict[str, Any] = None, 
-        start_time: float = None
+        start_time: float = None,
+        semantic_query: Optional[str] = None
     ) -> Tuple[List[Dict], Dict[str, Any]]:
         """Execute the semantic only search strategy.
         
@@ -59,6 +60,8 @@ class SemanticOnlyStrategy(BaseSearchStrategy):
             min_relevance_score (float, optional): Minimum relevance threshold
             metrics (dict): Metrics dictionary to update
             start_time (float): Search start time
+            semantic_query (str, optional): Pre-optimized semantic query for vector search.
+                                          If provided, this takes precedence over question for vector operations.
             
         Returns:
             tuple: (formatted_data, metrics)
@@ -70,6 +73,10 @@ class SemanticOnlyStrategy(BaseSearchStrategy):
             format_data
         )
         
+        # Determine the query to use for semantic search operations
+        # Use semantic_query if provided, otherwise fall back to question
+        search_query = semantic_query if semantic_query is not None else question
+        
         # Validate parameters
         self._validate_parameters(question, vec_store, top_n, min_relevance_score)
         
@@ -79,11 +86,13 @@ class SemanticOnlyStrategy(BaseSearchStrategy):
         
         # Log strategy start
         self._log_strategy_start(question, project_ids, document_type_ids)
+        if semantic_query:
+            logging.info(f"SEMANTIC_ONLY - Using provided semantic query: '{semantic_query}'")
         logging.info("SEMANTIC_ONLY - Starting pure semantic search")
         
         # Perform semantic search across all chunks with project and document type filtering
         chunk_results, semantic_search_time = perform_semantic_search_all_chunks(
-            vec_store, question, chunk_limit, project_ids, document_type_ids
+            vec_store, search_query, chunk_limit, project_ids, document_type_ids
         )
         metrics["semantic_search_ms"] = semantic_search_time
         

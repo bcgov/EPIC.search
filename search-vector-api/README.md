@@ -21,6 +21,7 @@ A high-performance hybrid search Python Flask API that provides document-level a
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
 * **Optional Model Preloading**: Configure model loading at build-time, startup, or on-demand
 * **Inference Control**: Optional control over which inference pipelines (PROJECT, DOCUMENTTYPE) are executed per request
+* **Semantic Query Control**: Optional user-provided semantic queries for advanced search optimization, bypassing automatic query cleaning
 * **Ranking Configuration**: Configurable relevance score thresholds and result limits with per-request overrides
 
 ## Architecture Overview
@@ -444,6 +445,59 @@ Use the optional `inference` parameter in API requests to control which inferenc
 
 **Automatic Skipping:** Even when inference is enabled, it will be automatically skipped if explicit IDs are already provided (e.g., if you specify `project_ids` in your request, project inference will be skipped as it's not needed).
 
+## Semantic Query Control
+
+The API supports optional user-provided semantic queries for advanced search optimization:
+
+### Overview
+
+The `semanticQuery` parameter allows advanced users to provide a pre-optimized query specifically for semantic/vector search operations, bypassing automatic query cleaning and inference.
+
+### Use Cases
+
+* **Query Optimization**: Provide a cleaned, focused query when you know the exact terms you want to search for
+* **Bypassing Inference**: Skip automatic query processing when you have already optimized the query
+* **Advanced Search Control**: Full control over the semantic search query while maintaining the original query for logging and display
+* **Testing and Debugging**: Compare results between original and optimized queries
+
+### Usage
+
+Use the optional `semanticQuery` parameter in API requests:
+
+```json
+{
+  "query": "find information about machine learning algorithms in the Coyote project",
+  "semanticQuery": "machine learning algorithms",  // Optional: pre-optimized semantic query
+  "projectIds": ["coyote-project-id"],
+  "ranking": {
+    "minScore": -6.0,
+    "topN": 10
+  }
+}
+```
+
+### Behavior
+
+* **When provided**: The `semanticQuery` is used directly for all semantic/vector search operations without any cleaning or modification
+* **When not provided**: The system applies automatic query cleaning and uses inference results for semantic operations
+* **Always applied cleaning**: Even when explicit project/document type IDs are provided, semantic cleaning is still applied to improve search quality (unless `semanticQuery` is provided)
+* **Transparency**: API responses include flags indicating whether a user-provided semantic query was used
+
+### Response Indicators
+
+The API response includes several fields to indicate semantic query processing:
+
+```json
+{
+  "vector_search": {
+    "final_semantic_query": "machine learning algorithms",  // The actual query used for vector search
+    "user_semantic_query_provided": true,                   // Whether user provided semanticQuery
+    "semantic_cleaning_applied": false,                     // Whether automatic cleaning was applied
+    "additional_semantic_cleaning_applied": false           // Whether cleaning was applied for explicit ID cases
+  }
+}
+```
+
 ## API Endpoints
 
 ### Vector Search
@@ -459,10 +513,11 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ``` json
 {
   "query": "climate change impacts on wildlife",
-  "projectIds": ["project-123", "project-456"],    // Optional project filtering
-  "documentTypeIds": ["doc-type-123"],             // Optional document type filtering
-  "inference": ["PROJECT", "DOCUMENTTYPE"],        // Optional inference control
-  "ranking": {                                     // Optional ranking configuration
+  "semanticQuery": "climate change wildlife impact",    // Optional pre-optimized semantic query
+  "projectIds": ["project-123", "project-456"],        // Optional project filtering
+  "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
+  "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
+  "ranking": {                                         // Optional ranking configuration
     "minScore": -6.0,
     "topN": 15
   }

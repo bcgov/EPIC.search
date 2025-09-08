@@ -97,6 +97,7 @@ class SearchRequestSchema(Schema):
     
     Attributes:
         query: The required search query string provided by the user
+        semanticQuery: Optional pre-optimized semantic query for vector search
         projectIds: Optional list of project IDs to filter search results
         documentTypeIds: Optional list of document type IDs to filter search results
         inference: Optional list of inference types to run ('PROJECT', 'DOCUMENTTYPE')
@@ -109,6 +110,8 @@ class SearchRequestSchema(Schema):
 
     query = fields.Str(data_key="query", required=True, 
                       metadata={"description": "Search query text to find relevant documents"})
+    semanticQuery = fields.Str(data_key="semanticQuery", required=False, 
+                              metadata={"description": "Optional pre-optimized semantic query for vector search. If provided, bypasses automatic query cleaning and uses this query directly for semantic/vector operations. Useful for advanced users who want full control over the semantic search query."})
     projectIds = fields.List(fields.Str(), data_key="projectIds", required=False, 
                            metadata={"description": "Optional list of project IDs to filter search results. If not provided, searches across all projects."})
     documentTypeIds = fields.List(fields.Str(), data_key="documentTypeIds", required=False, 
@@ -124,13 +127,14 @@ class SearchRequestSchema(Schema):
 
 
 API = Namespace("vector-search", description="Endpoints for semantic and keyword vector search operations")
+SIMILARITY_API = Namespace("document-similarity", description="Endpoints for document similarity search operations")
 
 search_request_model = ApiHelper.convert_ma_schema_to_restx_model(
     API, SearchRequestSchema(), "Vector Search Request"
 )
 
 document_similarity_request_model = ApiHelper.convert_ma_schema_to_restx_model(
-    API, DocumentSimilarityRequestSchema(), "Document Similarity Request"
+    SIMILARITY_API, DocumentSimilarityRequestSchema(), "Document Similarity Request"
 )
 
 
@@ -214,6 +218,7 @@ class Search(Resource):
         """
         request_data = SearchRequestSchema().load(API.payload)
         query = request_data["query"]
+        semantic_query = request_data.get("semanticQuery", None)  # Optional parameter
         project_ids = request_data.get("projectIds", None)  # Optional parameter
         document_type_ids = request_data.get("documentTypeIds", None)  # Optional parameter
         inference = request_data.get("inference", None)  # Optional parameter
@@ -224,13 +229,13 @@ class Search(Resource):
         min_relevance_score = ranking_config.get("minScore") if ranking_config else None
         top_n = ranking_config.get("topN") if ranking_config else None
         
-        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, min_relevance_score, top_n, search_strategy)
+        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, min_relevance_score, top_n, search_strategy, semantic_query)
         return Response(
             json.dumps(documents), status=HTTPStatus.OK, mimetype="application/json"
         )
 
 
-@API.route("/similar", methods=["POST", "OPTIONS"])
+@SIMILARITY_API.route("", methods=["POST", "OPTIONS"])
 class DocumentSimilarity(Resource):
     """REST resource for document similarity search operations.
     
@@ -245,8 +250,8 @@ class DocumentSimilarity(Resource):
     """
 
     @staticmethod
-    @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a given document using document-level embeddings")
-    @API.expect(document_similarity_request_model)
+    @ApiHelper.swagger_decorators(SIMILARITY_API, endpoint_description="Find documents similar to a given document using document-level embeddings")
+    @SIMILARITY_API.expect(document_similarity_request_model)
     @API.response(400, "Bad Request")
     @API.response(404, "Document Not Found")
     @API.response(200, "Similarity search successful")

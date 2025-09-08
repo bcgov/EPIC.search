@@ -42,7 +42,8 @@ class DocumentOnlyStrategy(BaseSearchStrategy):
         top_n: Optional[int] = None, 
         min_relevance_score: Optional[float] = None, 
         metrics: Dict[str, Any] = None, 
-        start_time: float = None
+        start_time: float = None,
+        semantic_query: Optional[str] = None
     ) -> Tuple[List[Dict], Dict[str, Any]]:
         """Execute the document only search strategy.
         

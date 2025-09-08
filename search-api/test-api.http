@@ -1,0 +1,386 @@
+###
+# EPIC Search API {
+  "query": "What is the environmental impact of the project?"
+}TTP Test File
+# Use with VS Code REST Client extension or similar HTTP client
+###
+
+@baseUrl = http://localhost:8081/api
+@contentType = application/json
+
+###
+# Health Check / API Root
+GET {{baseUrl}}
+Accept: application/json
+
+###
+# =============================================================================
+# SEARCH ENDPOINTS
+# =============================================================================
+
+###
+# Search Query - Basic
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What is the environmental impact of the project?"
+}
+
+###
+# Search Query - Full Parameters
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "query": "What are the project's environmental impacts on wildlife?",
+  "projectIds": ["project-123", "project-456"],
+  "documentTypeIds": ["doc-type-1", "doc-type-2"],
+  "inference": ["PROJECT", "DOCUMENTTYPE"],
+  "ranking": {
+    "minScore": 0.7,
+    "topN": 10
+  },
+  "searchStrategy": "HYBRID_PARALLEL"
+}
+
+###
+# Search Query - With Different Search Strategy
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "carbon dioxide emissions monitoring",
+  "searchStrategy": "HYBRID_KEYWORD_FALLBACK",
+  "ranking": {
+    "minScore": 0.6,
+    "topN": 15
+  }
+}
+
+###
+# Search Query - Semantic Only Strategy
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What are the community concerns?",
+  "searchStrategy": "SEMANTIC_ONLY",
+  "projectIds": ["project-123"]
+}
+
+###
+# Search Query - Keyword Only Strategy
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "environmental assessment report",
+  "searchStrategy": "KEYWORD_ONLY",
+  "ranking": {
+    "minScore": 0.5,
+    "topN": 20
+  }
+}
+
+###
+# Document Similarity Search - Basic
+POST {{baseUrl}}/search/document-similarity
+Content-Type: {{contentType}}
+
+{
+  "documentId": "65130ee0381111002240b89e"
+}
+
+###
+# Document Similarity Search - With Filters
+POST {{baseUrl}}/search/document-similarity
+Content-Type: {{contentType}}
+
+{
+  "documentId": "65130ee0381111002240b89e",
+  "projectIds": ["project-123", "project-456"],
+  "limit": 10
+}
+
+###
+# =============================================================================
+# TOOLS / DISCOVERY ENDPOINTS
+# =============================================================================
+
+###
+# Get All Projects
+GET {{baseUrl}}/tools/projects
+Accept: application/json
+
+###
+# Get All Document Types
+GET {{baseUrl}}/tools/document-types
+Accept: application/json
+
+###
+# Get Specific Document Type Details
+GET {{baseUrl}}/tools/document-types/doc-type-1
+Accept: application/json
+
+###
+# Get Available Search Strategies
+GET {{baseUrl}}/tools/search-strategies
+Accept: application/json
+
+###
+# Get ML Inference Options
+GET {{baseUrl}}/tools/inference-options
+Accept: application/json
+
+###
+# Get Complete API Capabilities
+GET {{baseUrl}}/tools/api-capabilities
+Accept: application/json
+
+###
+# =============================================================================
+# STATISTICS ENDPOINTS
+# =============================================================================
+
+###
+# Get Processing Statistics - All Projects
+GET {{baseUrl}}/stats/processing
+Accept: application/json
+
+###
+# Get Specific Project Details
+GET {{baseUrl}}/stats/processing/project-123
+Accept: application/json
+
+###
+# Get System Summary
+GET {{baseUrl}}/stats/summary
+Accept: application/json
+
+###
+# =============================================================================
+# HEALTH ENDPOINTS (PUBLIC)
+# =============================================================================
+
+###
+# Health Check
+GET http://localhost:8081/healthz
+Accept: application/json
+
+###
+# Readiness Check
+GET http://localhost:8081/readyz
+Accept: application/json
+
+###
+# =============================================================================
+# DOCUMENT ENDPOINTS
+# =============================================================================
+
+###
+# View Document (PDF) - Basic
+GET {{baseUrl}}/document/view?key=path/to/document.pdf&file_name=document.pdf
+Accept: application/pdf
+
+###
+# View Document (PDF) - With URL Encoding
+GET {{baseUrl}}/document/view?key=path%2Fto%2Fdocument.pdf&file_name=sample-report.pdf
+Accept: application/pdf
+
+###
+# =============================================================================
+# OPERATIONS / HEALTH ENDPOINTS
+# =============================================================================
+
+###
+# Health Check
+GET {{baseUrl}}/ops/health
+Accept: application/json
+
+###
+# Health Check with Project Filter
+GET {{baseUrl}}/ops/health/project-123
+Accept: application/json
+
+###
+# =============================================================================
+# TEST SCENARIOS
+# =============================================================================
+
+###
+# Test Scenario 1: Complete Search Workflow
+# 1. Get available projects
+GET {{baseUrl}}/tools/projects
+
+###
+# 2. Get available document types
+GET {{baseUrl}}/tools/document-types
+
+###
+# 3. Get search strategies
+GET {{baseUrl}}/tools/search-strategies
+
+###
+# 4. Perform search with discovered parameters
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What environmental monitoring is required?",
+  "projectIds": ["replace-with-actual-project-id"],
+  "documentTypeIds": ["replace-with-actual-doc-type-id"],
+  "searchStrategy": "HYBRID_PARALLEL",
+  "inference": ["PROJECT", "DOCUMENTTYPE"],
+  "ranking": {
+    "minScore": 0.7,
+    "topN": 10
+  }
+}
+
+###
+# Test Scenario 2: Statistics and Health Monitoring
+# 1. Get system summary
+GET {{baseUrl}}/stats/summary
+
+###
+# 2. Get processing stats
+GET {{baseUrl}}/stats/processing
+
+###
+# 3. Check system health
+GET {{baseUrl}}/ops/health
+
+###
+# Test Scenario 3: Document Discovery and Similarity
+# 1. Search for documents
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "environmental impact assessment",
+  "ranking": {
+    "topN": 5
+  }
+}
+
+###
+# 2. Use document ID from search results for similarity
+POST {{baseUrl}}/search/document-similarity
+Content-Type: {{contentType}}
+
+{
+  "documentId": "replace-with-document-id-from-search-results",
+  "limit": 5
+}
+
+###
+# =============================================================================
+# ERROR TESTING
+# =============================================================================
+
+###
+# Test Invalid Search Query (Missing question)
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "projectIds": ["project-123"]
+}
+
+###
+# Test Invalid Document Similarity (Missing documentId)
+POST {{baseUrl}}/search/document-similarity
+Content-Type: {{contentType}}
+
+{
+  "projectIds": ["project-123"]
+}
+
+###
+# Test Non-existent Document Type
+GET {{baseUrl}}/tools/document-types/non-existent-type
+Accept: application/json
+
+###
+# Test Non-existent Project
+GET {{baseUrl}}/stats/processing/non-existent-project
+Accept: application/json
+
+###
+# =============================================================================
+# PERFORMANCE TESTING
+# =============================================================================
+
+###
+# Large Query Test
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What are the comprehensive environmental, social, and economic impacts of the proposed infrastructure development project on local communities, wildlife habitats, water resources, air quality, and long-term sustainability?",
+  "ranking": {
+    "topN": 50
+  }
+}
+
+###
+# Multiple Projects Query
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "environmental assessment",
+  "projectIds": ["project-1", "project-2", "project-3", "project-4", "project-5"],
+  "documentTypeIds": ["type-1", "type-2", "type-3", "type-4"],
+  "ranking": {
+    "topN": 100
+  }
+}
+
+###
+# High Similarity Limit Test
+POST {{baseUrl}}/search/document-similarity
+Content-Type: {{contentType}}
+
+{
+  "documentId": "test-document-id",
+  "limit": 50
+}
+
+###
+# =============================================================================
+# NOTES FOR TESTING
+# =============================================================================
+
+#
+# 1. Replace placeholder values with actual IDs from your system:
+#    - project-123, project-456 -> actual project IDs
+#    - doc-type-1, doc-type-2 -> actual document type IDs
+#    - document-id-from-search-results -> actual document ID
+#
+# 2. Search Strategy Options:
+#    - HYBRID_PARALLEL (default)
+#    - HYBRID_KEYWORD_FALLBACK
+#    - SEMANTIC_ONLY
+#    - KEYWORD_ONLY
+#
+# 3. Inference Options:
+#    - PROJECT: Auto-infer relevant projects
+#    - DOCUMENTTYPE: Auto-infer relevant document types
+#
+# 4. Ranking Parameters:
+#    - minScore: 0.0-1.0 (minimum relevance score)
+#    - topN: 1-1000 (maximum results)
+#
+# 5. Expected Response Times:
+#    - Simple queries: 200-800ms
+#    - Complex queries: 1-3s
+#    - Discovery endpoints: 50-200ms (cached)
+#    - Statistics: 100-500ms
+#
+# 6. Test with different base URLs:
+#    - Local: http://localhost:8081/api
+#    - Development: https://dev-search-api.example.com/api
+#    - Production: https://search-api.example.com/api
+#

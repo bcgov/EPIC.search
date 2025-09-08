@@ -45,7 +45,8 @@ class KeywordOnlyStrategy(BaseSearchStrategy):
         top_n: Optional[int] = None, 
         min_relevance_score: Optional[float] = None, 
         metrics: Dict[str, Any] = None, 
-        start_time: float = None
+        start_time: float = None,
+        semantic_query: Optional[str] = None
     ) -> Tuple[List[Dict], Dict[str, Any]]:
         """Execute the keyword only search strategy.
         
@@ -60,6 +61,7 @@ class KeywordOnlyStrategy(BaseSearchStrategy):
             min_relevance_score (float, optional): Minimum relevance threshold
             metrics (dict): Metrics dictionary to update
             start_time (float): Search start time
+            semantic_query (str, optional): Pre-optimized semantic query (not used in keyword-only strategy)
             
         Returns:
             tuple: (formatted_data, metrics)
