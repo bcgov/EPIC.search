@@ -200,57 +200,6 @@ def handle_tools_list(request_id, params):
                     },
                     "required": ["query"]
                 }
-            },
-            {
-                "name": "vector_search",
-                "description": "Perform vector similarity search through documents with advanced parameters (the normal search endpoint)",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string", 
-                            "description": "The search query to find relevant documents"
-                        },
-                        "project_ids": {
-                            "type": "array", 
-                            "items": {"type": "string"},
-                            "description": "Optional list of project IDs to filter by (from suggest_filters)"
-                        },
-                        "document_type_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of document type IDs to filter by (from suggest_filters)"
-                        },
-                        "inference": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": ["PROJECT", "DOCUMENTTYPE"]
-                            },
-                            "description": "Optional inference types to enable for intelligent filtering"
-                        },
-                        "ranking": {
-                            "type": "object",
-                            "properties": {
-                                "minScore": {"type": "number", "description": "Minimum relevance score threshold"},
-                                "topN": {"type": "integer", "description": "Maximum number of results to return"}
-                            },
-                            "description": "Optional ranking configuration"
-                        },
-                        "search_strategy": {
-                            "type": "string",
-                            "enum": [
-                                "HYBRID_SEMANTIC_FALLBACK",
-                                "HYBRID_KEYWORD_FALLBACK", 
-                                "SEMANTIC_ONLY",
-                                "KEYWORD_ONLY",
-                                "HYBRID_PARALLEL"
-                            ],
-                            "description": "Search strategy to use (default: HYBRID_SEMANTIC_FALLBACK)"
-                        }
-                    },
-                    "required": ["query"]
-                }
             }
         ]
         
@@ -312,7 +261,7 @@ def handle_tools_call(request_id, params):
                 }
             }
             
-        elif tool_name in ["check_query_relevance", "suggest_filters", "suggest_search_strategy", "vector_search"]:
+        elif tool_name in ["check_query_relevance", "suggest_filters", "suggest_search_strategy"]:
             # These tools require async execution
             result = asyncio.run(execute_async_tool(tool_name, arguments))
             
@@ -374,8 +323,6 @@ async def execute_async_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[
             return await search_tools._suggest_filters(arguments)
         elif tool_name == "suggest_search_strategy":
             return await search_tools._suggest_search_strategy(arguments)
-        elif tool_name == "vector_search":
-            return await search_tools._vector_search(arguments)
         else:
             raise ValueError(f"Unknown async tool: {tool_name}")
             

@@ -31,7 +31,6 @@ class VectorSearchClient:
     def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None):
         """Advanced two-stage hybrid search with comprehensive parameters.
         
-        MCP Tool: vector_search
         Endpoint: POST /vector-search
         
         Args:

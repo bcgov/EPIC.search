@@ -161,8 +161,12 @@ const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: Sea
             gap: 1,
           }}
         >
-          <AutoAwesomeTwoTone color="primary" /> 
-          {hasDocumentChunks ? "Semantic Search Results" : "Document Search Results"}
+          {!aiMode && (
+            <>
+              <CategoryTwoTone color="primary" /> 
+              {hasDocumentChunks ? "Semantic Search Results" : "Document Search Results"}
+            </>
+          )}
           {aiMode && (
             <Box
               sx={{
