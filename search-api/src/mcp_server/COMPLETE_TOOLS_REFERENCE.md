@@ -2,13 +2,12 @@
 
 ## Overview
 
-The EPIC Search MCP server provides **5 essential tools** focused on intelligent search and discovery:
+The EPIC Search MCP server provides **4 essential tools** focused on intelligent search and discovery:
 
 1. **Connection Test Tool**: `echo_test` - MCP server connectivity verification
 2. **Query Validation Tool**: `check_query_relevance` - EAO relevance validation  
 3. **Primary Agentic Tool**: `suggest_filters` - AI-powered filter recommendations
 4. **Search Strategy Tool**: `suggest_search_strategy` - AI-powered search strategy recommendations
-5. **Vector Search Tool**: `vector_search` - Direct document search with advanced parameters
 
 ## MCP Server Types
 
@@ -16,7 +15,7 @@ The EPIC Search MCP server provides **5 essential tools** focused on intelligent
 
 - **Used by**: Flask API in local development and production
 - **Communication**: JSON-RPC via stdin/stdout (subprocess mode locally) or direct integration (containers)
-- **Tools**: Full set of 5 production tools listed above
+- **Tools**: Full set of 4 production tools listed above
 - **Purpose**: Primary server for all agentic workflows
 
 ### 🔧 Standalone MCP Server (`standalone_mcp_server.py`)
@@ -203,94 +202,6 @@ The tool now intelligently detects generic document requests with patterns like:
 
 When such patterns are detected, it recommends `DOCUMENT_ONLY` strategy for optimal results.
 
-### 🔍 VECTOR SEARCH TOOL
-
-#### `vector_search`
-
-**Purpose**: Perform direct vector similarity search through documents with advanced filtering and ranking parameters
-
-**Usage**: Used to execute searches with specific parameters, often with filters and strategies suggested by other MCP tools
-
-```json
-{
-  "name": "vector_search",
-  "description": "Perform vector similarity search through documents with advanced parameters",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "query": {
-        "type": "string",
-        "description": "The search query to find relevant documents"
-      },
-      "project_ids": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": "Optional list of project IDs to filter by (from suggest_filters)"
-      },
-      "document_type_ids": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": "Optional list of document type IDs to filter by (from suggest_filters)"
-      },
-      "inference": {
-        "type": "array",
-        "items": {
-          "type": "string",
-          "enum": ["PROJECT", "DOCUMENTTYPE"]
-        },
-        "description": "Optional inference types to enable for intelligent filtering"
-      },
-      "ranking": {
-        "type": "object",
-        "properties": {
-          "minScore": {"type": "number", "description": "Minimum relevance score threshold"},
-          "topN": {"type": "integer", "description": "Maximum number of results to return"}
-        },
-        "description": "Optional ranking configuration"
-      },
-      "search_strategy": {
-        "type": "string",
-        "enum": [
-          "HYBRID_SEMANTIC_FALLBACK",
-          "HYBRID_KEYWORD_FALLBACK", 
-          "SEMANTIC_ONLY",
-          "KEYWORD_ONLY",
-          "HYBRID_PARALLEL"
-        ],
-        "description": "Search strategy to use (default: HYBRID_SEMANTIC_FALLBACK)"
-      }
-    },
-    "required": ["query"]
-  }
-}
-```
-
-**Sample Response**:
-
-```json
-{
-  "results": [
-    {
-      "document_id": "doc_123",
-      "title": "Environmental Impact Assessment - Mining Project",
-      "content_snippet": "The proposed mining operation will require comprehensive environmental monitoring...",
-      "relevance_score": 0.92,
-      "project_name": "Copper Mountain Mine",
-      "document_type": "Environmental Assessment Report"
-    }
-  ],
-  "total_count": 45,
-  "search_metadata": {
-    "strategy_used": "HYBRID_SEMANTIC_FALLBACK",
-    "query_processed": "mining environmental impact assessment",
-    "filters_applied": {
-      "project_ids": ["proj_456"],
-      "document_type_ids": ["dt_789"]
-    }
-  }
-}
-```
-
 **Note**: The discovery tools `get_available_projects` and `get_available_document_types` are available in the SearchTools class but are **not exposed** through the MCP server. The MCP server focuses on the core agentic workflow tools while these discovery functions are handled directly by the Flask API endpoints.
 
 ## Implementation Notes
@@ -309,7 +220,7 @@ The typical flow is:
 4. If query is relevant, Flask API calls `suggest_filters` and `suggest_search_strategy` via MCP
 5. MCP server uses cached project/document type/strategy data with LLM analysis
 6. Returns intelligent filter and strategy suggestions with confidence scores
-7. Flask API can optionally use `vector_search` via MCP or call the Vector API directly
+7. Flask API calls the Vector Search API directly with the suggested parameters
 8. Results are processed and synthesized for the final response
 
 **Available MCP Tools in Production**:
@@ -318,7 +229,6 @@ The typical flow is:
 - ✅ `check_query_relevance` - EAO relevance validation  
 - ✅ `suggest_filters` - AI-powered filter recommendations
 - ✅ `suggest_search_strategy` - AI-powered search strategy recommendations
-- ✅ `vector_search` - Direct document search with advanced parameters
 
 **Tools Available in SearchTools Class (not exposed via MCP)**:
 

@@ -242,6 +242,56 @@ class SearchService:
         else:
             current_app.logger.info(f"Found {len(documents_or_chunks)} documents/chunks - proceeding with LLM processing")
 
+        # Process results based on mode
+        if agentic:
+            response = cls._process_agentic_response(documents_or_chunks, synthesizer, query, metrics, start_time, documents_key, search_quality, project_inference, document_type_inference)
+        else:
+            response = cls._process_basic_response(documents_or_chunks, query)
+        
+        # Handle potential early return from agentic processing errors
+        if isinstance(response, dict) and "early_return" in response:
+            return response["early_return"]
+
+        # Total execution time
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        # Generate appropriate summary based on mode
+        if agentic:
+            cls._log_agentic_summary(metrics, search_duration, search_quality, documents_or_chunks, query)
+        else:
+            cls._log_basic_summary(documents_or_chunks, query)
+        
+        current_app.logger.info("=== SearchService.get_documents_by_query completed ===")
+
+        return {
+            "result": {
+                "response": response.get("response", "No response generated") if isinstance(response, dict) else str(response),
+                documents_key: documents_or_chunks,  # Always use the original documents_or_chunks
+                "metrics": metrics,
+                "search_quality": search_quality,
+                "project_inference": project_inference,
+                "document_type_inference": document_type_inference
+            }
+        }
+
+    @classmethod
+    def _process_agentic_response(cls, documents_or_chunks, synthesizer, query, metrics, start_time, documents_key, search_quality, project_inference, document_type_inference):
+        """Process documents using LLM synthesis for agentic mode.
+        
+        Args:
+            documents_or_chunks (list): Retrieved documents or document chunks
+            synthesizer: The LLM synthesizer instance
+            query (str): The original search query
+            metrics (dict): Metrics dictionary to update
+            start_time (float): Start time for timing calculations
+            documents_key (str): Key to use for documents in response
+            search_quality (str): Search quality assessment
+            project_inference (dict): Project inference data
+            document_type_inference (dict): Document type inference data
+            
+        Returns:
+            dict: Formatted LLM response or early return dict on error
+        """
         # Prep and query the LLM
         llm_start = time.time()
         current_app.logger.info(f"Calling LLM synthesizer for query: {query}")
@@ -266,6 +316,8 @@ class SearchService:
             metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
             current_app.logger.info(f"LLM processing completed in {metrics['llm_time_ms']}ms")
             
+            return response
+            
         except Exception as e:
             # Log the error
             current_app.logger.error(f"LLM error: {str(e)}")
@@ -276,36 +328,79 @@ class SearchService:
             metrics["llm_error"] = str(e)
             metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
             metrics["error_code"] = 429 if "rate limit" in str(e).lower() or "quota" in str(e).lower() else 500
-            # Return a graceful error response with documents and metrics
+            
+            # Return error response that will be handled by early return logic
             return {
-                "result": {
-                    "response": "An error occurred while processing your request with the LLM. Please try again later.",
-                    documents_key: documents_or_chunks,
-                    "metrics": metrics,
-                    "search_quality": search_quality,
-                    "project_inference": project_inference,
-                    "document_type_inference": document_type_inference
+                "early_return": {
+                    "result": {
+                        "response": "An error occurred while processing your request with the LLM. Please try again later.",
+                        documents_key: documents_or_chunks,
+                        "metrics": metrics,
+                        "search_quality": search_quality,
+                        "project_inference": project_inference,
+                        "document_type_inference": document_type_inference
+                    }
                 }
             }
 
-        # Total execution time
-        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+    @classmethod
+    def _process_basic_response(cls, documents_or_chunks, query):
+        """Process documents for basic mode - just return a simple summary.
         
-        current_app.logger.info(f"SearchService.get_documents_by_query completed successfully in {metrics['total_time_ms']}ms")
-        current_app.logger.info(f"Vector search time: {search_duration}ms, LLM time: {metrics.get('llm_time_ms', 'N/A')}ms")
-        current_app.logger.info(f"Search quality: {search_quality}")
-        current_app.logger.info("=== SearchService.get_documents_by_query completed ===")
-
+        Args:
+            documents_or_chunks (list): Retrieved documents or document chunks
+            query (str): The original search query
+            
+        Returns:
+            dict: Basic response with document count summary
+        """
+        doc_count = len(documents_or_chunks) if documents_or_chunks else 0
+                
+        current_app.logger.info(f"Basic mode: returning {doc_count} documents / sections without LLM processing")
+        
         return {
-            "result": {
-                "response": response.get("response", "No response generated") if isinstance(response, dict) else str(response),
-                documents_key: documents_or_chunks,  # Always use the original documents_or_chunks
-                "metrics": metrics,
-                "search_quality": search_quality,
-                "project_inference": project_inference,
-                "document_type_inference": document_type_inference
-            }
+            "response": f"Found {doc_count} documents / sections matching your query: '{query[:100]}{'...' if len(query) > 100 else ''}'"
         }
+
+    @classmethod
+    def _log_agentic_summary(cls, metrics, search_duration, search_quality, documents_or_chunks, query):
+        """Log detailed summary for agentic mode with comprehensive metrics and analysis.
+        
+        Args:
+            metrics (dict): Performance and processing metrics
+            search_duration (float): Vector search duration in milliseconds
+            search_quality (str): Assessed quality of the search results
+            documents_or_chunks (list): Retrieved documents or document chunks
+            query (str): The original search query
+        """
+        current_app.logger.info(f"🤖 AGENTIC SUMMARY: Query processing completed successfully")
+        current_app.logger.info(f"🤖 Total execution time: {metrics['total_time_ms']}ms")
+        current_app.logger.info(f"🤖 Vector search time: {search_duration}ms, LLM time: {metrics.get('llm_time_ms', 'N/A')}ms")
+        current_app.logger.info(f"🤖 Search quality assessment: {search_quality}")
+        current_app.logger.info(f"🤖 Documents retrieved: {len(documents_or_chunks) if documents_or_chunks else 0}")
+        current_app.logger.info(f"🤖 Query processed: '{query[:100]}{'...' if len(query) > 100 else ''}'")
+        
+        # Log agentic-specific metrics if available
+        if metrics.get('agentic_time_ms'):
+            current_app.logger.info(f"🤖 Agentic processing time: {metrics['agentic_time_ms']}ms")
+        if metrics.get('query_relevance'):
+            relevance = metrics['query_relevance']
+            current_app.logger.info(f"🤖 Query relevance: {relevance.get('is_eao_relevant', 'N/A')}, "
+                                  f"Confidence: {relevance.get('confidence', 'N/A')}")
+
+    @classmethod
+    def _log_basic_summary(cls, documents_or_chunks, query):
+        """Log basic summary with document count for non-agentic mode.
+        
+        Args:
+            documents_or_chunks (list): Retrieved documents or document chunks
+            query (str): The original search query
+        """
+        doc_count = len(documents_or_chunks) if documents_or_chunks else 0
+        doc_type = "documents" if documents_or_chunks and hasattr(documents_or_chunks[0], 'document_id') else "document sections"
+        
+        current_app.logger.info(f"Search completed: {doc_count} {doc_type} returned for query")
+        current_app.logger.info(f"Query: '{query[:50]}{'...' if len(query) > 50 else ''}'")
 
     @classmethod
     def _handle_agentic_mode(cls, agentic, query, project_ids, document_type_ids, search_strategy, inference, metrics):

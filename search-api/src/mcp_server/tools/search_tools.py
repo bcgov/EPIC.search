@@ -691,7 +691,7 @@ Respond with ONLY a JSON object:
             # Build document type mappings section for LLM prompt
             doc_type_mappings_text = ""
             if doc_type_mappings:
-                doc_type_mappings_text = "## Document Type ID Mappings (use these exact IDs):\n"
+                doc_type_mappings_text = "## Document Type ID Mappings (use these exact IDs - you can select multiple IDs for the same concept):\n"
                 # Group by document type IDs to show which keywords map to which IDs
                 id_to_keywords = {}
                 for keyword, ids in doc_type_mappings.items():
@@ -702,7 +702,7 @@ Respond with ONLY a JSON object:
                             id_to_keywords[doc_id].append(keyword)
                 
                 for doc_id, keywords in id_to_keywords.items():
-                    keyword_list = "/".join([kw.title() for kw in keywords[:3]])  # Show first 3 keywords
+                    keyword_list = "/".join([kw.title() for kw in keywords])  # Show ALL keywords, not just first 3
                     doc_type_mappings_text += f"- {keyword_list}: \"{doc_id}\"\n"
             else:
                 doc_type_mappings_text = "## Document Type ID Mappings:\n- No document types available\n"
@@ -734,20 +734,28 @@ Respond with ONLY a JSON object:
 ## Examples:
 Query: "Find me all letters about environmental impact"
 - projectIds: [] (no specific project detected)
-- documentTypeIds: [appropriate letter type IDs from mappings above]
+- documentTypeIds: [appropriate letter/correspondence type IDs from mappings above]
 - semanticQuery: "environmental impact"
 
 Query: "What reports are available for [project name]?"
 - projectIds: [appropriate project ID if found in mappings above]
 - documentTypeIds: [appropriate report type IDs from mappings above]
 - semanticQuery: "reports [project context]"
-- semanticQuery: "environmental impacts nooaitch indian band"
+
+Query: "All correspondence mentioning Nooaitch Indian Band"
+- projectIds: [] (no specific project if not mentioned)
+- documentTypeIds: ["5cf00c03a266b7e1877504cb", "5df79dd77b5abbf7da6f51be"] (include ALL IDs that match correspondence/letters)
+- semanticQuery: "nooaitch indian band"
 
 ## Response format (JSON only):
 {{
     "suggested_filters": {{
         "projectIds": ["681a6e4e85cefd0022839a0e"], // only if project clearly mentioned
-        "documentTypeIds": ["5cf00c03a266b7e1877504cb"], // only if document type clearly mentioned
+## Response format (JSON only):
+{{
+    "suggested_filters": {{
+        "projectIds": ["681a6e4e85cefd0022839a0e"], // only if project clearly mentioned
+        "documentTypeIds": ["5cf00c03a266b7e1877504cb", "5df79dd77b5abbf7da6f51be"], // include ALL matching IDs for the document type concept
         "semanticQuery": "clean search terms", // core content without stop words and extracted filter terms
         "searchStrategy": "HYBRID_SEMANTIC_FALLBACK"
     }},
@@ -757,9 +765,10 @@ Query: "What reports are available for [project name]?"
 }}
 
 ## Important:
+- documentTypeIds should include ALL matching IDs for the requested document type concept (e.g., for "correspondence" include all letter/correspondence type IDs)
 - semanticQuery should contain clean, searchable content
 - Remove generic terms but keep important entities and concepts
-- Be conservative with filter extraction
+- Be conservative with filter extraction but comprehensive with document type matching
 - Focus on accuracy over completeness"""
             
             # Get the synthesizer and query the LLM

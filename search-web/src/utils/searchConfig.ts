@@ -83,7 +83,7 @@ export const getStoredAiMode = (): boolean => {
   } catch (error) {
     console.warn("Failed to read AI mode from localStorage:", error);
   }
-  return false;
+  return true; // Default to AI mode enabled
 };
 
 export const setStoredAiMode = (aiMode: boolean): void => {
