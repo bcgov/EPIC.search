@@ -15,11 +15,12 @@ export interface RankingOptions {
 }
 
 export interface SearchRequest {
-  question: string;
+  query: string;
   searchStrategy?: SearchStrategy;
   projectIds?: string[];
   documentTypeIds?: string[];
   ranking?: RankingOptions;
+  agentic?: boolean;
 }
 
 const doSearch = async (searchRequest: SearchRequest) => {

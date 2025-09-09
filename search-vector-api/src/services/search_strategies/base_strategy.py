@@ -30,7 +30,8 @@ class BaseSearchStrategy(ABC):
         top_n: Optional[int] = None, 
         min_relevance_score: Optional[float] = None, 
         metrics: Dict[str, Any] = None, 
-        start_time: float = None
+        start_time: float = None,
+        semantic_query: Optional[str] = None
     ) -> Tuple[List[Dict], Dict[str, Any]]:
         """Execute the search strategy and return results and metrics.
         
@@ -45,6 +46,9 @@ class BaseSearchStrategy(ABC):
             min_relevance_score (float, optional): Minimum relevance score threshold
             metrics (dict): Metrics dictionary to update with strategy-specific metrics
             start_time (float): Strategy execution start time for total timing
+            semantic_query (str, optional): Pre-optimized semantic query for vector search. If provided,
+                                          strategies should use this instead of the original question for
+                                          semantic/vector operations while still using question for logging.
             
         Returns:
             tuple: A tuple containing:

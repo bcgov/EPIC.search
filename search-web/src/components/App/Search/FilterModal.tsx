@@ -34,7 +34,7 @@ interface FilterModalProps {
 
 const FilterModal = ({ open, onClose, selectedProjectIds, selectedDocumentTypeIds = [], onSave }: FilterModalProps) => {
   const { data: projects, isLoading, isError } = useProjects();
-  const { data: docTypesData, isLoading: docTypesLoading, isError: docTypesError } = useDocumentTypeMappings();
+  const { data: docTypesData, isLoading: docTypesLoading, isError: docTypesError } = useDocumentTypeMappings(open);
   const [selectedProjects, setSelectedProjects] = useState<string[]>(selectedProjectIds);
   const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>(selectedDocumentTypeIds);
 
@@ -153,7 +153,7 @@ return (
             {docTypesError && <Typography color="error">Failed to load document types.</Typography>}
             {!docTypesLoading && docTypesData && (
               <Box>
-                {Object.entries(docTypesData.result.document_type_mappings).map(([group, types]) => (
+                {Object.entries(docTypesData.result.grouped_by_act).map(([group, types]) => (
                   <Box key={group} sx={{ mb: 1 }}>
                     <Typography variant="subtitle2" sx={{ color: BCDesignTokens.themePrimaryBlue, mb: 0.5 }}>{group}</Typography>
                     <List dense sx={{ pl: 2 }}>

@@ -1,0 +1,174 @@
+# Vector Search API - Test Endpoints
+# Use with REST Client extension in VS Code or similar HTTP testing tools
+# Base URL: http://localhost:8080 (adjust port as needed)
+
+###############################################################################
+# HEALTH ENDPOINTS
+###############################################################################
+
+### Health Check
+GET http://localhost:8080/healthz
+
+### Readiness Check
+GET http://localhost:8080/readyz
+
+###############################################################################
+# SEARCH ENDPOINTS
+###############################################################################
+
+### Vector Search - Basic Query
+POST http://localhost:8080/api/vector-search
+Content-Type: application/json
+
+{
+  "query": "climate change impacts on wildlife"
+}
+
+### Vector Search - Full Query with Filters
+POST http://localhost:8080/api/vector-search
+Content-Type: application/json
+
+{
+  "query": "environmental assessment report",
+  "projectIds": ["project-123"],
+  "documentTypeIds": ["doc-type-456"],
+  "inference": ["PROJECT", "DOCUMENTTYPE"],
+  "limit": 10,
+  "offset": 0
+}
+
+### Document Similarity Search
+POST http://localhost:8080/api/document-similarity
+Content-Type: application/json
+
+{
+  "document_id": "uuid-document-id-here",
+  "project_ids": ["project-123"],
+  "limit": 5
+}
+
+###############################################################################
+# TOOLS ENDPOINTS - MCP Integration
+###############################################################################
+
+### Get All Projects
+GET http://localhost:8080/api/tools/projects
+
+### Get All Document Types
+GET http://localhost:8080/api/tools/document-types
+
+### Get Specific Document Type (replace {type_id} with actual ID)
+GET http://localhost:8080/api/tools/document-types/5cf00c03a266b7e1877504ca
+
+### Get Available Search Strategies
+GET http://localhost:8080/api/tools/search-strategies
+
+### Get Inference Options
+GET http://localhost:8080/api/tools/inference-options
+
+### Get API Capabilities (Full API Discovery)
+GET http://localhost:8080/api/tools/api-capabilities
+
+###############################################################################
+# STATISTICS ENDPOINTS
+###############################################################################
+
+### Get Processing Statistics (All Projects)
+GET http://localhost:8080/api/stats/processing
+
+### Get Processing Statistics for Specific Project (replace {project_id})
+GET http://localhost:8080/api/stats/processing/project-uuid-here
+
+### Get System Summary Statistics
+GET http://localhost:8080/api/stats/summary
+
+###############################################################################
+# EXAMPLE WORKFLOWS
+###############################################################################
+
+### Workflow 1: Discover API Capabilities
+# Step 1: Get API structure
+GET http://localhost:8080/api/tools/api-capabilities
+
+### Workflow 2: Project and Document Type Discovery
+# Step 1: Get all projects
+GET http://localhost:8080/api/tools/projects
+
+# Step 2: Get document types for filtering
+GET http://localhost:8080/api/tools/document-types
+
+### Workflow 3: Search with Filters
+# Step 1: Get projects for filtering
+GET http://localhost:8080/api/tools/projects
+
+# Step 2: Perform filtered search (use actual project ID from step 1)
+POST http://localhost:8080/api/vector-search
+Content-Type: application/json
+
+{
+  "query": "marine environment protection",
+  "projectIds": ["actual-project-id-from-step-1"],
+  "limit": 5
+}
+
+### Workflow 4: Monitor Processing Status
+# Step 1: Check overall processing stats
+GET http://localhost:8080/api/stats/processing
+
+# Step 2: Check specific project stats (use actual project ID)
+GET http://localhost:8080/api/stats/processing/actual-project-id-here
+
+# Step 3: Check system summary
+GET http://localhost:8080/api/stats/summary
+
+###############################################################################
+# TESTING NOTES
+###############################################################################
+
+# 1. Replace localhost:8080 with your actual server URL and port
+# 2. Replace placeholder IDs (project-uuid-here, doc-type-id, etc.) with actual values
+# 3. Use the /api/tools/projects endpoint to get real project IDs for testing
+# 4. Use the /api/tools/document-types endpoint to get real document type IDs
+# 5. Health endpoints (/healthz, /readyz) should return 200 OK when service is running
+# 6. All API endpoints are under /api/ prefix except health endpoints
+# 7. POST endpoints require Content-Type: application/json header
+# 8. All endpoints support OPTIONS method for CORS preflight requests
+
+###############################################################################
+# EXPECTED RESPONSE CODES
+###############################################################################
+
+# 200 OK - Successful request
+# 400 Bad Request - Invalid request body or parameters
+# 404 Not Found - Resource not found (e.g., invalid project/document type ID)
+# 500 Internal Server Error - Server-side error
+
+###############################################################################
+# SAMPLE RESPONSES (for reference)
+###############################################################################
+
+# Health Check Response:
+# {
+#   "status": "healthy",
+#   "timestamp": "2025-08-19T10:30:00Z"
+# }
+
+# Projects List Response:
+# {
+#   "projects": [
+#     {
+#       "project_id": "uuid-string",
+#       "project_name": "Project Name"
+#     }
+#   ],
+#   "total_projects": 5
+# }
+
+# Search Response:
+# {
+#   "vector_search": {
+#     "document_chunks": [...],
+#     "search_metrics": {...},
+#     "inference_settings": {...}
+#   }
+# }

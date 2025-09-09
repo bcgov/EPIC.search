@@ -21,6 +21,7 @@ A high-performance hybrid search Python Flask API that provides document-level a
 * **Strongly-Typed Configuration**: Type-safe configuration with sensible defaults
 * **Optional Model Preloading**: Configure model loading at build-time, startup, or on-demand
 * **Inference Control**: Optional control over which inference pipelines (PROJECT, DOCUMENTTYPE) are executed per request
+* **Semantic Query Control**: Optional user-provided semantic queries for advanced search optimization, bypassing automatic query cleaning
 * **Ranking Configuration**: Configurable relevance score thresholds and result limits with per-request overrides
 
 ## Architecture Overview
@@ -131,10 +132,9 @@ The API supports multiple configurable search strategies to optimize for differe
 
 * **DOCUMENT_ONLY**: Direct document-level search without chunk analysis
   * Returns document-level results based on metadata filtering only
-  * Automatically used for generic document requests (e.g., "show me all letters")
-  * Fastest option for document browsing and type-based filtering
-  * No semantic analysis or relevance scoring applied
-  * **Smart Override**: When explicitly requested but the query requires content search, the system will automatically fall back to appropriate semantic/hybrid strategies for better results
+  * **Explicit use only**: Must be specifically requested via the `searchStrategy` parameter
+  * Fastest option for document browsing and type-based filtering when you need all documents of certain types
+  * No semantic analysis or relevance scoring applied - results ordered by date
 
 The search strategy can be overridden per-request using the `searchStrategy` parameter:
 
@@ -145,45 +145,43 @@ The search strategy can be overridden per-request using the `searchStrategy` par
 }
 ```
 
-**Important**: The `DOCUMENT_ONLY` strategy includes intelligent behavior that will automatically fall back to semantic search when the query requires content analysis rather than document browsing:
+**Important**: The `DOCUMENT_ONLY` strategy performs pure metadata-based document retrieval without content analysis. Use this strategy when you need:
 
 ```json
-// ✅ DOCUMENT_ONLY will be used - generic document request
+// ✅ DOCUMENT_ONLY - Best for document browsing and discovery
 {
   "query": "show me all correspondence letters",
   "searchStrategy": "DOCUMENT_ONLY"
 }
 
-// ❌ DOCUMENT_ONLY will be overridden - content-specific query
+// ⚠️ DOCUMENT_ONLY - May return no results for content-specific queries
 {
   "query": "What are the projected greenhouse gas emissions?",
   "searchStrategy": "DOCUMENT_ONLY"
 }
-// → System automatically uses HYBRID_SEMANTIC_FALLBACK instead
+// → Consider using HYBRID_SEMANTIC_FALLBACK for content-specific searches
 ```
 
-This intelligent override ensures optimal results regardless of the specified strategy.
+**When to use DOCUMENT_ONLY:**
 
-#### Strategy Override Behavior
+* Document browsing and discovery ("show me all reports", "list all correspondence")
+* When you need all documents of specific types within a project
+* Fast document enumeration without content relevance scoring
 
-The search system includes intelligent strategy selection that can override explicitly requested strategies when they would produce suboptimal results:
+**When to use other strategies:**
 
-**DOCUMENT_ONLY Strategy Overrides:**
+* Content-specific queries requiring semantic understanding
+* When you need documents ranked by relevance to query content
+* Searches for specific topics, concepts, or information within documents
 
-* **When it works**: Generic document browsing queries ("show me all letters", "find correspondence", "list reports")
-* **When it's overridden**: Content-specific queries ("What are the emissions?", "How does the process work?", "Tell me about safety concerns")
-* **Override behavior**: Automatically falls back to `HYBRID_SEMANTIC_FALLBACK` for content-specific queries
-
-**Why this happens**: `DOCUMENT_ONLY` returns document-level metadata without content analysis. For queries seeking specific information within documents, semantic search provides much better results.
-
-**Response indicators**: Check the `strategy_metrics` in the response to see if your requested strategy was overridden:
+The `strategy_metrics` in the response shows which strategy was actually used:
 
 ```json
 {
   "strategy_metrics": {
-    "search_strategy": "HYBRID_SEMANTIC_FALLBACK",
-    "strategy_applied": "HYBRID_SEMANTIC_FALLBACK", 
-    "strategy_source": "intelligent_override"  // Instead of "user_requested"
+    "search_strategy": "DOCUMENT_ONLY",
+    "strategy_applied": "DOCUMENT_ONLY", 
+    "strategy_source": "user_requested"
   }
 }
 ```
@@ -444,6 +442,59 @@ Use the optional `inference` parameter in API requests to control which inferenc
 
 **Automatic Skipping:** Even when inference is enabled, it will be automatically skipped if explicit IDs are already provided (e.g., if you specify `project_ids` in your request, project inference will be skipped as it's not needed).
 
+## Semantic Query Control
+
+The API supports optional user-provided semantic queries for advanced search optimization:
+
+### Overview
+
+The `semanticQuery` parameter allows advanced users to provide a pre-optimized query specifically for semantic/vector search operations, bypassing automatic query cleaning and inference.
+
+### Use Cases
+
+* **Query Optimization**: Provide a cleaned, focused query when you know the exact terms you want to search for
+* **Bypassing Inference**: Skip automatic query processing when you have already optimized the query
+* **Advanced Search Control**: Full control over the semantic search query while maintaining the original query for logging and display
+* **Testing and Debugging**: Compare results between original and optimized queries
+
+### Usage
+
+Use the optional `semanticQuery` parameter in API requests:
+
+```json
+{
+  "query": "find information about machine learning algorithms in the Coyote project",
+  "semanticQuery": "machine learning algorithms",  // Optional: pre-optimized semantic query
+  "projectIds": ["coyote-project-id"],
+  "ranking": {
+    "minScore": -6.0,
+    "topN": 10
+  }
+}
+```
+
+### Behavior
+
+* **When provided**: The `semanticQuery` is used directly for all semantic/vector search operations without any cleaning or modification
+* **When not provided**: The system applies automatic query cleaning and uses inference results for semantic operations
+* **Always applied cleaning**: Even when explicit project/document type IDs are provided, semantic cleaning is still applied to improve search quality (unless `semanticQuery` is provided)
+* **Transparency**: API responses include flags indicating whether a user-provided semantic query was used
+
+### Response Indicators
+
+The API response includes several fields to indicate semantic query processing:
+
+```json
+{
+  "vector_search": {
+    "final_semantic_query": "machine learning algorithms",  // The actual query used for vector search
+    "user_semantic_query_provided": true,                   // Whether user provided semanticQuery
+    "semantic_cleaning_applied": false,                     // Whether automatic cleaning was applied
+    "additional_semantic_cleaning_applied": false           // Whether cleaning was applied for explicit ID cases
+  }
+}
+```
+
 ## API Endpoints
 
 ### Vector Search
@@ -459,10 +510,11 @@ Performs the two-stage search pipeline with document-level filtering followed by
 ``` json
 {
   "query": "climate change impacts on wildlife",
-  "projectIds": ["project-123", "project-456"],    // Optional project filtering
-  "documentTypeIds": ["doc-type-123"],             // Optional document type filtering
-  "inference": ["PROJECT", "DOCUMENTTYPE"],        // Optional inference control
-  "ranking": {                                     // Optional ranking configuration
+  "semanticQuery": "climate change wildlife impact",    // Optional pre-optimized semantic query
+  "projectIds": ["project-123", "project-456"],        // Optional project filtering
+  "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
+  "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
+  "ranking": {                                         // Optional ranking configuration
     "minScore": -6.0,
     "topN": 15
   }

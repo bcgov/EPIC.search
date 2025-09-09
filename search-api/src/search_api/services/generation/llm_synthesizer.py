@@ -4,15 +4,28 @@ from abc import ABC, abstractmethod
 class LLMSynthesizer(ABC):
     @abstractmethod
     def format_documents_for_context(documents):
+        # Handle edge cases where documents might not be in expected format
+        if not documents:
+            return []
+        
+        # If documents is a string or not iterable, return empty list
+        if isinstance(documents, str):
+            return []
+        
+        # If documents is not a list, try to convert or return empty
+        if not isinstance(documents, (list, tuple)):
+            return []
+            
         return [
             {
-                "project_name": item.get("project_name"),
-                "proponent_name": item.get("proponent_name"),
-                "text": item.get("content"),
-                "page_number": item.get("page_number"),
-                "document_name": item.get("document_name")
+                "project_name": item.get("project_name") if hasattr(item, 'get') else "",
+                "proponent_name": item.get("proponent_name") if hasattr(item, 'get') else "",
+                "text": item.get("content") if hasattr(item, 'get') else str(item),
+                "page_number": item.get("page_number") if hasattr(item, 'get') else "",
+                "document_name": item.get("document_name") if hasattr(item, 'get') else ""
             }
             for item in documents
+            if item is not None  # Skip None items
         ]
 
     @abstractmethod

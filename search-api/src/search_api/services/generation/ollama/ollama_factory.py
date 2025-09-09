@@ -10,7 +10,11 @@ class OllamaFactory:
         # Get host from environment variable or use default
         self.host = os.environ.get("LLM_HOST", "http://localhost:11434")
         self.client = ollama.Client(host=self.host)
-        print(f"Initializing Ollama client with host: {self.host}")
+        # Host info logged via logger instead of print
+        # to avoid corrupting JSON-RPC stdout communication when used in MCP server
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Initializing Ollama client with host: {self.host}")
 
     def generate(self, prompt, options) -> Any:
         try:

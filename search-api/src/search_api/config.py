@@ -115,7 +115,8 @@ class DevConfig(_Config):  # pylint: disable=too-few-public-methods
 
     TESTING = False
     DEBUG = True
-    print(f"SQLAlchemy URL (DevConfig): {_Config.DB_HOST}:{_Config.DB_PORT}")
+    # SQLAlchemy URL info logged via logger instead of print
+    # to avoid corrupting JSON-RPC stdout communication
 
 
 class TestConfig(_Config):  # pylint: disable=too-few-public-methods
@@ -152,7 +153,8 @@ class DockerConfig(_Config):  # pylint: disable=too-few-public-methods
     sql_alchemy_uri = os.getenv("SQLALCHEMY_DATABASE_URI")
     if sql_alchemy_uri:
         SQLALCHEMY_DATABASE_URI = sql_alchemy_uri
-        print(f"SQLAlchemy URL (Docker): {SQLALCHEMY_DATABASE_URI}")
+        # SQLAlchemy URL info logged via logger instead of print
+        # to avoid corrupting JSON-RPC stdout communication
     else:
         # POSTGRESQL
         DB_USER = os.getenv("DATABASE_DOCKER_USERNAME")
@@ -163,7 +165,8 @@ class DockerConfig(_Config):  # pylint: disable=too-few-public-methods
         SQLALCHEMY_DATABASE_URI = (
             f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{int(DB_PORT)}/{DB_NAME}"
         )
-        print(f"SQLAlchemy URL (Docker): {DB_HOST}:{DB_PORT}")
+        # SQLAlchemy URL info logged via logger instead of print
+        # to avoid corrupting JSON-RPC stdout communication
 
 
 class ProdConfig(_Config):  # pylint: disable=too-few-public-methods

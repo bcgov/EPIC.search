@@ -5,7 +5,23 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { theme } from "@/styles/theme";
 import RouterProviderWithAuthContext from "@/router";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchInterval: false,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      retry: (failureCount, error: any) => {
+        // Don't retry on CORS errors or network errors
+        if (error?.message?.includes('CORS') || error?.message?.includes('Network')) {
+          return false;
+        }
+        return failureCount < 3;
+      },
+    },
+  },
+});
 
 function App() {
   return (

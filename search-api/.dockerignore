@@ -1,1 +1,46 @@
+# Environment files (sensitive - never copy to container)
+.env
+.env.*
+!.env.example
+
+# Virtual environments
 venv
+.venv
+env
+ENV
+
+# Git
+.git
+.gitignore
+
+# Development tools
+.vscode
+.idea
+*.swp
+*.swo
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker files (don't copy other docker configs)
+docker-compose.yml
+docker-compose.override.yml
+Dockerfile.dev
+
+# Logs
+*.log

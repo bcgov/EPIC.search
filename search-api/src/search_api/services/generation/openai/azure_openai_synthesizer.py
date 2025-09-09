@@ -2,7 +2,7 @@ import os
 import logging
 from typing import Dict, Any, List
 from openai import AzureOpenAI
-from openai import APIError, APIConnectionError, APITimeoutError, RateLimitError
+from openai import APIError, APIConnectionError, APITimeoutError, RateLimitError, NotFoundError
 from ..llm_synthesizer import LLMSynthesizer
 
 # Set up logging
@@ -81,6 +81,17 @@ class AzureOpenAISynthesizer(LLMSynthesizer):
             
             return {"response": response.choices[0].message.content}
         
+        except NotFoundError as e:
+            error_msg = (
+                f"Deployment Not Found Error: The Azure OpenAI deployment '{deployment}' does not exist.\n"
+                f"Endpoint: {endpoint}\n"
+                f"Details: {str(e)}\n"
+                f"Please check your AZURE_OPENAI_DEPLOYMENT environment variable.\n"
+                f"Common deployment names: gpt-4, gpt-4o, gpt-35-turbo, gpt-4-turbo"
+            )
+            logger.error(error_msg)
+            raise e
+
         except APIConnectionError as e:
             error_msg = (
                 f"Connection Error: Unable to connect to Azure OpenAI.\n"
@@ -88,17 +99,20 @@ class AzureOpenAISynthesizer(LLMSynthesizer):
                 f"Details: {str(e)}\n"
             )
             logger.error(error_msg)
+            # Re-raise the original exception with additional context
             raise ConnectionError(error_msg) from e
 
         except APITimeoutError as e:
             error_msg = f"Timeout Error: Request to Azure OpenAI timed out. Details: {str(e)}"
             logger.error(error_msg)
+            # Re-raise the original exception with additional context
             raise TimeoutError(error_msg) from e
 
         except RateLimitError as e:
             error_msg = f"Rate Limit Error: Azure OpenAI quota exceeded. Details: {str(e)}"
             logger.error(error_msg)
-            raise RateLimitError(error_msg) from e
+            # Re-raise the original exception with additional context
+            raise e
 
         except APIError as e:
             error_msg = (
@@ -107,7 +121,8 @@ class AzureOpenAISynthesizer(LLMSynthesizer):
                 f"Details: {str(e)}"
             )
             logger.error(error_msg)
-            raise APIError(error_msg) from e
+            # Re-raise the original APIError instead of creating a new one
+            raise e
 
         except Exception as e:
             error_msg = f"Unexpected error in Azure OpenAI request: {str(e)}"

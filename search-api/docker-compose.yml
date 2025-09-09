@@ -6,12 +6,43 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data2
     environment:
-      - POSTGRES_USER=search
-      - POSTGRES_PASSWORD=search
-      - POSTGRES_DB=search
+      - POSTGRES_USER=${DB_USERNAME:-search}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-search}
+      - POSTGRES_DB=${DB_NAME:-search}
       - POSTGRES_HOST_AUTH_METHOD=trust
     ports:
-      - 54332:5432/tcp
+      - ${DB_PORT:-54332}:5432/tcp
+    restart: unless-stopped
+
+  search-api:
+    build: .
+    ports:
+      - "${API_PORT:-8082}:8080"
+    environment:
+      # Load Docker-specific environment
+      - FLASK_ENV=production
+      - DATABASE_HOST=search-api-db
+      - DATABASE_PORT=5432
+      - DATABASE_USERNAME=${DB_USERNAME:-search}
+      - DATABASE_PASSWORD=${DB_PASSWORD:-search}
+      - DATABASE_NAME=${DB_NAME:-search}
+      - ENVIRONMENT=production
+      - MCP_SERVER_NAME=epic-search-tools
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - API_TIMEOUT=300.0
+      - VECTOR_SEARCH_API_URL=${VECTOR_API_URL}
+      - LLM_PROVIDER=openai
+      - LLM_TEMPERATURE=0.3
+      - LLM_MAX_TOKENS=1000
+      - LLM_MAX_CONTEXT_LENGTH=8192
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT}
+      - AZURE_OPENAI_API_VERSION=2025-01-01-preview
+      - CORS_ORIGIN=${ALLOWED_ORIGINS:-*}
+    depends_on:
+      - search-api-db
+      - keycloak
     restart: unless-stopped
 
   search-api-db-test:
@@ -19,21 +50,21 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data3
     environment:
-      - POSTGRES_USER=search
-      - POSTGRES_PASSWORD=search
-      - POSTGRES_DB=search
+      - POSTGRES_USER=${DB_TEST_USERNAME:-search}
+      - POSTGRES_PASSWORD=${DB_TEST_PASSWORD:-search}
+      - POSTGRES_DB=${DB_TEST_NAME:-search}
       - POSTGRES_HOST_AUTH_METHOD=trust
     ports:
-      - 54333:5432/tcp
+      - ${DB_TEST_PORT:-54333}:5432/tcp
     restart: unless-stopped
 
   keycloak:
     image: quay.io/keycloak/keycloak:12.0.2
     ports:
-      - "8081:8081"
+      - "${KEYCLOAK_PORT:-8081}:8081"
     environment:
-      - KEYCLOAK_USER=admin
-      - KEYCLOAK_PASSWORD=admin
+      - KEYCLOAK_USER=${KEYCLOAK_USER:-admin}
+      - KEYCLOAK_PASSWORD=${KEYCLOAK_PASSWORD:-admin}
     command: -b 0.0.0.0 -Djboss.http.port=8081 -Dkeycloak.migration.action=import -Dkeycloak.migration.provider=dir -Dkeycloak.migration.dir=/tmp/keycloak/test -Dkeycloak.migration.strategy=OVERWRITE_EXISTING
     healthcheck:
       test:

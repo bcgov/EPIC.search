@@ -97,7 +97,7 @@ class SearchRequestSchema(Schema):
     Supports advanced search options including inference control, custom ranking,
     and search strategy selection for enhanced search capabilities.
     
-    All parameters except 'question' are optional and maintain backward compatibility
+    All parameters except 'query' are optional and maintain backward compatibility
     with existing API clients.
     """
 
@@ -106,10 +106,10 @@ class SearchRequestSchema(Schema):
 
         unknown = EXCLUDE
 
-    question = fields.Str(
-        data_key="question", 
+    query = fields.Str(
+        data_key="query", 
         required=True,
-        metadata={"description": "The search query/question to find relevant documents for"}
+        metadata={"description": "The search query to find relevant documents for"}
     )
     projectIds = fields.List(
         fields.Str(), 
@@ -144,6 +144,12 @@ class SearchRequestSchema(Schema):
         required=False,
         allow_none=True,
         metadata={"description": "Optional search strategy to use. Available options: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'. If not provided, uses the vector search API's default strategy."}
+    )
+    agentic = fields.Bool(
+        data_key="agentic",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Optional flag to enable agentic mode. When true, the system will use AI to intelligently extract project IDs and filters from natural language queries (e.g., 'for the Anderson Project, find me all correspondence'). If no project_ids or inference parameters are provided, the LLM will analyze the query and suggest appropriate filters."}
     )
 
 

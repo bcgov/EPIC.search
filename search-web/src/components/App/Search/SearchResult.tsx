@@ -14,9 +14,10 @@ interface SearchResultProps {
   searchResults: SearchResponse;
   searchText: string;
   searchStrategy?: SearchStrategy;
+  aiMode?: boolean;
 }
 
-const SearchResult = ({ searchResults, searchText, searchStrategy }: SearchResultProps) => {
+const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: SearchResultProps) => {
   const documents = getDocumentsFromResponse(searchResults);
   const hasDocumentChunks = !!searchResults.result.document_chunks;
   
@@ -162,6 +163,26 @@ const SearchResult = ({ searchResults, searchText, searchStrategy }: SearchResul
         >
           <AutoAwesomeTwoTone color="primary" /> 
           {hasDocumentChunks ? "Semantic Search Results" : "Document Search Results"}
+          {aiMode && (
+            <Box
+              sx={{
+                ml: 1,
+                px: 1,
+                py: 0.5,
+                backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
+                color: BCDesignTokens.iconsColorSuccess,
+                borderRadius: "12px",
+                fontSize: "0.7rem",
+                fontWeight: "bold",
+                display: "flex",
+                alignItems: "center",
+                gap: 0.5,
+              }}
+            >
+              <AutoAwesomeTwoTone sx={{ fontSize: 12 }} />
+              AI MODE
+            </Box>
+          )}
         </Typography>
       </Box>
 

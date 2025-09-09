@@ -1,5 +1,5 @@
 # Use a specific version of Python slim image for reduced attack surface
-FROM python:3.9-slim-bullseye
+FROM python:3.11-slim-bullseye
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -31,7 +31,11 @@ COPY . .
 ENV PYTHONPATH=/opt/app-root/src \
     GUNICORN_TIMEOUT=300 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    ENVIRONMENT=production
+
+# MCP Server will auto-detect container environment
+# No need to set MCP_SERVER_COMMAND explicitly
 
 # Set proper permissions
 RUN chown -R appuser:appuser /opt/app-root

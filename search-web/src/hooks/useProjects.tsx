@@ -8,8 +8,8 @@ export interface Project {
 
 
 
-const PROJECTS_CACHE_KEY = "epic_search_project_list";
-const PROJECTS_CACHE_TIME_KEY = "epic_search_project_list_time";
+const PROJECTS_CACHE_KEY = "epic_search_projects";
+const PROJECTS_CACHE_TIME_KEY = "epic_search_projects_time";
 const CACHE_DURATION_MS = 60 * 60 * 1000; // 60 minutes
 
 const fetchProjects = async (): Promise<Project[]> => {
@@ -26,27 +26,47 @@ const fetchProjects = async (): Promise<Project[]> => {
   } catch (e) {
     // Ignore localStorage errors
   }
-  // Fetch from API
-  const res = await request({ url: "/stats/processing", method: "get" });
-  const projects = res.data?.result?.processing_stats?.projects || [];
-  const mapped = projects.map((p: any) => ({
-    project_id: p.project_id,
-    project_name: p.project_name,
-  }));
-  // Cache in localStorage
+  
+  // Fetch from API with better error handling
   try {
-    localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(mapped));
-    localStorage.setItem(PROJECTS_CACHE_TIME_KEY, Date.now().toString());
-  } catch (e) {
-    // Ignore localStorage errors
+    const res = await request({ url: "/tools/projects", method: "get" });
+    const projects = res.data?.result?.projects || [];
+    
+    // Cache in localStorage
+    try {
+      localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(projects));
+      localStorage.setItem(PROJECTS_CACHE_TIME_KEY, Date.now().toString());
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+    
+    return projects;
+  } catch (error: any) {
+    // If we have cached data and the API fails, use the cached data
+    try {
+      const cached = localStorage.getItem(PROJECTS_CACHE_KEY);
+      if (cached) {
+        console.warn('API call failed, using cached projects:', error.message);
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+    
+    // If no cached data available, return empty array
+    console.error('Failed to fetch projects:', error.message);
+    return [];
   }
-  return mapped;
 };
 
 export const useProjects = () => {
   return useQuery({
-    queryKey: ["project-list"],
+    queryKey: ["tools", "projects"],
     queryFn: fetchProjects,
-    staleTime: 1000 * 60 * 60, // 1 hour
+    staleTime: 60 * 60 * 1000, // 1 hour
+    retry: 3,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchInterval: false,
   });
 };
