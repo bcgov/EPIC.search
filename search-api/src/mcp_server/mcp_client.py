@@ -258,7 +258,11 @@ async def example_usage():
     async with MCPClient(vector_api_url="http://localhost:8080/api") as client:
         # List available tools
         tools = await client.list_tools()
-        print(f"Available tools: {[tool['name'] for tool in tools]}")
+        # Debug info logged via logger instead of print
+        # to avoid corrupting JSON-RPC stdout communication
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Available tools: {[tool['name'] for tool in tools]}")
         
         # Perform intelligent search
         result = await client.intelligent_search(
@@ -266,11 +270,11 @@ async def example_usage():
             context="Looking for EIA documents related to coastal projects"
         )
         
-        print(f"Search result: {result}")
+        logger.info(f"Search result: {result}")
         
         # Call specific tools
         projects = await client.call_tool("get_available_projects")
-        print(f"Available projects: {projects}")
+        logger.info(f"Available projects: {projects}")
 
 
 if __name__ == "__main__":

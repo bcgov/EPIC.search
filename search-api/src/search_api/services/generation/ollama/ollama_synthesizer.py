@@ -20,10 +20,14 @@ class OllamaSynthesizer(LLMSynthesizer):
         llm_max_context_length = int(os.environ.get("LLM_MAX_CONTEXT_LENGTH", 4096))
         llm_model = os.environ.get("LLM_MODEL", "qwen2.5:0.5b")
 
-        print("LLM_TEMPERATURE:", llm_temperature)
-        print("LLM_MODEL:", llm_model)
-        print("LLM_MAX_TOKENS:", llm_max_tokens)
-        print("LLM_MAX_CONTEXT_LENGTH:", llm_max_context_length)
+        # LLM config logged via logger instead of print
+        # to avoid corrupting JSON-RPC stdout communication when used in MCP server
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"LLM_TEMPERATURE: {llm_temperature}")
+        logger.info(f"LLM_MODEL: {llm_model}")
+        logger.info(f"LLM_MAX_TOKENS: {llm_max_tokens}")
+        logger.info(f"LLM_MAX_CONTEXT_LENGTH: {llm_max_context_length}")
 
         options = {
             "temperature": llm_temperature,

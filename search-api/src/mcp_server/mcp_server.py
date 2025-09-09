@@ -118,7 +118,7 @@ def handle_tools_list(request_id, params):
             http_client = httpx.AsyncClient(timeout=30.0)
             search_tools = SearchTools(http_client, vector_api_base_url)            
         
-        # Define the core tools we want to expose for the initial agentic workflow
+        # Define the core tools we want to expose for the full agentic workflow
         core_tools = [
             {
                 "name": "echo_test",
@@ -132,6 +132,24 @@ def handle_tools_list(request_id, params):
                         }
                     },
                     "required": ["message"]
+                }
+            },
+            {
+                "name": "check_query_relevance",
+                "description": "Check if a query is relevant to EAO (Environmental Assessment Office) and environmental assessments",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The user's query to check for EAO relevance"
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "Additional context about the query"
+                        }
+                    },
+                    "required": ["query"]
                 }
             },
             {
@@ -154,6 +172,30 @@ def handle_tools_list(request_id, params):
                             "maximum": 1,
                             "default": 0.6,
                             "description": "Minimum confidence level for filter suggestions"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "suggest_search_strategy",
+                "description": "Analyze a query and recommend the optimal search strategy based on query characteristics",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The user's search query to analyze for strategy recommendation"
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "Additional context about the search"
+                        },
+                        "user_intent": {
+                            "type": "string",
+                            "enum": ["find_documents", "explore_topic", "get_overview", "specific_lookup", "find_similar"],
+                            "default": "find_documents",
+                            "description": "The user's intent to help optimize strategy selection"
                         }
                     },
                     "required": ["query"]
@@ -270,7 +312,7 @@ def handle_tools_call(request_id, params):
                 }
             }
             
-        elif tool_name in ["suggest_filters", "vector_search"]:
+        elif tool_name in ["check_query_relevance", "suggest_filters", "suggest_search_strategy", "vector_search"]:
             # These tools require async execution
             result = asyncio.run(execute_async_tool(tool_name, arguments))
             
@@ -326,8 +368,12 @@ async def execute_async_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[
     
     # Delegate to the appropriate tool handler
     try:
-        if tool_name == "suggest_filters":
+        if tool_name == "check_query_relevance":
+            return await search_tools._check_query_relevance(arguments)
+        elif tool_name == "suggest_filters":
             return await search_tools._suggest_filters(arguments)
+        elif tool_name == "suggest_search_strategy":
+            return await search_tools._suggest_search_strategy(arguments)
         elif tool_name == "vector_search":
             return await search_tools._vector_search(arguments)
         else:

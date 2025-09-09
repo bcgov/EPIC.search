@@ -1105,167 +1105,21 @@ Query: "What reports are available for [project name]?"
         }
 
     async def _check_query_relevance(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Check if a query is relevant to EAO and environmental assessments."""
+        """Check if a query is relevant to EAO and environmental assessments using LLM with rule-based fallback."""
         query = args.get("query", "")
         context = args.get("context", "")
         
         try:
             self.logger.info(f"Checking query relevance for: {query[:100]}...")
             
-            # Define EAO-related keywords and terms
-            eao_keywords = [
-                # Core EAO terms
-                "environmental assessment", "eao", "environmental assessment office",
-                "environmental review", "environmental impact", "environmental study",
-                "environmental screening", "environmental approval", "environmental certificate",
+            # First, try LLM-based analysis
+            try:
+                return await self._llm_based_relevance_check(query, context)
+            except Exception as llm_error:
+                self.logger.warning(f"LLM-based relevance check failed: {llm_error}")
+                self.logger.info("Falling back to enhanced rule-based relevance check")
+                return await self._rule_based_relevance_check(query, context)
                 
-                # Project types commonly assessed by EAO
-                "mining", "mine", "natural gas", "lng", "pipeline", "transmission line",
-                "wind farm", "solar", "hydroelectric", "dam", "resort", "ski resort",
-                "waste management", "landfill", "quarry", "gravel pit", "aggregate",
-                "port", "terminal", "ferry", "infrastructure", "highway", "rail",
-                
-                # Environmental topics
-                "wildlife", "habitat", "species", "endangered", "biodiversity",
-                "air quality", "water quality", "soil", "contamination", "pollution",
-                "greenhouse gas", "emissions", "carbon", "climate change",
-                "fisheries", "salmon", "marine", "aquatic", "wetland", "forest",
-                "first nations", "indigenous", "aboriginal", "consultation",
-                "archaeology", "cultural heritage", "traditional use",
-                
-                # Assessment process terms
-                "scoping", "baseline", "mitigation", "monitoring", "compliance",
-                "public consultation", "stakeholder", "comment period",
-                "certificate", "approval", "permit", "authorization",
-                "proponent", "application", "proposal", "project description",
-                
-                # Government and regulatory
-                "british columbia", "bc", "canada", "federal", "provincial",
-                "ministry", "government", "regulation", "policy", "legislation",
-                "ceaa", "impact assessment act", "environmental protection",
-                
-                # Geographic regions in BC
-                "vancouver island", "lower mainland", "fraser valley", "peace river",
-                "northern bc", "interior", "coastal", "yukon", "northwest territories"
-            ]
-            
-            # Check for obvious non-EAO queries
-            non_eao_indicators = [
-                # Sports
-                "soccer", "football", "hockey", "basketball", "baseball", "tennis",
-                "olympics", "world cup", "championship", "league", "team", "player",
-                "game", "match", "score", "season",
-                
-                # Entertainment
-                "movie", "film", "actor", "actress", "director", "tv", "television",
-                "music", "song", "album", "artist", "band", "concert", "celebrity",
-                "netflix", "streaming", "show", "series",
-                
-                # Technology (unless environmental context)
-                "iphone", "android", "windows", "mac", "computer", "software",
-                "app", "website", "internet", "social media", "facebook", "twitter",
-                "instagram", "youtube", "google", "microsoft", "apple",
-                
-                # Food and cooking
-                "recipe", "cooking", "restaurant", "food", "meal", "ingredient",
-                "diet", "nutrition", "calories", "chef", "kitchen",
-                
-                # Fashion and shopping
-                "clothes", "fashion", "shopping", "store", "brand", "style",
-                "shoes", "dress", "shirt", "pants", "jacket",
-                
-                # Finance (unless environmental finance)
-                "stock", "investment", "bank", "credit", "loan", "mortgage",
-                "crypto", "bitcoin", "trading", "market", "economy",
-                
-                # Travel (unless environmental tourism)
-                "vacation", "hotel", "flight", "airline", "cruise", "tourism",
-                "destination", "travel", "booking", "trip",
-                
-                # Personal/medical
-                "health", "doctor", "medicine", "hospital", "symptoms", "disease",
-                "therapy", "treatment", "prescription", "medical"
-            ]
-            
-            # Convert query to lowercase for matching
-            query_lower = query.lower()
-            context_lower = context.lower() if context else ""
-            full_text = f"{query_lower} {context_lower}".strip()
-            
-            # Count EAO-related matches
-            eao_matches = []
-            for keyword in eao_keywords:
-                if keyword.lower() in full_text:
-                    eao_matches.append(keyword)
-            
-            # Count non-EAO indicators
-            non_eao_matches = []
-            for indicator in non_eao_indicators:
-                if indicator.lower() in query_lower:  # Only check query, not context
-                    non_eao_matches.append(indicator)
-            
-            # Calculate relevance score
-            eao_score = len(eao_matches) * 2  # EAO keywords get double weight
-            non_eao_score = len(non_eao_matches) * 3  # Non-EAO indicators get triple penalty
-            
-            # Determine if query is EAO-relevant
-            is_relevant = False
-            confidence = 0.0
-            reasoning = []
-            
-            if non_eao_score > 0 and eao_score == 0:
-                # Clear non-EAO query with no environmental context
-                is_relevant = False
-                confidence = min(0.9, 0.5 + (non_eao_score * 0.1))
-                reasoning.append(f"Non-EAO indicators detected: {', '.join(non_eao_matches[:3])}")
-                reasoning.append("No environmental assessment keywords found")
-            elif eao_score > non_eao_score:
-                # More EAO keywords than non-EAO indicators
-                is_relevant = True
-                confidence = min(0.9, 0.6 + (eao_score * 0.05))
-                reasoning.append(f"EAO-related keywords detected: {', '.join(eao_matches[:3])}")
-            elif eao_score > 0:
-                # Some EAO keywords present but also non-EAO indicators
-                is_relevant = True
-                confidence = 0.5 + ((eao_score - non_eao_score) * 0.05)
-                confidence = max(0.3, min(0.7, confidence))
-                reasoning.append(f"Mixed indicators - EAO keywords: {', '.join(eao_matches[:2])}")
-                if non_eao_matches:
-                    reasoning.append(f"Non-EAO indicators: {', '.join(non_eao_matches[:2])}")
-            else:
-                # No clear EAO keywords, check for generic environmental terms
-                generic_env_terms = ["environment", "environmental", "ecology", "nature", "green", "sustainability"]
-                generic_matches = [term for term in generic_env_terms if term in full_text]
-                
-                if generic_matches:
-                    is_relevant = True
-                    confidence = 0.4
-                    reasoning.append(f"Generic environmental terms: {', '.join(generic_matches)}")
-                    reasoning.append("Assuming environmental relevance - may be related to assessments")
-                else:
-                    # No environmental context at all
-                    is_relevant = False
-                    confidence = 0.8
-                    reasoning.append("No environmental or EAO-related keywords detected")
-                    reasoning.append("Query appears to be outside EAO scope")
-            
-            # Build response
-            result = {
-                "tool": "check_query_relevance",
-                "query": query,
-                "is_eao_relevant": is_relevant,
-                "confidence": round(confidence, 2),
-                "reasoning": reasoning,
-                "eao_keywords_found": eao_matches,
-                "non_eao_indicators": non_eao_matches,
-                "recommendation": "proceed_with_search" if is_relevant else "inform_user_out_of_scope",
-                "suggested_response": None if is_relevant else 
-                    "I'm designed to help with Environmental Assessment Office (EAO) related queries about environmental assessments, projects, and regulatory processes in British Columbia. Your question appears to be outside this scope. Please ask about environmental assessments, projects under review, or EAO processes."
-            }
-            
-            self.logger.info(f"Query relevance check complete - Relevant: {is_relevant}, Confidence: {confidence}")
-            return result
-            
         except Exception as e:
             self.logger.error(f"Query relevance check error: {str(e)}")
             return {
@@ -1277,3 +1131,316 @@ Query: "What reports are available for [project name]?"
                 "recommendation": "proceed_with_search",
                 "reasoning": ["Error occurred during relevance check - defaulting to allow"]
             }
+
+    async def _llm_based_relevance_check(self, query: str, context: str) -> Dict[str, Any]:
+        """Use LLM to intelligently assess query relevance to EAO scope."""
+        
+        # Build context-rich prompt for LLM
+        relevance_prompt = f"""You are an expert assistant for the Environmental Assessment Office (EAO) of British Columbia. Your job is to determine if a user's query is relevant to EAO scope and environmental assessments.
+
+## EAO Context:
+The EAO oversees environmental assessments for major projects in BC including:
+- Mining, oil & gas, renewable energy projects
+- Infrastructure (pipelines, transmission lines, highways)
+- Industrial facilities (ports, terminals, waste management)
+- Resort and tourism developments
+
+EAO documents include environmental assessment reports, certificates, correspondence, consultation records, technical studies, and all supporting documentation for the assessment process.
+
+## Query Analysis:
+User Query: "{query}"
+Additional Context: "{context if context else 'None provided'}"
+
+## Your Task:
+Analyze if this query is relevant to EAO scope. Consider:
+
+1. **Direct EAO Relevance**: Contains environmental assessment terms, project types, or regulatory language
+2. **Document Search Relevance**: Could be searching for specific documents, names, places, or terms that appear in EAO documents
+3. **RAG Database Context**: Since this searches a database of EAO documents, even proper nouns, locations, company names, or technical terms could be relevant
+4. **Short Query Handling**: Short queries might be specific search terms, project names, or document references
+
+## Guidelines:
+- **Allow RAG searches**: Proper nouns, locations, company names, technical terms could all appear in EAO documents
+- **Be permissive**: When in doubt, allow the search - it's better to search and find nothing than to block a valid query
+- **Block obvious non-EAO**: Only reject queries that are clearly about unrelated topics (sports, entertainment, personal matters, etc.)
+
+Respond with ONLY a JSON object:
+{{
+  "is_eao_relevant": true/false,
+  "confidence": 0.0-1.0,
+  "reasoning": ["clear explanation of decision"],
+  "recommendation": "proceed_with_search" or "inform_user_out_of_scope",
+  "query_type": "environmental_assessment|document_search|proper_noun|technical_term|clearly_unrelated",
+  "suggested_response": "only if recommending out_of_scope, provide helpful guidance"
+}}"""
+
+        # Get the synthesizer and query the LLM
+        try:
+            from search_api.services.synthesizer_resolver import SynthesizerResolver
+            synthesizer = SynthesizerResolver.get_synthesizer()
+            
+            if not synthesizer:
+                self.logger.warning("No synthesizer available for LLM relevance check")
+                raise Exception("No synthesizer configured")
+        except ImportError as e:
+            self.logger.warning(f"Cannot import search_api modules: {e}")
+            raise Exception("search_api modules not available")
+        
+        self.logger.info(f"Sending LLM prompt for query relevance analysis")
+        self.logger.debug(f"LLM relevance prompt: {relevance_prompt[:500]}...")
+        
+        llm_response = synthesizer.query_llm(relevance_prompt)
+        
+        # Extract the response text
+        if isinstance(llm_response, dict) and 'response' in llm_response:
+            response_text = llm_response['response']
+        else:
+            response_text = str(llm_response)
+        
+        self.logger.info(f"LLM relevance response: {response_text}")
+        
+        # Parse JSON from the response
+        import re
+        import json
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            try:
+                llm_result = json.loads(json_match.group(0))
+                
+                # Validate and format the response
+                is_relevant = llm_result.get('is_eao_relevant', True)
+                confidence = float(llm_result.get('confidence', 0.7))
+                reasoning = llm_result.get('reasoning', ["LLM analysis completed"])
+                recommendation = llm_result.get('recommendation', 'proceed_with_search')
+                query_type = llm_result.get('query_type', 'unknown')
+                suggested_response = llm_result.get('suggested_response', None)
+                
+                self.logger.info(f"LLM relevance analysis - Relevant: {is_relevant}, Confidence: {confidence}, Type: {query_type}")
+                
+                return {
+                    "tool": "check_query_relevance",
+                    "query": query,
+                    "is_eao_relevant": is_relevant,
+                    "confidence": confidence,
+                    "reasoning": reasoning,
+                    "recommendation": recommendation,
+                    "query_type": query_type,
+                    "suggested_response": suggested_response,
+                    "method": "llm_analysis"
+                }
+                
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.error(f"Failed to parse LLM relevance JSON: {e}")
+                self.logger.error(f"LLM response: {response_text}")
+                raise Exception(f"LLM returned invalid JSON: {e}")
+        else:
+            self.logger.error(f"No JSON found in LLM relevance response: {response_text}")
+            raise Exception("LLM did not return valid JSON format")
+
+    async def _rule_based_relevance_check(self, query: str, context: str) -> Dict[str, Any]:
+        """Enhanced rule-based fallback for query relevance checking."""
+        
+        # Define EAO-related keywords and terms
+        eao_keywords = [
+            # Core EAO terms
+            "environmental assessment", "eao", "environmental assessment office",
+            "environmental review", "environmental impact", "environmental study",
+            "environmental screening", "environmental approval", "environmental certificate",
+            
+            # Project types commonly assessed by EAO
+            "mining", "mine", "natural gas", "lng", "pipeline", "transmission line",
+            "wind farm", "solar", "hydroelectric", "dam", "resort", "ski resort",
+            "waste management", "landfill", "quarry", "gravel pit", "aggregate",
+            "port", "terminal", "ferry", "infrastructure", "highway", "rail",
+            
+            # Environmental topics
+            "wildlife", "habitat", "species", "endangered", "biodiversity",
+            "air quality", "water quality", "soil", "contamination", "pollution",
+            "greenhouse gas", "emissions", "carbon", "climate change",
+            "fisheries", "salmon", "marine", "aquatic", "wetland", "forest",
+            "first nations", "indigenous", "aboriginal", "consultation",
+            "archaeology", "cultural heritage", "traditional use",
+            
+            # Assessment process terms
+            "scoping", "baseline", "mitigation", "monitoring", "compliance",
+            "public consultation", "stakeholder", "comment period",
+            "certificate", "approval", "permit", "authorization",
+            "proponent", "application", "proposal", "project description",
+            
+            # Government and regulatory
+            "british columbia", "bc", "canada", "federal", "provincial",
+            "ministry", "government", "regulation", "policy", "legislation",
+            "ceaa", "impact assessment act", "environmental protection",
+            
+            # Geographic regions in BC
+            "vancouver island", "lower mainland", "fraser valley", "peace river",
+            "northern bc", "interior", "coastal", "yukon", "northwest territories"
+        ]
+        
+        # Check for obvious non-EAO queries
+        non_eao_indicators = [
+            # Sports
+            "soccer", "football", "hockey", "basketball", "baseball", "tennis",
+            "olympics", "world cup", "championship", "league", "team", "player",
+            "game", "match", "score", "season",
+            
+            # Entertainment
+            "movie", "film", "actor", "actress", "director", "tv", "television",
+            "music", "song", "album", "artist", "band", "concert", "celebrity",
+            "netflix", "streaming", "show", "series",
+            
+            # Technology (unless environmental context)
+            "iphone", "android", "windows", "mac", "computer", "software",
+            "app", "website", "internet", "social media", "facebook", "twitter",
+            "instagram", "youtube", "google", "microsoft", "apple",
+            
+            # Food and cooking
+            "recipe", "cooking", "restaurant", "food", "meal", "ingredient",
+            "diet", "nutrition", "calories", "chef", "kitchen",
+            
+            # Fashion and shopping
+            "clothes", "fashion", "shopping", "store", "brand", "style",
+            "shoes", "dress", "shirt", "pants", "jacket",
+            
+            # Finance (unless environmental finance)
+            "stock", "investment", "bank", "credit", "loan", "mortgage",
+            "crypto", "bitcoin", "trading", "market", "economy",
+            
+            # Travel (unless environmental tourism)
+            "vacation", "hotel", "flight", "airline", "cruise", "tourism",
+            "destination", "travel", "booking", "trip",
+            
+            # Personal/medical
+            "health", "doctor", "medicine", "hospital", "symptoms", "disease",
+            "therapy", "treatment", "prescription", "medical"
+        ]
+        
+        # Convert query to lowercase for matching
+        query_lower = query.lower()
+        context_lower = context.lower() if context else ""
+        full_text = f"{query_lower} {context_lower}".strip()
+        
+        # Count EAO-related matches
+        eao_matches = []
+        for keyword in eao_keywords:
+            if keyword.lower() in full_text:
+                eao_matches.append(keyword)
+        
+        # Count non-EAO indicators
+        non_eao_matches = []
+        for indicator in non_eao_indicators:
+            if indicator.lower() in query_lower:  # Only check query, not context
+                non_eao_matches.append(indicator)
+        
+        # Calculate relevance score
+        eao_score = len(eao_matches) * 2  # EAO keywords get double weight
+        non_eao_score = len(non_eao_matches) * 3  # Non-EAO indicators get triple penalty
+        
+        # Enhanced logic for RAG database searches
+        # Be more permissive for searches that could be in EAO documents
+        
+        # Check for patterns that suggest RAG-appropriate searches
+        rag_indicators = [
+            # Document types commonly found in EAO processes
+            "certificate", "correspondence", "report", "study", "assessment",
+            "application", "submission", "filing", "document", "letter",
+            "memo", "memorandum", "agreement", "contract", "permit",
+            "approval", "authorization", "notice", "notification",
+            "tax", "financial", "economic", "budget", "cost",
+            
+            # Process-related terms
+            "consultation", "engagement", "meeting", "workshop", "hearing",
+            "review", "comment", "response", "feedback", "input",
+            "recommendation", "condition", "requirement", "compliance",
+            
+            # Geographic and proper noun patterns (common in EAO docs)
+            "band", "nation", "first nations", "indigenous", "aboriginal",
+            "creek", "river", "lake", "mountain", "valley", "island",
+            "road", "highway", "bridge", "trail", "reserve",
+            "ltd", "inc", "corp", "company", "limited", "corporation",
+            
+            # Industry terms that appear in EAO contexts
+            "mine", "mining", "extraction", "drilling", "exploration",
+            "development", "construction", "operation", "facility",
+            "plant", "site", "location", "area", "zone", "region"
+        ]
+        
+        # Check if query contains RAG-appropriate terms
+        rag_matches = []
+        for indicator in rag_indicators:
+            if indicator.lower() in query_lower:
+                rag_matches.append(indicator)
+        
+        # Special handling for short queries (likely proper nouns or specific terms)
+        is_short_query = len(query.split()) <= 3
+        has_capital_letters = any(c.isupper() for c in query)  # Likely proper nouns
+        
+        # Determine if query is EAO-relevant with enhanced logic
+        is_relevant = False
+        confidence = 0.0
+        reasoning = []
+        
+        if non_eao_score > 0 and eao_score == 0 and len(rag_matches) == 0:
+            # Clear non-EAO query with no environmental or RAG context
+            is_relevant = False
+            confidence = min(0.9, 0.5 + (non_eao_score * 0.1))
+            reasoning.append(f"Non-EAO indicators detected: {', '.join(non_eao_matches[:3])}")
+            reasoning.append("No environmental assessment or document-related keywords found")
+        elif eao_score > 0:
+            # Contains EAO keywords - definitely relevant
+            is_relevant = True
+            confidence = min(0.9, 0.6 + (eao_score * 0.05))
+            reasoning.append(f"EAO-related keywords detected: {', '.join(eao_matches[:3])}")
+        elif len(rag_matches) > 0:
+            # Contains RAG/document-related terms - likely relevant
+            is_relevant = True
+            confidence = 0.7
+            reasoning.append(f"Document/process terms detected: {', '.join(rag_matches[:3])}")
+            reasoning.append("Query appears to be searching for documents or process-related content")
+        elif is_short_query and has_capital_letters:
+            # Short query with capital letters - likely proper nouns (project names, locations, companies)
+            is_relevant = True
+            confidence = 0.6
+            reasoning.append("Short query with proper nouns detected")
+            reasoning.append("Likely searching for specific projects, locations, or entities in EAO documents")
+        elif is_short_query and len(query.strip()) > 0:
+            # Any short, non-empty query could be relevant for RAG search
+            is_relevant = True
+            confidence = 0.5
+            reasoning.append("Short query detected - allowing for RAG database search")
+            reasoning.append("RAG databases can contain any relevant terms from EAO documents")
+        else:
+            # Check for generic environmental terms as fallback
+            generic_env_terms = ["environment", "environmental", "ecology", "nature", "green", "sustainability"]
+            generic_matches = [term for term in generic_env_terms if term in full_text]
+            
+            if generic_matches:
+                is_relevant = True
+                confidence = 0.4
+                reasoning.append(f"Generic environmental terms: {', '.join(generic_matches)}")
+                reasoning.append("Assuming environmental relevance - may be related to assessments")
+            else:
+                # Default to allowing for RAG search unless clearly non-EAO
+                is_relevant = True
+                confidence = 0.3
+                reasoning.append("No clear EAO indicators, but allowing for RAG database search")
+                reasoning.append("Query may reference content within EAO documents")
+        
+        # Build response
+        result = {
+            "tool": "check_query_relevance",
+            "query": query,
+            "is_eao_relevant": is_relevant,
+            "confidence": round(confidence, 2),
+            "reasoning": reasoning,
+            "eao_keywords_found": eao_matches,
+            "non_eao_indicators": non_eao_matches,
+            "rag_keywords_found": rag_matches,
+            "recommendation": "proceed_with_search" if is_relevant else "inform_user_out_of_scope",
+            "suggested_response": None if is_relevant else 
+                "I'm designed to help with Environmental Assessment Office (EAO) related queries about environmental assessments, projects, and regulatory processes in British Columbia. Your question appears to be outside this scope. Please ask about environmental assessments, projects under review, or EAO processes.",
+            "method": "rule_based_fallback"
+        }
+        
+        self.logger.info(f"Rule-based query relevance check complete - Relevant: {is_relevant}, Confidence: {confidence}")
+        return result

@@ -419,7 +419,7 @@ class AgenticService:
         """Fallback query relevance check when MCP tools are unavailable."""
         current_app.logger.info(f"Using fallback query relevance check for: {query[:100]}...")
         
-        # Simple keyword-based relevance check
+        # Simple keyword-based relevance check with RAG-aware logic
         query_lower = query.lower()
         context_lower = context.lower() if context else ""
         full_text = f"{query_lower} {context_lower}".strip()
@@ -431,6 +431,13 @@ class AgenticService:
             "habitat", "consultation", "certificate", "approval", "british columbia"
         ]
         
+        # Document and process terms common in EAO RAG database
+        rag_terms = [
+            "certificate", "correspondence", "report", "document", "letter",
+            "application", "submission", "consultation", "band", "nation",
+            "indigenous", "first nations", "tax", "agreement", "permit"
+        ]
+        
         # Clear non-EAO terms
         non_eao_terms = [
             "soccer", "football", "world cup", "movie", "music", "recipe",
@@ -438,25 +445,47 @@ class AgenticService:
         ]
         
         eao_matches = sum(1 for term in eao_terms if term in full_text)
+        rag_matches = sum(1 for term in rag_terms if term in full_text)
         non_eao_matches = sum(1 for term in non_eao_terms if term in query_lower)
         
-        if non_eao_matches > 0 and eao_matches == 0:
+        # Check for short query patterns
+        is_short_query = len(query.split()) <= 3
+        has_capital_letters = any(c.isupper() for c in query)
+        
+        if non_eao_matches > 0 and eao_matches == 0 and rag_matches == 0 and not is_short_query:
+            # Clear non-EAO query with no environmental or document context
             is_relevant = False
             confidence = 0.8
-            reasoning = ["Non-EAO query detected", "No environmental keywords found"]
+            reasoning = ["Non-EAO query detected", "No environmental or document-related keywords found"]
             recommendation = "inform_user_out_of_scope"
             suggested_response = "I'm designed to help with Environmental Assessment Office (EAO) related queries about environmental assessments, projects, and regulatory processes in British Columbia. Your question appears to be outside this scope. Please ask about environmental assessments, projects under review, or EAO processes."
         elif eao_matches > 0:
+            # Contains EAO keywords
             is_relevant = True
             confidence = min(0.8, 0.5 + (eao_matches * 0.1))
             reasoning = [f"Environmental/EAO keywords detected", "Query appears relevant to EAO scope"]
             recommendation = "proceed_with_search"
             suggested_response = None
+        elif rag_matches > 0:
+            # Contains document/process terms
+            is_relevant = True
+            confidence = 0.7
+            reasoning = ["Document/process terms detected", "Query appears to be searching for EAO-related documents"]
+            recommendation = "proceed_with_search"
+            suggested_response = None
+        elif is_short_query:
+            # Short queries are often proper nouns or specific search terms
+            is_relevant = True
+            confidence = 0.6 if has_capital_letters else 0.5
+            reasoning = ["Short query detected - allowing for RAG database search", 
+                        "Short queries may reference specific content in EAO documents"]
+            recommendation = "proceed_with_search"
+            suggested_response = None
         else:
-            # Default to allowing unclear queries
+            # Default to allowing for RAG search
             is_relevant = True
             confidence = 0.4
-            reasoning = ["Unclear query - allowing as potentially relevant", "Recommend manual review"]
+            reasoning = ["Allowing query for RAG database search", "Query may reference content within EAO documents"]
             recommendation = "proceed_with_search"
             suggested_response = None
         
