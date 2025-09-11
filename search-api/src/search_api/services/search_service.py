@@ -656,7 +656,19 @@ class SearchService:
         
         metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
         current_app.logger.info(f"Document similarity search completed in {metrics['search_time_ms']}ms")
-        current_app.logger.info(f"Found {len(result.get('documents', [])) if isinstance(result, dict) and result.get('documents') else 0} similar documents")
+        
+        # Extract documents from the Vector API response structure
+        documents = []
+        source_document_id = None
+        vector_metrics = {}
+        
+        if result and "document_similarity" in result:
+            similarity_data = result["document_similarity"]
+            documents = similarity_data.get("documents", [])
+            source_document_id = similarity_data.get("source_document_id", document_id)
+            vector_metrics = similarity_data.get("search_metrics", {})
+        
+        current_app.logger.info(f"Found {len(documents)} similar documents")
         
         metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
         
@@ -665,7 +677,11 @@ class SearchService:
 
         return {
             "result": {
-                "documents": result.get("documents", []),
-                "metrics": metrics
+                "source_document_id": source_document_id,
+                "documents": documents,
+                "metrics": {
+                    **metrics,
+                    "vector_search_metrics": vector_metrics
+                }
             }
         }

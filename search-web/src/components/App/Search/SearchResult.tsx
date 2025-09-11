@@ -41,8 +41,7 @@ const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: Sea
       const result = await similarSearchMutation.mutateAsync({
         documentId,
         projectIds,
-        limit: 5,
-        ...(searchStrategy && { searchStrategy })
+        limit: 5
       });
 
       setSimilarResults({

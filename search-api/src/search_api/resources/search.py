@@ -115,8 +115,8 @@ class DocumentSimilaritySearch(Resource):
             request_data = SimilaritySearchRequestSchema().load(API.payload)
             current_app.logger.info(f"Request payload: {request_data}")
             
-            document_id = request_data["documentId"]
-            project_ids = request_data.get("projectIds", None)
+            document_id = request_data["document_id"]
+            project_ids = request_data.get("project_ids", None)
             limit = request_data.get("limit", 10)
             
             current_app.logger.info(f"Document similarity parameters - Document ID: {document_id}")

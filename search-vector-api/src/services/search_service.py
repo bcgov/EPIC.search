@@ -426,10 +426,23 @@ class SearchService:
         
         similar_documents, search_metrics = document_similarity_search(document_id, project_ids, limit)
         
-        return {
+        response = {
             "document_similarity": {
                 "source_document_id": document_id,
                 "documents": similar_documents,
                 "search_metrics": search_metrics,
+                "request_parameters": {
+                    "limit": limit,
+                    "documents_found": len(similar_documents)
+                }
             }
         }
+        
+        # Add project_ids to response for debugging if they were provided
+        if project_ids is not None:
+            response["document_similarity"]["project_ids"] = project_ids
+            response["document_similarity"]["request_parameters"]["project_filter_applied"] = True
+        else:
+            response["document_similarity"]["request_parameters"]["project_filter_applied"] = False
+        
+        return response

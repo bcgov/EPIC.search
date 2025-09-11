@@ -7,7 +7,7 @@ export const useSimilarSearch = () => {
     mutationFn: async (requestData: SimilarSearchRequest): Promise<SimilarSearchResponse> => {
       const response = await apiRequest({
         method: "POST",
-        url: "/search/similar",
+        url: "/search/document-similarity",
         data: requestData,
       });
       return response.data;

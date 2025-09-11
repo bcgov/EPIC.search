@@ -89,8 +89,8 @@ class VectorAPIClient:
         MCP tool 'find_similar_documents' provides parameters.
         """
         payload = {
-            "document_id": document_id,
-            "max_results": max_results,
+            "documentId": document_id,
+            "limit": max_results,
             "similarity_threshold": similarity_threshold
         }
         
@@ -115,13 +115,13 @@ class VectorAPIClient:
         MCP tool 'document_similarity_search' provides parameters.
         """
         payload = {
-            "document_id": document_id,
-            "max_results": max_results,
+            "documentId": document_id,
+            "limit": max_results,
             "similarity_threshold": similarity_threshold
         }
         
         if project_ids:
-            payload["project_ids"] = project_ids
+            payload["projectIds"] = project_ids
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
