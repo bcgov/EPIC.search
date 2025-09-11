@@ -30,7 +30,7 @@ export const useProjectDetailsQuery = (projectId: string, enabled: boolean = tru
   return useQuery({
     queryKey: ["stats", "project", projectId],
     queryFn: async (): Promise<ProjectDetailsResponse> => {
-      const response = await request({ url: `/stats/project/${projectId}`, method: "GET" });
+      const response = await request({ url: `/stats/processing/${projectId}`, method: "GET" });
       return response.data;
     },
     enabled: enabled && !!projectId,

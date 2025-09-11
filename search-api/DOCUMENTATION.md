@@ -302,7 +302,7 @@ Processes a search query and returns relevant documents with an LLM-generated su
 }
 ```
 
-### POST /api/search/similar
+### POST /api/search/document-similarity
 
 Finds documents similar to a given document using document-level embeddings.
 

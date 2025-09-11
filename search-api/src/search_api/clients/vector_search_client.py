@@ -9,7 +9,13 @@ The client is organized into logical groups:
 - Intelligence Operations: AI-powered recommendations and filtering
 - Statistics Operations: Processing metrics and health monitoring
 
-All endpoints support the MCP server integration for intelligent orchestration
+A            "search": {
+                "method": "search",
+                "endpoint": "POST /vector-search",
+                "description": "Advanced two-stage hybrid search with comprehensive parameters"
+            },
+            "search_with_auto_inference": {
+                "method": "search_with_auto_inference", support the MCP server integration for intelligent orchestration
 while maintaining direct API access for traditional workflows.
 """
 
@@ -107,48 +113,6 @@ class VectorSearchClient:
             }
 
     @staticmethod
-    def find_similar_documents(document_id, project_ids=None, limit=10):
-        """Legacy document similarity endpoint.
-        
-        MCP Tool: find_similar_documents
-        Endpoint: POST /vector-search/similar
-        
-        Args:
-            document_id (str): The ID of the document to find similarities for
-            project_ids (list, optional): List of project IDs to filter by
-            limit (int): Maximum number of similar documents to return (default: 10)
-            
-        Returns:
-            tuple: (source_document_id, similar_documents, metrics)
-        """
-        try:
-            base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
-            vector_search_url = f"{base_url}/vector-search/similar"
-            
-            payload = {
-                "documentId": document_id,
-                "limit": limit
-            }
-            if project_ids:
-                payload["projectIds"] = project_ids
-                
-            current_app.logger.info(f"Calling vector search similar API at: {vector_search_url}")
-            response = requests.post(vector_search_url, json=payload, timeout=300)
-            response.raise_for_status()
-
-            api_response = response.json()
-            similarity_data = api_response["document_similarity"]
-            
-            source_document_id = similarity_data["source_document_id"]
-            documents = similarity_data["documents"]
-            metrics = similarity_data["search_metrics"]
-
-            return source_document_id, documents, metrics
-        except Exception as e:
-            current_app.logger.error(f"Error calling vector search similar API: {str(e)}")
-            return "", [], {}
-
-    @staticmethod
     def search_with_auto_inference(query, context=None, confidence_threshold=0.5, max_results=10):
         """Smart search with automatic project and document type inference.
         
@@ -197,11 +161,11 @@ class VectorSearchClient:
             vector_search_url = f"{base_url}/document-similarity"
             
             payload = {
-                "document_id": document_id,
+                "documentId": document_id,
                 "limit": limit
             }
             if project_ids:
-                payload["project_ids"] = project_ids
+                payload["projectIds"] = project_ids
                 
             current_app.logger.info(f"Calling vector search document similarity API at: {vector_search_url}")
             response = requests.post(vector_search_url, json=payload, timeout=300)

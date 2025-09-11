@@ -35,7 +35,6 @@ export interface SimilarSearchRequest {
   documentId: string;
   projectIds?: string[];
   limit: number;
-  searchStrategy?: string;
 }
 
 export interface SimilarSearchResponse {

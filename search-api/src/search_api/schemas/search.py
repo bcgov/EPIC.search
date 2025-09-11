@@ -155,20 +155,20 @@ class SearchRequestSchema(Schema):
 
 class SimilaritySearchRequestSchema(Schema):
     """Schema for similarity search API request validation.
-    Used for POST /api/search/similar to find similar documents.
+    Used for POST /api/search/document-similarity to find similar documents.
     """
     class Meta:
         unknown = EXCLUDE
 
     document_id = fields.Str(data_key="documentId", required=True, metadata={"description": "The source document ID to find similarities for."})
-    projectIds = fields.List(
+    project_ids = fields.List(
         fields.Str(),
         data_key="projectIds",
         required=False,
         allow_none=True,
         metadata={"description": "Optional list of project IDs to filter similar documents."}
     )
-    limit = fields.Int(required=False, allow_none=True, metadata={"description": "Maximum number of similar documents to return (default: 10)"})
+    limit = fields.Int(data_key="limit", required=False, allow_none=True, metadata={"description": "Maximum number of similar documents to return (default: 10)"})
 
 
 class SimilarDocumentSchema(Schema):

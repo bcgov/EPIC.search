@@ -9,6 +9,7 @@ from http import HTTPStatus
 import secure
 from flask import Flask, current_app, g, request
 from flask_cors import CORS
+from werkzeug.exceptions import NotFound
 
 from search_api.auth import jwt
 from search_api.config import get_named_config
@@ -100,6 +101,11 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
 
     @app.errorhandler(Exception)
     def handle_error(err):
+        # Handle 404 errors gracefully in all environments
+        if isinstance(err, NotFound):
+            current_app.logger.warning(f"404 Not Found: {request.url}")
+            return {"error": "Not Found", "message": f"The requested URL {request.path} was not found on the server."}, HTTPStatus.NOT_FOUND
+        
         if run_mode != "production":
             # To get stacktrace in local development for internal server errors
             raise err

@@ -703,8 +703,13 @@ def document_similarity_search(document_id, project_ids=None, limit=10):
             - list: Formatted similar documents as a list of dictionaries
             - dict: Search performance metrics in milliseconds
     """
+    import logging
+    
     metrics = {}
     start_time = time.time()
+    
+    # Debug logging
+    logging.info(f"Document similarity search started for document_id: {document_id}, project_ids: {project_ids}, limit: {limit}")
     
     # Instantiate VectorStore
     vec_store = VectorStore()
@@ -715,6 +720,7 @@ def document_similarity_search(document_id, project_ids=None, limit=10):
     
     if source_embedding is None:
         # Document not found
+        logging.warning(f"Document embedding not found for document_id: {document_id}")
         metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
         return [], metrics
     
@@ -724,6 +730,9 @@ def document_similarity_search(document_id, project_ids=None, limit=10):
     )
     metrics["similarity_search_ms"] = similarity_time
     
+    # Debug logging for similarity search results
+    logging.info(f"Document similarity search found {len(similar_docs)} similar documents")
+    
     # Step 3: Format the results
     format_start = time.time()
     formatted_docs = format_similar_documents(similar_docs)
@@ -731,6 +740,8 @@ def document_similarity_search(document_id, project_ids=None, limit=10):
     
     # Total time
     metrics["total_search_ms"] = round((time.time() - start_time) * 1000, 2)
+    
+    logging.info(f"Document similarity search completed. Total results: {len(formatted_docs)}, Total time: {metrics['total_search_ms']}ms")
     
     return formatted_docs, metrics
 
