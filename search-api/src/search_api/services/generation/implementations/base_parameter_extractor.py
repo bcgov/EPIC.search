@@ -96,27 +96,43 @@ class BaseParameterExtractor(ParameterExtractor):
             return []
         
         try:
-            prompt = f"""You are a project ID extraction specialist. Find project references in the query and match them to available project IDs.
+            prompt = f"""You are a project ID extraction specialist. Analyze the query to find the most relevant project names and match them to available project IDs.
 
 Available Projects:
 {chr(10).join([f"- {name}: {project_id}" for name, project_id in available_projects.items()])}
 
+IMPORTANT CONTEXT UNDERSTANDING:
+- Terms like "Mountain", "River", "Creek", "Lake", "Park", "Resort" are common geographic/facility descriptors
+- The DISTINCTIVE part of a project name is usually the specific location name that comes BEFORE or AFTER these descriptors
+- For example: "South Anderson Mountain Resort" - "South Anderson" is the distinctive identifier, "Mountain Resort" is the descriptor
+- "Black Mountain Reservoir" - "Black" is the distinctive identifier, "Mountain Reservoir" is the descriptor
+
 Instructions:
-- Look for project names, abbreviations, or partial matches in the query
-- Use fuzzy matching - "South Anderson Mountain Resort" might match "South Anderson Mountain" or "Anderson Mountain Resort"
-- Look for keywords like "Resort", "Mountain", "Anderson", etc.
-- If you find partial matches or related terms, include those projects
-- Return project IDs (not names) that are mentioned or clearly relevant
-- Be inclusive - better to return a potentially relevant project than miss it
+1. Identify the SPECIFIC project name or distinctive location mentioned in the query
+2. If the query mentions a complete project name (e.g., "South Anderson Mountain Resort"), match ONLY that exact project
+3. If the query uses generic terms (e.g., "mountain projects"), look for the complete context to determine which specific mountain project is intended
+4. Pay attention to ALL parts of the project name, not just common geographic terms
+5. Prefer exact or near-exact matches over broad keyword matches
+6. Maximum 3 project IDs unless the query clearly indicates multiple distinct projects are wanted
+7. If the query is ambiguous, prefer the most distinctive/complete name matches
 
 Query: "{query}"
 
-Think through this step by step:
-1. What project-related terms do I see in the query?
-2. Which available projects might match those terms?
-3. What are the IDs for those matching projects?
+Think step by step:
+1. What SPECIFIC location or project name is mentioned in the query?
+2. Which projects contain this specific location name (not just the generic descriptor)?
+3. How confident am I that each match is what the user is actually looking for?
 
-Return the matching project IDs as a JSON array of strings."""
+Return as JSON with format:
+{{
+    "project_matches": [
+        {{"project_id": "id1", "project_name": "name1", "confidence": 0.95, "reason": "exact match for complete project name 'South Anderson Mountain Resort'"}},
+        {{"project_id": "id2", "project_name": "name2", "confidence": 0.85, "reason": "strong match for distinctive location 'Anderson' in mountain context"}},
+        {{"project_id": "id3", "project_name": "name3", "confidence": 0.75, "reason": "partial match for location identifier, but less specific"}}
+    ]
+}}
+
+Include matches with confidence >= 0.7 and prioritize complete/distinctive name matches over generic descriptor matches"""
 
             response = self._make_llm_call(
                 messages=[{"role": "user", "content": prompt}],
@@ -125,17 +141,39 @@ Return the matching project IDs as a JSON array of strings."""
             
             content = response["choices"][0]["message"]["content"].strip()
             
-            # Try to parse JSON response
+            # Try to parse JSON response with confidence scores
             try:
-                if content.startswith('[') and content.endswith(']'):
+                if content.startswith('{') and content.endswith('}'):
+                    result = json.loads(content)
+                    project_matches = result.get("project_matches", [])
+                    
+                    # Extract project IDs from matches with confidence >= 0.7
+                    matched_ids = []
+                    for match in project_matches:
+                        confidence = match.get("confidence", 0)
+                        project_id = match.get("project_id")
+                        project_name = match.get("project_name", "")
+                        reason = match.get("reason", "")
+                        
+                        # Use higher threshold for better quality matches
+                        if confidence >= 0.7 and project_id and project_id in available_projects.values():
+                            matched_ids.append(project_id)
+                            logger.info(f"Project match: {project_name} (confidence: {confidence}) - {reason}")
+                    
+                    return matched_ids[:3]  # Limit to 3 for more focused results
+                    
+                elif content.startswith('[') and content.endswith(']'):
+                    # Fallback: try old format
                     project_ids = json.loads(content)
-                    # Validate that returned IDs are actually available
                     valid_ids = [pid for pid in project_ids if pid in available_projects.values()]
-                    return valid_ids
+                    logger.warning(f"Using fallback array format, got {len(valid_ids)} project IDs")
+                    return valid_ids[:3]  # Limit to 3 for focused results
                 else:
-                    # Fallback: look for project mentions in text
+                    logger.warning("LLM response not in expected JSON format, using fallback")
                     return self._fallback_project_extraction(query, available_projects)
-            except json.JSONDecodeError:
+                    
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}")
                 return self._fallback_project_extraction(query, available_projects)
                 
         except Exception as e:
@@ -279,26 +317,46 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
             return query
     
     def _fallback_project_extraction(self, query: str, available_projects: Dict) -> List[str]:
-        """Fallback project extraction using fuzzy keyword matching."""
+        """Enhanced fallback project extraction with focus on distinctive name components."""
         query_lower = query.lower()
         matched_projects = []
+        
+        # Common geographic/facility descriptors that are less distinctive
+        generic_terms = {'mountain', 'river', 'creek', 'lake', 'park', 'resort', 'wind', 'reservoir', 'project'}
         
         for project_name, project_id in available_projects.items():
             project_name_lower = project_name.lower()
             
-            # Check for exact match
-            if project_name_lower in query_lower:
+            # Check for exact match first
+            if project_name_lower in query_lower or query_lower in project_name_lower:
                 matched_projects.append(project_id)
                 continue
             
-            # Check for fuzzy matching - split project name into words and see if any appear in query
-            project_words = project_name_lower.split()
-            for word in project_words:
-                if len(word) > 3 and word in query_lower:  # Only check meaningful words
+            # Smart keyword matching - focus on distinctive parts
+            project_words = set(project_name_lower.split())
+            query_words = set(query_lower.split())
+            
+            # Filter out common words and generic geographic terms
+            distinctive_project_words = project_words - {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by'} - generic_terms
+            distinctive_query_words = query_words - {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by', 'projects'} - generic_terms
+            
+            # Find matching distinctive words
+            distinctive_matches = distinctive_project_words & distinctive_query_words
+            
+            # Also check for generic terms if there are other supporting matches
+            generic_matches = (project_words & generic_terms) & (query_words & generic_terms)
+            
+            if len(distinctive_matches) > 0:
+                # Strong match - has distinctive identifiers
+                matched_projects.append(project_id)
+            elif len(distinctive_matches) == 0 and len(generic_matches) > 0:
+                # Only generic matches - be very selective
+                # Only include if the query is very specific and short (likely targeting this type)
+                if len(query_words) <= 3 and any(word in project_name_lower for word in query_words if len(word) > 4):
                     matched_projects.append(project_id)
-                    break
         
-        return matched_projects
+        # Limit to 3 for focused results
+        return matched_projects[:3]
     
     def _fallback_document_extraction(self, query: str, available_document_types: Dict) -> List[str]:
         """Fallback document type extraction using comprehensive alias matching."""

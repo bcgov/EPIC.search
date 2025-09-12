@@ -117,8 +117,8 @@ Enable Application Insights for monitoring:
 
 The API includes health check endpoints:
 
-- `GET /health` - Basic health check
-- `GET /api/health` - Detailed health with LLM provider status
+- `GET /healthz` - Basic health check
+- `GET /readyz` - Readiness check
 
 #### Logging
 

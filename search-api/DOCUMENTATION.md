@@ -1094,8 +1094,8 @@ docker run -p 8081:8080 --env-file .env.azure epic-search-api:test
 
 ### Monitoring and Health Checks
 
-- `GET /health` - Basic health check
-- `GET /api/health` - Detailed health with LLM provider status  
+- `GET /healthz` - Basic health check
+- `GET /readyz` - Readiness check  
 - Application Insights integration for request tracing
 - Structured logging for troubleshooting
 
