@@ -16,5 +16,4 @@ Clients package for external API integrations.
 
 This package contains client classes for communicating with external services:
 - Vector Search API client
-- Future: MCP server client for agentic workflows
 """

@@ -4,6 +4,7 @@ This module is for the initiation of the flask app.
 """
 
 import os
+import logging
 
 from http import HTTPStatus
 import secure
@@ -15,6 +16,13 @@ from search_api.auth import jwt
 from search_api.config import get_named_config
 from search_api.utils.cache import cache
 from search_api.utils.util import allowedorigins
+
+# Configure logging to match Vector API
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
 
 # Security Response headers
 csp = (

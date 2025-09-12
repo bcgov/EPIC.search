@@ -1,5 +1,9 @@
 import sys
 import os
+import logging
+
+# Configure logging to match Vector API
+logging.basicConfig(level=logging.INFO)
 
 # Add the src directory to the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))

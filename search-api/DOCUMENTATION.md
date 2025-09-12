@@ -10,9 +10,9 @@ The service follows a modular architecture with the following key components:
 
 1. **REST API Layer**: Handles incoming HTTP requests and responses
 2. **Search Service**: Coordinates the search flow between vector search and LLM synthesis
-3. **Agentic Service**: Orchestrates AI-powered query analysis and optimization using MCP tools
-4. **MCP Integration**: Provides intelligent query processing using LLMs for filter extraction and strategy optimization
-5. **Synthesizer**: Manages LLM integration for response generation and agentic processing
+3. **Agentic Service**: Orchestrates AI-powered query analysis and optimization using direct LLM calls
+4. **LLM Integration**: Provides intelligent query processing using LLMs for parameter extraction and validation
+5. **Generation Services**: Manages LLM integration for response generation and agentic processing
 6. **External Vector Search**: Retrieves relevant document information based on processed queries
 
 ### Environment-Aware Architecture
@@ -21,19 +21,23 @@ The system automatically adapts based on deployment environment:
 
 #### Local Development Architecture
 
-- **MCP Mode**: Subprocess communication
-- **LLM Provider**: Ollama (local models)
+- **LLM Mode**: Direct client integration
+- **LLM Provider**: Ollama (local models) or OpenAI
 - **Use Case**: Development, debugging, experimentation
 
 #### Production/Azure Architecture
 
-- **MCP Mode**: Direct integration (in-process)
+- **LLM Mode**: Direct client integration
 - **LLM Provider**: Azure OpenAI
 - **Use Case**: Scalable cloud deployment
 
-Our VectorSearchClient provides complete Vector API coverage with **5 essential MCP tools** for agentic search functionality.
+The Search API provides intelligent parameter extraction and query validation through a modular generation services architecture with support for multiple LLM providers.
 
-For complete details on all MCP tools, their schemas, and example responses, see: **[`src/mcp_server/COMPLETE_TOOLS_REFERENCE.md`](src/mcp_server/COMPLETE_TOOLS_REFERENCE.md)**
+**Key Generation Services:**
+
+- **Parameter Extractor**: Multi-step extraction for project IDs, document types, and search strategy
+- **Query Validator**: LLM-powered validation for query relevance and scope
+- **Summarizer**: Response synthesis and document summarization
 
 For deployment configuration across different environments, see the **[Deployment Guide](#deployment-guide)** section below.
 
@@ -41,46 +45,45 @@ For deployment configuration across different environments, see the **[Deploymen
 
 The service architecture supports environment-aware deployment with intelligent agentic processing:
 
-### Local Development Architecture (Ollama + Subprocess MCP)
+### Local Development Architecture (Ollama/OpenAI + Direct LLM Integration)
 
 ```mermaid
 flowchart TD
     Client["Client Application"] --> SearchAPI["Search API (Flask)"]
     SearchAPI --> AgenticService["Agentic Service"]
-    AgenticService --> MCPClient["MCP Client"]
-    MCPClient --> MCPServer["MCP Server (subprocess)"]
-    MCPServer --> SearchTools["Search Tools"]
-    SearchTools --> Ollama["Local Ollama LLM"]
-    SearchTools --> VectorClient["Vector API Client"]
+    AgenticService --> ParameterExtractor["Parameter Extractor"]
+    AgenticService --> QueryValidator["Query Validator"]
+    ParameterExtractor --> LLMClient["LLM Client (Ollama/OpenAI)"]
+    QueryValidator --> LLMClient
     AgenticService --> VectorSearch["Vector Search Service"]
-    SearchAPI --> Synthesizer["LLM Synthesizer"]
-    Synthesizer --> Ollama
+    SearchAPI --> Summarizer["LLM Summarizer"]
+    Summarizer --> LLMClient
     VectorSearch --> ExternalVector["External Vector API"]
     
-    style Ollama fill:#e1f5fe
-    style MCPServer fill:#f3e5f5
-    style SearchTools fill:#e8f5e8
+    style LLMClient fill:#e1f5fe
+    style ParameterExtractor fill:#e8f5e8
+    style QueryValidator fill:#fff3e0
 ```
 
-### Production/Azure Architecture (Azure OpenAI + Direct MCP)
+### Production/Azure Architecture (Azure OpenAI + Direct LLM Integration)
 
 ```mermaid
 flowchart TD
     Client["Client Application"] --> SearchAPI["Search API (Flask)"]
     SearchAPI --> AgenticService["Agentic Service"] 
-    AgenticService --> MCPDirect["MCP Direct Service"]
-    MCPDirect --> SearchTools["Search Tools (Direct)"]
-    SearchTools --> AzureOpenAI["Azure OpenAI"]
-    SearchTools --> VectorClient["Vector API Client"]
+    AgenticService --> ParameterExtractor["Parameter Extractor"]
+    AgenticService --> QueryValidator["Query Validator"]
+    ParameterExtractor --> AzureOpenAI["Azure OpenAI"]
+    QueryValidator --> AzureOpenAI
     AgenticService --> VectorSearch["Vector Search Service"]
-    SearchAPI --> Synthesizer["LLM Synthesizer"]
-    Synthesizer --> AzureOpenAI
+    SearchAPI --> Summarizer["LLM Summarizer"]
+    Summarizer --> AzureOpenAI
     VectorSearch --> ExternalVector["External Vector API"]
     AzureOpenAI -.-> PrivateEndpoint["Private Endpoint"]
     
     style AzureOpenAI fill:#fff3e0
-    style MCPDirect fill:#e8f5e8
-    style SearchTools fill:#e3f2fd
+    style ParameterExtractor fill:#e8f5e8
+    style QueryValidator fill:#e3f2fd
 ```
 
 ### Agentic Processing Flow
@@ -90,32 +93,31 @@ sequenceDiagram
     participant Client
     participant API as Search API
     participant Agentic as Agentic Service
-    participant MCP as MCP Tools
-    participant LLM as LLM (Ollama/Azure OpenAI)
+    participant Validator as Query Validator
+    participant Extractor as Parameter Extractor
+    participant LLM as LLM (Ollama/OpenAI)
     participant Vector as Vector Search
     
     Client->>API: POST /api/search/query (agentic=true)
     API->>Agentic: Process with intelligence
     
     Note over Agentic,LLM: Query Relevance Check
-    Agentic->>MCP: check_query_relevance
-    MCP->>LLM: Analyze query scope
-    LLM->>MCP: EAO relevance score
-    MCP->>Agentic: Relevance result
+    Agentic->>Validator: validate_query_relevance
+    Validator->>LLM: Analyze query scope
+    LLM->>Validator: EAO relevance score
+    Validator->>Agentic: Relevance result
     
-    Note over Agentic,LLM: Filter Extraction
-    Agentic->>MCP: suggest_filters  
-    MCP->>LLM: Extract entities/filters
-    LLM->>MCP: Project IDs, doc types
-    MCP->>Agentic: Filter recommendations
+    Note over Agentic,LLM: Multi-Step Parameter Extraction
+    Agentic->>Extractor: extract_parameters
+    Extractor->>LLM: Step 1: Extract project IDs
+    LLM->>Extractor: Project ID suggestions
+    Extractor->>LLM: Step 2: Extract document types
+    LLM->>Extractor: Document type IDs
+    Extractor->>LLM: Step 3: Extract strategy & query
+    LLM->>Extractor: Search strategy & semantic query
+    Extractor->>Agentic: Complete parameters
     
-    Note over Agentic,LLM: Strategy Optimization
-    Agentic->>MCP: suggest_search_strategy
-    MCP->>LLM: Analyze query type
-    LLM->>MCP: Optimal strategy
-    MCP->>Agentic: Strategy recommendation
-    
-    Agentic->>Vector: Execute search with filters
+    Agentic->>Vector: Execute search with extracted parameters
     Vector->>API: Search results
     API->>LLM: Generate response summary
     LLM->>API: Final response
@@ -140,27 +142,28 @@ The Search API supports both traditional and agentic workflow modes:
 ### Agentic Workflow (agentic=true)
 
 1. Client sends a search query with agentic flag through REST API
-2. **Query Relevance Validation**: MCP tools use LLM to validate if query is EAO-related
+2. **Query Relevance Validation**: LLM-powered validation service validates if query is EAO-related
    - **Local**: Ollama analyzes query scope and relevance
    - **Azure**: Azure OpenAI analyzes query scope and relevance
    - If non-EAO query detected, returns helpful scope guidance
-3. **Intelligent Filter Extraction**: MCP tools use LLM to extract entities
-   - **Local**: Ollama extracts project IDs, document types, and semantic intent
-   - **Azure**: Azure OpenAI extracts project IDs, document types, and semantic intent
+3. **Multi-Step Parameter Extraction**: LLM extraction service intelligently extracts search parameters
+   - **Step 1**: LLM extracts project IDs using fuzzy matching
+   - **Step 2**: LLM extracts document types via comprehensive alias search
+   - **Step 3**: LLM determines optimal search strategy and creates semantic query
    - Caches project/document type mappings for efficient processing
-4. **Search Strategy Optimization**: MCP tools use LLM to recommend optimal search approach
+4. **Search Strategy Optimization**: LLM service recommends optimal search approach
    - **Local**: Ollama analyzes query characteristics for strategy selection
    - **Azure**: Azure OpenAI analyzes query characteristics for strategy selection
-5. Search Service executes optimized search with extracted filters on Vector Search service
+5. Search Service executes optimized search with extracted parameters on Vector Search service
 6. Vector Search service returns targeted, relevant document information
 7. **Response Synthesis**: LLM generates final response summary
    - **Local**: Ollama synthesizes response from search results
    - **Azure**: Azure OpenAI synthesizes response through private endpoint
 8. Search Service returns enhanced results with:
    - Original search results
-   - Agentic insights (relevance, extracted filters, strategy recommendations)
+   - Agentic insights (relevance, extracted parameters, strategy recommendations)
    - Confidence scores and reasoning
-   - Performance metrics for both MCP processing and search execution
+   - Performance metrics for both LLM processing and search execution
 
 ### Environment-Aware LLM Integration
 
@@ -699,11 +702,11 @@ LLM Provider Dependencies:
 - Advanced query relevance validation with domain-specific rules
 - Multi-step agentic reasoning for complex search scenarios
 
-## Vector API & MCP Implementation Status
+## Vector API & Agentic Search Implementation Status
 
 ### 🎉 **COMPLETE PARITY ACHIEVED!**
 
-The Search API now provides **100% coverage** of the Vector API specification with full MCP (Model Context Protocol) server integration support.
+The Search API now provides **100% coverage** of the Vector API specification with intelligent LLM-powered agentic search functionality.
 
 ### Vector API Endpoint Coverage: ✅ 13/13 (100%)
 
@@ -727,25 +730,27 @@ The Search API now provides **100% coverage** of the Vector API specification wi
 | `GET /healthz` | `GET /healthz` | ✅ |
 | `GET /readyz` | `GET /readyz` | ✅ |
 
-### MCP Interface Compliance: ✅ Ready for Integration
+### Agentic Search Features: ✅ Production Ready
 
-Our `VectorSearchClient` now provides full Vector API coverage with **5 essential MCP tools** for agentic search functionality.
+The Search API provides intelligent search functionality through direct LLM integration with multi-step parameter extraction.
 
-#### MCP Tools Implementation
+#### Generation Services Implementation
 
-For complete details on all MCP tools, their schemas, and example responses, see: **[`src/mcp_server/COMPLETE_TOOLS_REFERENCE.md`](src/mcp_server/COMPLETE_TOOLS_REFERENCE.md)**
+**Essential Agentic Services:**
 
-**Essential MCP Tools (5 tools):**
+1. **Query Validator** - LLM-powered EAO relevance validation
+2. **Parameter Extractor** - Multi-step AI-powered parameter extraction  
+3. **Summarizer** - AI-powered response synthesis and document summarization
 
-1. `check_query_relevance` - LLM-powered EAO relevance validation (NEW)
-2. `suggest_filters` - AI-powered filter recommendations  
-3. `suggest_search_strategy` - AI-powered search strategy optimization
-4. `get_available_projects` - Available project discovery
-5. `get_available_document_types` - Document type discovery
+**Multi-Step Parameter Extraction:**
+
+- **Step 1**: Project ID extraction with fuzzy matching
+- **Step 2**: Document type extraction via comprehensive alias search  
+- **Step 3**: Search strategy optimization and semantic query refinement
 
 #### Vector API Coverage
 
-The `VectorSearchClient` provides complete coverage of the Vector API specification through direct REST endpoints, supporting all search, discovery, and statistics operations needed by the MCP tools.
+The `VectorSearchClient` provides complete coverage of the Vector API specification through direct REST endpoints, supporting all search, discovery, and statistics operations needed by agentic search functionality.
 
 ### Recent Implementation Changes
 
@@ -774,9 +779,11 @@ The `VectorSearchClient` provides complete coverage of the Vector API specificat
 ```text
 User Request → [Search API] → [VectorSearchClient] → [Vector API]
                     ↓
-            [MCP Server Integration]
+         [Direct LLM Integration]
                     ↓
-        [LLM-Powered Intelligence Methods]
+        [Multi-Step Parameter Extraction]
+                    ↓
+      [LLM-Powered Intelligence Services]
 ```
 
 The Search API now serves as a **complete proxy and intelligent wrapper** around the Vector API, providing both direct access and AI-enhanced capabilities for optimal user experience.
@@ -814,7 +821,6 @@ The Search API now serves as a **complete proxy and intelligent wrapper** around
 - `/api/agentic/suggest-filters` - AI filter recommendations
 - `/api/agentic/search-with-inference` - Search with AI inference  
 - `/api/agentic/orchestrated-search` - Full agentic orchestration
-- `/api/agentic/mcp-status` - MCP server status
 - `/api/agentic/health` - Agentic health check
 
 ### **How Agentic Functionality Works Now**
@@ -832,20 +838,21 @@ POST /api/search/query
 **Agentic Mode Processing Flow:**
 
 1. **🛡️ Query Relevance Validation** (NEW)
-   - Uses LLM-powered analysis via `check_query_relevance` MCP tool
+   - Uses LLM-powered query validation service
    - Validates if query is EAO/environmental assessment related
    - For non-relevant queries (e.g., "Who won the soccer world cup?"):
      - Returns helpful message explaining EAO scope
      - Prevents unnecessary processing
      - Includes confidence score and reasoning
 
-2. **🔍 Intelligent Filter Extraction**
-   - Uses `suggest_filters` MCP tool for AI-powered analysis
-   - Extracts project IDs and document types from natural language
-   - Generates cleaned semantic query
+2. **🔍 Multi-Step Parameter Extraction**
+   - Uses direct LLM integration for AI-powered analysis
+   - Step 1: Extracts project IDs with fuzzy matching
+   - Step 2: Extracts document types via comprehensive alias search
+   - Step 3: Optimizes search strategy and generates semantic query
 
 3. **⚡ Search Strategy Optimization**
-   - Uses `suggest_search_strategy` MCP tool
+   - Uses direct LLM service integration
    - Recommends optimal search approach based on query type
    - Provides confidence scores and explanations
 
@@ -871,13 +878,6 @@ This approach keeps the agentic AI functionality internal while providing intell
 
 #### **1. Client Layer (`src/search_api/clients/`)**
 
-**MCPClient (`mcp_client.py`)**
-
-- **Purpose**: Communicates with MCP server via stdio subprocess
-- **Used for**: Agentic AI-powered analysis and filter suggestions
-- **Key method**: `call_tool("suggest_filters", arguments)`
-- **Status**: ✅ **ACTIVELY USED** in agentic workflow
-
 **VectorSearchClient (`vector_search_client.py`)**
 
 - **Purpose**: Direct HTTP communication with external vector search API
@@ -896,58 +896,43 @@ This approach keeps the agentic AI functionality internal while providing intell
 
 **AgenticService (`agentic_service.py`)**
 
-- **Uses**: Both `MCPClient` and `VectorSearchClient`
-- **Key MCP calls**:
-  - `mcp_client.call_tool("suggest_filters", ...)` - AI filter recommendations
-  - `mcp_client.call_tool("get_available_projects", ...)` - Project discovery
-  - `mcp_client.call_tool("get_available_document_types", ...)` - Document type discovery
+- **Uses**: Direct LLM integration via generation services
+- **Key capabilities**:
+  - Multi-step parameter extraction
+  - Query relevance validation
+  - Response synthesis
 
-#### **3. MCP Server Layer (`src/mcp_server/`)**
+#### **3. Generation Services Layer (`src/search_api/services/generation/`)**
 
-**Production Server (`mcp_server.py`)**
+#### **Factory Pattern Implementation**
 
-- **Primary server**: Used by Flask API via `MCP_SERVER_COMMAND`
-- **Protocol**: JSON-RPC via stdio subprocess
-- **Tools**: Integrates SearchTools and StatsTools
+- **LLMClientFactory**: Creates OpenAI or Ollama clients based on environment
+- **ParameterExtractorFactory**: Creates parameter extraction services
+- **QueryValidatorFactory**: Creates query validation services
+- **SummarizerFactory**: Creates response synthesis services
 
-**Testing Server (`standalone_mcp_server.py`)**
+#### **Core Services**
 
-- **Purpose**: Standalone testing and debugging
-- **Usage**: Manual testing of MCP protocol interactions
+**Parameter Extractor (`parameter_extractor.py`)**
 
-**SearchTools (`tools/search_tools.py`)**
+- **Multi-step extraction process**:
+  - **Step 1**: Project ID extraction with fuzzy matching
+  - **Step 2**: Document type extraction via comprehensive alias search
+  - **Step 3**: Search strategy optimization and semantic query refinement
+- **Fallback logic**: Robust keyword matching when LLM calls fail
+- **Provider support**: Both OpenAI and Ollama implementations
 
-- **Primary agentic tool**: `suggest_filters`
-- **What it does**:
-  - Analyzes natural language queries
-  - Extracts project IDs, document type IDs
-  - Generates semantic queries
-  - Uses rule-based + LLM-powered analysis
-  - Implements caching for project/document type mappings
-- **Key features**:
-  - Dynamic mapping fetching from vector API
-  - 1-hour cache duration  
-  - Graceful fallback to cached data if API fails
-  - Detailed logging and confidence scoring
+**Query Validator (`query_validator.py`)**
 
-### **Actual Usage in Agentic Flow**
+- **Purpose**: LLM-powered EAO relevance validation
+- **Features**: Confidence scoring and detailed reasoning
+- **Early exit**: Prevents processing of out-of-scope queries
 
-**What IS being used:**
+**Summarizer (`summarizer.py`)**
 
-1. **MCPClient** → **MCP Server** → **SearchTools.suggest_filters**
-   - AI-powered query analysis
-   - Project/document type extraction
-   - Semantic query generation
-
-2. **VectorSearchClient** → **External Vector API**
-   - Actual search execution with extracted filters
-   - Metadata retrieval for mappings
-   - Document similarity operations
-
-**What is NOT being used:**
-
-- Most of the other MCP tools (vector_search, find_similar_documents, etc.) are available but not actively used in the current agentic flow
-- The agentic service primarily uses `suggest_filters` for intelligence and then direct `VectorSearchClient` calls for execution
+- **Purpose**: Response synthesis and document summarization
+- **Integration**: Works with both OpenAI and Ollama
+- **Features**: Context-aware response generation
 
 ### **Current Agentic Request Flow**
 
@@ -958,66 +943,89 @@ This approach keeps the agentic AI functionality internal while providing intell
    ↓  
 3. AgenticService.get_filtered_search_recommendations()
    ↓
-4. MCPClient.call_tool("suggest_filters", {...})
+4. QueryValidator.validate_query_relevance()
    ↓
-5. MCP Server → SearchTools._suggest_filters()
+5. ParameterExtractor.extract_parameters() (multi-step)
    ↓ 
-6. Rule-based + LLM analysis with cached mappings
+6. Direct LLM calls with fallback logic
    ↓
 7. Return: {project_ids, document_type_ids, semantic_query, confidence, etc.}
    ↓
-8. VectorSearchClient.search() with extracted filters
+8. VectorSearchClient.search() with extracted parameters
    ↓
-9. Return combined results with agentic_suggestions
+9. Summarizer.generate_response() for synthesis
+   ↓
+10. Return combined results with agentic insights
 ```
 
-### **Key Insight**
+### **Key Architecture Benefits**
 
-The agentic functionality is **highly focused** - it primarily uses:
+The agentic functionality uses **direct LLM integration** with:
 
-- **MCPClient** for the `suggest_filters` intelligence  
-- **VectorSearchClient** for actual search execution
-- The MCP server acts as an AI orchestration layer for filter extraction only
+- **Factory pattern** for provider-agnostic service creation
+- **Multi-step parameter extraction** for improved accuracy
+- **Comprehensive fallback logic** for reliability
+- **Clean separation of concerns** between validation, extraction, and synthesis
 
-This is a clean, efficient architecture that keeps AI logic separate from search execution.
-
-### **Clean MCP Server Structure**
-
-```text
-src/mcp_server/
-├── mcp_server.py              # Production server  
-├── standalone_mcp_server.py   # Testing server
-├── VectorAPIClient.py         # API interface
-├── mcp_client.py              # Client communication  
-├── tools/                     # Tool implementations
-│   ├── search_tools.py        # Agentic intelligence
-│   └── stats_tools.py         # Statistics tools
-└── __init__.py
-```
-
-The agentic workflow is now properly internalized with a clean separation between AI logic (MCP) and search execution (direct API calls). Both clients are essential and actively used in the current workflow.
+This is a maintainable, efficient architecture that provides robust AI capabilities while keeping the codebase simple and testable.
 
 ## Deployment Guide
 
-### Environment-Aware MCP Architecture
+### Environment Configuration
 
-The Search API uses **environment-aware MCP integration** that automatically adapts to the deployment context:
+The Search API supports multiple deployment environments with automatic configuration detection:
 
 #### Local Development
 
-- **MCP Mode**: Subprocess (external process)
-- **Communication**: stdio protocol  
-- **Benefits**: Easy debugging, process isolation
-- **Detection**: Absence of container indicators
+- **Python Environment**: Virtual environment or system Python
+- **Configuration**: `.env` file with OpenAI or Ollama settings
+- **LLM Provider**: Configurable via `LLM_PROVIDER` environment variable
 
-#### Container/Azure Deployment  
+#### Container/Azure Deployment
 
-- **MCP Mode**: Direct integration (in-process)
-- **Communication**: Direct function calls
-- **Benefits**: Better reliability, performance, scaling
-- **Detection**: `/.dockerenv`, `WEBSITE_SITE_NAME`, or Kubernetes environment
+- **Container Support**: Docker with proper environment variable configuration
+- **Azure Integration**: App Service with managed identity support
+- **Scaling**: Horizontal scaling with stateless architecture
 
-### Deployment Options
+### Deployment Environment Variables
+
+Required configuration for different LLM providers:
+
+#### OpenAI Configuration
+
+```bash
+LLM_PROVIDER=openai
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-api-key
+AZURE_OPENAI_API_VERSION=2024-02-01
+```
+
+#### Ollama Configuration
+
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:8b
+```
+
+### Factory Pattern Benefits
+
+The architecture's factory pattern provides:
+
+- **Provider Flexibility**: Easy switching between OpenAI and Ollama
+- **Environment Adaptation**: Automatic configuration based on deployment context
+- **Maintainability**: Clean separation between abstract interfaces and concrete implementations
+- **Testability**: Easy mocking and unit testing of individual components
+
+### Agentic Architecture Performance
+
+- **Multi-step Extraction**: Optimized for accuracy over speed
+- **Caching**: Intelligent caching of frequently-accessed metadata
+- **Fallback Logic**: Robust error handling with keyword-based fallbacks
+- **Parallel Processing**: Where possible, concurrent LLM calls for improved performance
+
+This architecture provides a robust, scalable foundation for agentic search functionality.
 
 #### Option 1: Azure App Service (Container) - Recommended
 
@@ -1032,7 +1040,6 @@ AZURE_OPENAI_DEPLOYMENT=your-deployment-name
 
 # Optional - Auto-detected
 ENVIRONMENT=azure
-MCP_MODE=direct
 LOG_LEVEL=INFO
 ```
 
@@ -1069,37 +1076,26 @@ docker build -t epic-search-api:test .
 docker run -p 8081:8080 --env-file .env.azure epic-search-api:test
 ```
 
-### MCP Integration Modes
+### LLM Provider Integration
 
-#### Direct Integration (Container/Azure)
+#### OpenAI/Azure OpenAI (Recommended for Production)
 
-- MCP tools imported directly into Flask app
-- No subprocess communication overhead
-- Better performance and reliability
-- Automatic retry and recovery logic
+- Direct integration via official OpenAI SDK
+- Built-in retry logic and error handling
 - Optimized for cloud deployment
+- Automatic scaling and reliability
 
-#### Subprocess Mode (Local Development)  
+#### Ollama (Local Development)
 
-- Separate MCP server process
-- stdio protocol communication
-- Enhanced retry mechanism with timeout handling
-- Process restart on failure
-- Maintains development workflow
+- Local LLM hosting for development
+- Privacy-focused deployment option
+- Consistent API interface via factory pattern
+- Easy switching between providers
 
-### Performance Considerations
-
-#### Azure App Service
-
-- **Scaling**: Auto-scale based on CPU/memory usage
-- **Cold starts**: Direct integration reduces startup time
-- **Resource limits**: Minimum 1GB memory for LLM operations
-- **Networking**: Ensure Vector API in same region for low latency
-
-#### Monitoring and Health Checks
+### Monitoring and Health Checks
 
 - `GET /health` - Basic health check
-- `GET /api/health` - Detailed health with MCP status  
+- `GET /api/health` - Detailed health with LLM provider status  
 - Application Insights integration for request tracing
 - Structured logging for troubleshooting
 
@@ -1120,11 +1116,11 @@ az webapp deployment slot swap --resource-group your-rg --name your-app --slot s
 
 #### Environment Testing
 
-The environment-aware system ensures consistent behavior:
+The factory pattern ensures consistent behavior across environments:
 
-- Local: Test with subprocess MCP integration
-- Container: Test with direct MCP integration  
-- Both modes use same API interface and agentic logic
+- Local: Ollama integration with development settings
+- Azure: OpenAI integration with production configuration
+- Both use the same agentic API interface and extraction logic
 
 ### Troubleshooting
 
@@ -1133,13 +1129,14 @@ The environment-aware system ensures consistent behavior:
 - **LLM not responding**: Check environment configuration:
   - **Local**: Verify Ollama is running and accessible
   - **Azure**: Verify Azure OpenAI endpoint and key configuration
-- **Agentic mode not working**: Check MCP client configuration and LLM connectivity
+- **Agentic mode not working**: Check LLM provider configuration and connectivity
 - **High latency**: Check Vector API region and LLM provider performance:
   - **Local**: Ensure Ollama model is loaded and optimized
   - **Azure**: Check Azure OpenAI region proximity
 - **Memory issues**: Scale up resources or optimize LLM usage patterns
 - **Timeout errors**:
   - **Local**: Increase Ollama response timeout
+  - **Azure**: Check Azure OpenAI rate limits and quotas
   - **Azure**: Increase App Service timeout settings
 
 #### Environment-Specific Monitoring

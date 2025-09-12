@@ -9,12 +9,10 @@ This service handles the core search functionality, including:
 
 import os
 import time
+
 from datetime import datetime, timezone
-
 from flask import current_app
-from .synthesizer_resolver import get_synthesizer
 from search_api.clients.vector_search_client import VectorSearchClient
-
 
 class SearchService:
     """Service class for handling search operations.
@@ -51,7 +49,7 @@ class SearchService:
             agentic (bool, optional): If True, enables agentic mode where LLM will intelligently 
                                      extract project IDs and filters from natural language queries.
                                      When enabled and no project_ids/inference provided, the system
-                                     will use MCP tools to analyze the query and suggest appropriate filters.
+                                     will use LLM services to analyze the query and suggest appropriate filters.
             
         Returns:
             dict: A dictionary containing:
@@ -79,29 +77,28 @@ class SearchService:
         current_app.logger.info(f"Search Strategy: {search_strategy}")
         current_app.logger.info(f"Agentic Mode: {agentic}")
         
+        # Initialize metrics and timing
         metrics = {}
         start_time = time.time()
         metrics["start_time"] = datetime.fromtimestamp(start_time, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         metrics["agentic_mode"] = agentic
         
-        # Handle agentic mode processing
-        agentic_result = cls._handle_agentic_mode(
-            agentic, query, project_ids, document_type_ids, search_strategy, inference, metrics
-        )
+        # Handle parameter extraction based on mode
+        if agentic:
+            parameters = cls._handle_agentic_mode(query, project_ids, document_type_ids, search_strategy, inference, metrics)
+        else:
+            parameters = cls._handle_rag_mode(query, project_ids, document_type_ids, search_strategy, inference, metrics)
         
-        # Check if we got an early exit (non-EAO query)
-        if len(agentic_result) == 5 and isinstance(agentic_result[4], dict) and agentic_result[4].get('early_exit'):
-            early_exit_info = agentic_result[4]
+        # Check for early exit (non-EAO query in agentic mode)
+        if len(parameters) == 5 and isinstance(parameters[4], dict) and parameters[4].get('early_exit'):
+            early_exit_info = parameters[4]
             current_app.logger.info(f"Early exit triggered: {early_exit_info.get('reason', 'unknown')}")
-            
-            # Total execution time for early exit
             metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
             
-            # Return early with the suggested response
             return {
                 "result": {
                     "response": early_exit_info.get('response', 'Query appears to be outside EAO scope.'),
-                    "documents": [],  # No documents for out-of-scope queries
+                    "documents": [],
                     "metrics": metrics,
                     "search_quality": "not_applicable",
                     "project_inference": {},
@@ -111,15 +108,123 @@ class SearchService:
                 }
             }
         
-        # Normal case - extract the parameters
-        project_ids, document_type_ids, search_strategy, semantic_query = agentic_result[:4]
+        # Extract search parameters
+        project_ids, document_type_ids, search_strategy, semantic_query = parameters[:4]
+        
+        # Execute vector search
+        search_result = cls._execute_vector_search(query, project_ids, document_type_ids, inference, ranking, search_strategy, semantic_query, metrics)
+        
+        # Check if search returned no results
+        if not search_result["documents_or_chunks"]:
+            current_app.logger.warning("No documents found - returning empty result")
+            metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+            return {
+                "result": {
+                    "response": "No relevant information found.",
+                    search_result["documents_key"]: [],
+                    "metrics": metrics,
+                    "search_quality": search_result["search_quality"],
+                    "project_inference": search_result["project_inference"],
+                    "document_type_inference": search_result["document_type_inference"]
+                }
+            }
+        
+        # Generate response summary based on mode
+        if agentic:
+            summary_result = cls._generate_agentic_summary(search_result["documents_or_chunks"], query, metrics)
+        else:
+            summary_result = cls._generate_rag_summary(search_result["documents_or_chunks"], query, metrics)
+        
+        # Handle summary generation errors
+        if isinstance(summary_result, dict) and "error" in summary_result:
+            metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+            return {
+                "result": {
+                    "response": summary_result.get("fallback_response", "An error occurred while processing your request."),
+                    search_result["documents_key"]: search_result["documents_or_chunks"],
+                    "metrics": metrics,
+                    "search_quality": search_result["search_quality"],
+                    "project_inference": search_result["project_inference"],
+                    "document_type_inference": search_result["document_type_inference"]
+                }
+            }
+        
+        # Finalize metrics and logging
+        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
+        
+        # Log final summary
+        if agentic:
+            cls._log_agentic_summary(metrics, search_result["search_duration"], search_result["search_quality"], search_result["documents_or_chunks"], query)
+        else:
+            cls._log_basic_summary(search_result["documents_or_chunks"], query)
+        
+        current_app.logger.info("=== SearchService.get_documents_by_query completed ===")
+        
+        return {
+            "result": {
+                "response": summary_result.get("response", "No response generated"),
+                search_result["documents_key"]: search_result["documents_or_chunks"],
+                "metrics": metrics,
+                "search_quality": search_result["search_quality"],
+                "project_inference": search_result["project_inference"],
+                "document_type_inference": search_result["document_type_inference"]
+            }
+        }
 
-        # Get the synthesizer
-        current_app.logger.info("Getting LLM synthesizer...")
-        get_synthesizer_time = time.time()
-        synthesizer = get_synthesizer()
-        metrics["get_synthesizer_time"] = round((time.time() - get_synthesizer_time) * 1000, 2)
-        current_app.logger.info(f"Synthesizer obtained in {metrics['get_synthesizer_time']}ms")
+    @classmethod
+    def _handle_rag_mode(cls, query, project_ids, document_type_ids, search_strategy, inference, metrics):
+        """Handle RAG mode (non-agentic) processing - use provided parameters directly.
+        
+        Args:
+            query (str): The user's search query
+            project_ids (list): Project IDs (may be None)
+            document_type_ids (list): Document type IDs (may be None) 
+            search_strategy (str): Search strategy (may be None)
+            inference (list): Inference settings
+            metrics (dict): Metrics dictionary to update
+            
+        Returns:
+            tuple: (project_ids, document_type_ids, search_strategy, semantic_query)
+        """
+        current_app.logger.info("=== RAG MODE: Using provided parameters directly ===")
+        
+        # Initialize metrics for non-agentic mode
+        metrics["agentic_time_ms"] = 0.0
+        metrics["agentic_suggestions"] = {}
+        metrics["agentic_project_extraction"] = False
+        metrics["agentic_document_type_extraction"] = False
+        metrics["agentic_semantic_query_generated"] = False
+        metrics["agentic_strategy_extraction"] = False
+        metrics["agentic_strategy_time_ms"] = 0.0
+        metrics["relevance_check_time_ms"] = 0.0
+        metrics["query_relevance"] = {"checked": False}
+        
+        # In RAG mode, we don't modify the query - use original
+        semantic_query = None
+        
+        current_app.logger.info(f"RAG MODE: Final parameters - Project IDs: {project_ids}, Document Types: {document_type_ids}, Search Strategy: {search_strategy}")
+        current_app.logger.info("=== RAG MODE: Parameter setup complete ===")
+        
+        return project_ids, document_type_ids, search_strategy, semantic_query
+
+    @classmethod
+    def _execute_vector_search(cls, query, project_ids, document_type_ids, inference, ranking, search_strategy, semantic_query, metrics):
+        """Execute vector search and process the response.
+        
+        Args:
+            query (str): The original search query
+            project_ids (list): Project IDs for filtering
+            document_type_ids (list): Document type IDs for filtering
+            inference (list): Inference settings
+            ranking (dict): Ranking configuration
+            search_strategy (str): Search strategy to use
+            semantic_query (str): Processed semantic query (may be None)
+            metrics (dict): Metrics dictionary to update
+            
+        Returns:
+            dict: Search result containing documents_or_chunks, search metadata, etc.
+        """
+        current_app.logger.info("=== VECTOR SEARCH: Starting search execution ===")
         
         # Add LLM provider and model information
         metrics["llm_provider"] = os.getenv("LLM_PROVIDER", "ollama")
@@ -129,7 +234,7 @@ class SearchService:
             metrics["llm_model"] = os.getenv("LLM_MODEL", "")
         
         current_app.logger.info(f"LLM Configuration - Provider: {metrics['llm_provider']}, Model: {metrics['llm_model']}")
- 
+        
         # Perform the vector DB search by calling the vector search api
         current_app.logger.info("Starting vector search...")
         search_start = time.time()
@@ -204,143 +309,128 @@ class SearchService:
         current_app.logger.info(f"Determined response type: {response_type}, documents_key: {documents_key}")
         
         # Add all search metrics regardless of whether documents were found
-        metrics["search_time_ms"] = round((time.time() - search_start) * 1000, 2)
-        metrics["search_breakdown"] = search_breakdown if search_breakdown else search_metrics  # Include detailed search breakdown metrics
-        metrics["search_quality"] = search_quality # Add quality metrics from vector search API
-        metrics["original_query"] = original_query # Original user query before processing
-        metrics["final_semantic_query"] = final_semantic_query # Final processed query for semantic search
-        metrics["semantic_cleaning_applied"] = semantic_cleaning_applied # Whether query cleaning was applied
-        metrics["search_mode"] = search_mode # Search mode used by vector search
-        metrics["query_processed"] = query_processed # Whether query underwent processing
-        metrics["inference_settings"] = inference_settings # Inference configuration details
+        metrics["search_time_ms"] = search_duration
+        metrics["search_breakdown"] = search_breakdown if search_breakdown else search_metrics
+        metrics["search_quality"] = search_quality
+        metrics["original_query"] = original_query
+        metrics["final_semantic_query"] = final_semantic_query
+        metrics["semantic_cleaning_applied"] = semantic_cleaning_applied
+        metrics["search_mode"] = search_mode
+        metrics["query_processed"] = query_processed
+        metrics["inference_settings"] = inference_settings
         
-        # Check if we have documents/chunks and log detailed info
-        if not documents_or_chunks:
-            current_app.logger.warning("No documents_or_chunks found - returning empty result")
-            return {
-                "result": {
-                    "response": "No relevant information found.", 
-                    documents_key: [], 
-                    "metrics": metrics,
-                    "search_quality": search_quality,
-                    "project_inference": project_inference,
-                    "document_type_inference": document_type_inference
-                }
-            }
-        elif isinstance(documents_or_chunks, list) and len(documents_or_chunks) == 0:
-            current_app.logger.warning("Documents list is empty - returning empty result")
-            return {
-                "result": {
-                    "response": "No relevant information found.", 
-                    documents_key: [], 
-                    "metrics": metrics,
-                    "search_quality": search_quality,
-                    "project_inference": project_inference,
-                    "document_type_inference": document_type_inference
-                }
-            }
-        else:
-            current_app.logger.info(f"Found {len(documents_or_chunks)} documents/chunks - proceeding with LLM processing")
-
-        # Process results based on mode
-        if agentic:
-            response = cls._process_agentic_response(documents_or_chunks, synthesizer, query, metrics, start_time, documents_key, search_quality, project_inference, document_type_inference)
-        else:
-            response = cls._process_basic_response(documents_or_chunks, query)
+        current_app.logger.info("=== VECTOR SEARCH: Search execution complete ===")
         
-        # Handle potential early return from agentic processing errors
-        if isinstance(response, dict) and "early_return" in response:
-            return response["early_return"]
-
-        # Total execution time
-        metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
-        
-        # Generate appropriate summary based on mode
-        if agentic:
-            cls._log_agentic_summary(metrics, search_duration, search_quality, documents_or_chunks, query)
-        else:
-            cls._log_basic_summary(documents_or_chunks, query)
-        
-        current_app.logger.info("=== SearchService.get_documents_by_query completed ===")
-
         return {
-            "result": {
-                "response": response.get("response", "No response generated") if isinstance(response, dict) else str(response),
-                documents_key: documents_or_chunks,  # Always use the original documents_or_chunks
-                "metrics": metrics,
-                "search_quality": search_quality,
-                "project_inference": project_inference,
-                "document_type_inference": document_type_inference
-            }
+            "documents_or_chunks": documents_or_chunks,
+            "documents_key": documents_key,
+            "search_duration": search_duration,
+            "search_quality": search_quality,
+            "project_inference": project_inference,
+            "document_type_inference": document_type_inference
         }
 
     @classmethod
-    def _process_agentic_response(cls, documents_or_chunks, synthesizer, query, metrics, start_time, documents_key, search_quality, project_inference, document_type_inference):
-        """Process documents using LLM synthesis for agentic mode.
+    def _generate_agentic_summary(cls, documents_or_chunks, query, metrics):
+        """Generate summary using LLM summarizer from generation package.
         
         Args:
             documents_or_chunks (list): Retrieved documents or document chunks
-            synthesizer: The LLM synthesizer instance
             query (str): The original search query
             metrics (dict): Metrics dictionary to update
-            start_time (float): Start time for timing calculations
-            documents_key (str): Key to use for documents in response
-            search_quality (str): Search quality assessment
-            project_inference (dict): Project inference data
-            document_type_inference (dict): Document type inference data
             
         Returns:
-            dict: Formatted LLM response or early return dict on error
+            dict: Summary result containing response text or error info
         """
-        # Prep and query the LLM
+        current_app.logger.info("=== AGENTIC SUMMARY: Starting LLM summarizer from generation package ===")
+        
         llm_start = time.time()
-        current_app.logger.info(f"Calling LLM synthesizer for query: {query}")
-        current_app.logger.info(f"Number of documents/chunks for LLM context: {len(documents_or_chunks) if documents_or_chunks else 0}")
+        current_app.logger.info(f"Using LLM summarizer for summary: {query}")
+        current_app.logger.info(f"Number of documents/chunks for summary: {len(documents_or_chunks) if documents_or_chunks else 0}")
         
         try:
-            current_app.logger.info("Formatting documents for LLM context...")
-            formatted_documents = synthesizer.format_documents_for_context(documents_or_chunks)
-            current_app.logger.info(f"Formatted documents for context, length: {len(str(formatted_documents)) if formatted_documents else 0} characters")
+            from search_api.services.generation.factories import SummarizerFactory
             
-            current_app.logger.info("Creating LLM prompt...")
-            llm_prompt = synthesizer.create_prompt(query, formatted_documents)
-            current_app.logger.info(f"LLM prompt created, length: {len(str(llm_prompt)) if llm_prompt else 0} characters")
+            summarizer = SummarizerFactory.create_summarizer()
             
-            current_app.logger.info("Querying LLM...")
-            llm_response = synthesizer.query_llm(llm_prompt)
-            current_app.logger.info(f"LLM response received, length: {len(str(llm_response)) if llm_response else 0} characters")
+            current_app.logger.info("🤖 LLM: Generating summary using LLM summarizer...")
+            summary_result = summarizer.summarize_search_results(
+                query=query,
+                documents_or_chunks=documents_or_chunks,
+                search_context={
+                    "context": "Agentic search summary",
+                    "search_strategy": "agentic",
+                    "total_documents": len(documents_or_chunks)
+                }
+            )
             
-            current_app.logger.info("Formatting LLM response...")
-            response = synthesizer.format_llm_response(documents_or_chunks, llm_response)
+            summary_text = summary_result['summary']
+            method = summary_result['method']
+            confidence = summary_result['confidence']
+            provider = summary_result['provider']
+            model = summary_result['model']
+            
+            current_app.logger.info(f"🤖 LLM: Summary generated using method: {method}, provider: {provider}, model: {model}, confidence: {confidence}")
             
             metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
-            current_app.logger.info(f"LLM processing completed in {metrics['llm_time_ms']}ms")
+            metrics["agentic_summary_method"] = method
+            metrics["agentic_summary_confidence"] = confidence
+            metrics["agentic_summary_provider"] = provider
+            metrics["agentic_summary_model"] = model
             
-            return response
+            current_app.logger.info("=== AGENTIC SUMMARY: LLM summarizer generation complete ===")
+            return {"response": summary_text}
+                
+        except Exception as e:
+            # Log the error and return error info
+            current_app.logger.error(f"🤖 LLM: Summary generation error: {str(e)}")
+            current_app.logger.error(f"🤖 LLM: Summary error type: {type(e).__name__}")
+            import traceback
+            current_app.logger.error(f"🤖 LLM: Summary error traceback: {traceback.format_exc()}")
+            
+            metrics["agentic_summary_error"] = str(e)
+            metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
+            
+            current_app.logger.info("=== AGENTIC SUMMARY: Error occurred, returning fallback ===")
+            return {
+                "error": str(e),
+                "fallback_response": "An error occurred while generating the summary. Please try again later."
+            }
+
+    @classmethod
+    def _generate_rag_summary(cls, documents_or_chunks, query, metrics):
+        """Generate basic summary for RAG mode (non-agentic).
+        
+        Args:
+            documents_or_chunks (list): Retrieved documents or document chunks
+            query (str): The original search query
+            metrics (dict): Metrics dictionary to update
+            
+        Returns:
+            dict: Summary result containing response text
+        """
+        current_app.logger.info("=== RAG SUMMARY: Generating basic summary ===")
+        
+        llm_start = time.time()
+        current_app.logger.info(f"Using basic response generation for query: {query}")
+        current_app.logger.info(f"Number of documents/chunks for basic processing: {len(documents_or_chunks) if documents_or_chunks else 0}")
+        
+        try:
+            # Use the basic response processing method
+            response = cls._process_basic_response(documents_or_chunks, query)
+            
+            metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
+            
+            current_app.logger.info("=== RAG SUMMARY: Basic summary generation complete ===")
+            return {"response": response}
             
         except Exception as e:
-            # Log the error
-            current_app.logger.error(f"LLM error: {str(e)}")
-            current_app.logger.error(f"LLM error type: {type(e).__name__}")
-            import traceback
-            current_app.logger.error(f"LLM error traceback: {traceback.format_exc()}")
-            
-            metrics["llm_error"] = str(e)
+            current_app.logger.error(f"Basic summary error: {str(e)}")
             metrics["llm_time_ms"] = round((time.time() - llm_start) * 1000, 2)
-            metrics["error_code"] = 429 if "rate limit" in str(e).lower() or "quota" in str(e).lower() else 500
             
-            # Return error response that will be handled by early return logic
             return {
-                "early_return": {
-                    "result": {
-                        "response": "An error occurred while processing your request with the LLM. Please try again later.",
-                        documents_key: documents_or_chunks,
-                        "metrics": metrics,
-                        "search_quality": search_quality,
-                        "project_inference": project_inference,
-                        "document_type_inference": document_type_inference
-                    }
-                }
+                "error": str(e),
+                "fallback_response": "An error occurred while processing the documents."
             }
 
     @classmethod
@@ -403,11 +493,12 @@ class SearchService:
         current_app.logger.info(f"Query: '{query[:50]}{'...' if len(query) > 50 else ''}'")
 
     @classmethod
-    def _handle_agentic_mode(cls, agentic, query, project_ids, document_type_ids, search_strategy, inference, metrics):
-        """Handle agentic mode processing for intelligent parameter extraction.
+    def _handle_agentic_mode(cls, query, project_ids, document_type_ids, search_strategy, inference, metrics):
+        """Handle agentic mode processing using direct LLM parameter extraction.
+        
+        Uses direct LLM integration for intelligent parameter extraction and query optimization.
         
         Args:
-            agentic (bool): Whether agentic mode is enabled
             query (str): The user's search query
             project_ids (list): Current project IDs (may be None)
             document_type_ids (list): Current document type IDs (may be None)
@@ -420,207 +511,159 @@ class SearchService:
                    (project_ids, document_type_ids, search_strategy, semantic_query, early_exit_info)
                    when early exit is triggered for non-EAO queries
         """
-        # Initialize semantic query variable
-        semantic_query = None
+        current_app.logger.info("=== AGENTIC MODE: Starting direct LLM parameter extraction ===")
         
-        # AGENTIC MODE: Intelligent parameter extraction from natural language
-        if agentic:
-            current_app.logger.info("=== AGENTIC MODE: Analyzing query for intelligent parameter extraction ===")
+        # Step 1: Validate query relevance to EAO scope
+        current_app.logger.info("🔍 VALIDATION: Checking query relevance to EAO scope...")
+        try:
+            from search_api.services.generation.factories import QueryValidatorFactory
             
-            # STEP 1: Check query relevance to EAO upfront
-            current_app.logger.info("🤖 AGENTIC: Checking query relevance to EAO...")
+            validation_start = time.time()
+            query_validator = QueryValidatorFactory.create_validator()
+            validation_result = query_validator.validate_query_relevance(query)
+            
+            validation_time = round((time.time() - validation_start) * 1000, 2)
+            metrics["query_validation_time_ms"] = validation_time
+            metrics["query_validation_result"] = validation_result
+            
+            current_app.logger.info(f"🔍 VALIDATION: Query relevance check completed in {validation_time}ms")
+            current_app.logger.info(f"🔍 VALIDATION: Relevant={validation_result['is_relevant']}, Confidence={validation_result['confidence']}")
+            
+            # Check if query is not relevant to EAO scope
+            if not validation_result['is_relevant'] and validation_result['recommendation'] == 'inform_user_out_of_scope':
+                current_app.logger.info("🔍 VALIDATION: Query is out of scope - triggering early exit")
+                
+                early_exit_info = {
+                    'early_exit': True,
+                    'reason': 'query_out_of_scope',
+                    'response': validation_result.get('suggested_response', 
+                        "I'm designed to help with Environmental Assessment Office (EAO) related queries about environmental assessments, projects, and regulatory processes in British Columbia. Your question appears to be outside this scope. Please ask about environmental assessments, projects under review, or EAO processes."),
+                    'validation_result': validation_result
+                }
+                
+                return project_ids, document_type_ids, search_strategy, query, early_exit_info
+                
+        except Exception as e:
+            current_app.logger.warning(f"🔍 VALIDATION: Query validation failed: {e} - proceeding with search")
+            metrics["query_validation_error"] = str(e)
+        
+        try:
+            from search_api.services.generation.factories import ParameterExtractorFactory
+            
+            agentic_start = time.time()
+            current_app.logger.info("🤖 LLM: Starting parameter extraction from generation package...")
+            
+            # Fetch available options to provide context to the LLM
+            current_app.logger.info("🤖 LLM: Fetching available options for context...")
+            
             try:
-                from search_api.services.agentic_service import AgenticService
+                # Get available projects from vector search API
+                available_projects_list = VectorSearchClient.get_projects_list()
+                available_projects = {}
+                for project in available_projects_list:
+                    if isinstance(project, dict) and 'project_name' in project and 'project_id' in project:
+                        available_projects[project['project_name']] = project['project_id']
                 
-                relevance_start = time.time()
-                relevance_check = AgenticService.check_query_relevance(query, context="Query relevance validation")
+                current_app.logger.info(f"🤖 LLM: Found {len(available_projects)} available projects")
                 
-                if relevance_check and 'result' in relevance_check:
-                    relevance_result = relevance_check['result']
-                    is_eao_relevant = relevance_result.get('is_eao_relevant', True)
-                    relevance_confidence = relevance_result.get('confidence', 0.5)
-                    relevance_reasoning = relevance_result.get('reasoning', [])
-                    recommendation = relevance_result.get('recommendation', 'proceed_with_search')
-                    suggested_response = relevance_result.get('suggested_response', None)
-                    
-                    # Record relevance check metrics
-                    metrics["relevance_check_time_ms"] = round((time.time() - relevance_start) * 1000, 2)
-                    metrics["query_relevance"] = {
-                        "is_eao_relevant": is_eao_relevant,
-                        "confidence": relevance_confidence,
-                        "reasoning": relevance_reasoning,
-                        "recommendation": recommendation
-                    }
-                    
-                    current_app.logger.info(f"🤖 AGENTIC: Query relevance - Relevant: {is_eao_relevant}, Confidence: {relevance_confidence}")
-                    current_app.logger.info(f"🤖 AGENTIC: Reasoning: {', '.join(relevance_reasoning[:2])}")
-                    
-                    # If query is not EAO-relevant, return early with suggested response
-                    if not is_eao_relevant and recommendation == "inform_user_out_of_scope" and suggested_response:
-                        current_app.logger.info("🤖 AGENTIC: Query determined to be out of scope - returning early")
-                        metrics["agentic_early_exit"] = True
-                        metrics["agentic_time_ms"] = round((time.time() - relevance_start) * 1000, 2)
-                        
-                        # Return tuple indicating early exit with the suggested response
-                        return project_ids, document_type_ids, search_strategy, None, {
-                            "early_exit": True,
-                            "response": suggested_response,
-                            "reason": "query_out_of_scope"
-                        }
-                else:
-                    current_app.logger.warning("🤖 AGENTIC: No relevance check result - proceeding with query")
-                    metrics["relevance_check_time_ms"] = round((time.time() - relevance_start) * 1000, 2)
-                    metrics["query_relevance"] = {"error": "No relevance result received"}
-                    
-            except Exception as relevance_error:
-                current_app.logger.error(f"🤖 AGENTIC: Error during query relevance check: {relevance_error}")
-                metrics["relevance_check_time_ms"] = round((time.time() - relevance_start) * 1000, 2) if 'relevance_start' in locals() else 0
-                metrics["query_relevance"] = {"error": str(relevance_error)}
-                # Continue with normal processing if relevance check fails
+            except Exception as e:
+                current_app.logger.warning(f"🤖 LLM: Could not fetch projects: {e}")
+                available_projects = {}
             
-            # STEP 2: Continue with normal agentic processing for relevant queries
-            current_app.logger.info("🤖 AGENTIC: Query passed relevance check - proceeding with parameter extraction")
-            
-            # Determine what the agent should extract based on inference settings
-            should_extract_projects = not project_ids and (not inference or "PROJECT" not in inference)
-            should_extract_document_types = not document_type_ids and (not inference or "DOCUMENTTYPE" not in inference)
-            should_suggest_search_strategy = not search_strategy  # Suggest strategy if none provided
-            
-            # Always run semantic query cleaning in agentic mode
-            should_clean_query = True
-            
-            current_app.logger.info(f"🤖 AGENTIC: Should extract projects: {should_extract_projects}")
-            current_app.logger.info(f"🤖 AGENTIC: Should extract document types: {should_extract_document_types}")
-            current_app.logger.info(f"🤖 AGENTIC: Should suggest search strategy: {should_suggest_search_strategy}")
-            current_app.logger.info(f"🤖 AGENTIC: Should clean query: {should_clean_query}")
-            
-            if should_extract_projects or should_extract_document_types or should_clean_query or should_suggest_search_strategy:
-                try:
-                    from search_api.services.agentic_service import AgenticService
-                    
-                    agentic_start = time.time()
-                    current_app.logger.info("Using MCP tools to analyze query and suggest filters...")
-                    
-                    # Use the agentic service to get intelligent filter suggestions
-                    filter_suggestions = AgenticService.suggest_filters(query, context="Intelligent project and filter extraction")
-                    
-                    # Extract MCP-suggested filters
-                    if filter_suggestions and 'result' in filter_suggestions:
-                        agentic_result = filter_suggestions['result']
-                        suggested_filters = agentic_result.get('recommended_filters', {})
-                        suggested_project_ids = suggested_filters.get('project_ids', [])
-                        suggested_document_type_ids = suggested_filters.get('document_type_ids', [])
-                        suggested_semantic_query = suggested_filters.get('semantic_query', None)
-                        
-                        # Apply intelligent suggestions based on what we should extract
-                        if should_extract_projects and suggested_project_ids:
-                            project_ids = suggested_project_ids
-                            current_app.logger.info(f"🤖 AGENTIC: Extracted project IDs from query: {project_ids}")
-                            
-                        if should_extract_document_types and suggested_document_type_ids:
-                            document_type_ids = suggested_document_type_ids  
-                            current_app.logger.info(f"🤖 AGENTIC: Extracted document type IDs from query: {document_type_ids}")
-                        
-                        # Always use semantic query if provided (clean query with project/doc type noise removed)
-                        semantic_query = None
-                        if should_clean_query and suggested_semantic_query and suggested_semantic_query.strip():
-                            semantic_query = suggested_semantic_query.strip()
-                            current_app.logger.info(f"🤖 AGENTIC: Using cleaned semantic query: '{semantic_query}' (original: '{query}')")
-                        
-                        # AI-powered search strategy suggestion if no strategy provided
-                        if should_suggest_search_strategy:
-                            current_app.logger.info("🤖 AGENTIC: Getting search strategy suggestion...")
-                            strategy_start = time.time()
-                            
-                            try:
-                                # Use the query for strategy analysis (prefer semantic_query if available)
-                                analysis_query = semantic_query if semantic_query else query
-                                
-                                # Get search strategy recommendation from MCP tools
-                                strategy_suggestion = AgenticService.suggest_search_strategy(
-                                    query=analysis_query,
-                                    context="Intelligent search strategy selection",
-                                    user_intent="find_documents"  # Could be enhanced with actual user intent
-                                )
-                                
-                                if strategy_suggestion and 'result' in strategy_suggestion:
-                                    strategy_result = strategy_suggestion['result']
-                                    suggested_strategy = strategy_result.get('recommended_strategy', 'HYBRID_SEMANTIC_FALLBACK')
-                                    strategy_confidence = strategy_result.get('confidence', 0.7)
-                                    strategy_explanation = strategy_result.get('explanation', 'Strategy recommended by AI analysis')
-                                    
-                                    search_strategy = suggested_strategy
-                                    current_app.logger.info(f"🤖 AGENTIC: Recommended search strategy: {search_strategy} (confidence: {strategy_confidence})")
-                                    current_app.logger.info(f"🤖 AGENTIC: Strategy explanation: {strategy_explanation}")
-                                    
-                                    # Add strategy metrics
-                                    metrics["agentic_strategy_suggestion"] = strategy_result
-                                    metrics["agentic_strategy_extraction"] = True
-                                    metrics["agentic_strategy_time_ms"] = round((time.time() - strategy_start) * 1000, 2)
-                                    
-                                else:
-                                    current_app.logger.warning("🤖 AGENTIC: No strategy suggestion received from MCP tools")
-                                    metrics["agentic_strategy_extraction"] = False
-                                    metrics["agentic_strategy_error"] = "No strategy suggestions received"
-                                    metrics["agentic_strategy_time_ms"] = round((time.time() - strategy_start) * 1000, 2)
-                                    
-                            except Exception as strategy_error:
-                                current_app.logger.error(f"🤖 AGENTIC: Error during search strategy suggestion: {strategy_error}")
-                                metrics["agentic_strategy_extraction"] = False
-                                metrics["agentic_strategy_error"] = str(strategy_error)
-                                metrics["agentic_strategy_time_ms"] = round((time.time() - strategy_start) * 1000, 2)
-                                # Continue with no strategy (will use vector API default)
-                        else:
-                            current_app.logger.info(f"🤖 AGENTIC: Using provided search strategy: {search_strategy}")
-                            metrics["agentic_strategy_extraction"] = False
-                            metrics["agentic_strategy_time_ms"] = 0.0
-                        
-                        # Record agentic metrics - store full agentic result, not just filters
-                        metrics["agentic_time_ms"] = round((time.time() - agentic_start) * 1000, 2)
-                        metrics["agentic_suggestions"] = agentic_result  # Store full result instead of just recommended_filters
-                        metrics["agentic_project_extraction"] = should_extract_projects and bool(suggested_project_ids)
-                        metrics["agentic_document_type_extraction"] = should_extract_document_types and bool(suggested_document_type_ids)
-                        metrics["agentic_semantic_query_generated"] = bool(semantic_query)
-                        
-                        current_app.logger.info(f"🤖 AGENTIC: Parameter extraction completed in {metrics['agentic_time_ms']}ms")
-                    else:
-                        current_app.logger.warning("🤖 AGENTIC: No filter suggestions received from MCP tools")
-                        metrics["agentic_time_ms"] = round((time.time() - agentic_start) * 1000, 2)
-                        metrics["agentic_error"] = "No filter suggestions received"
-                        metrics["agentic_strategy_extraction"] = False
-                        metrics["agentic_strategy_time_ms"] = 0.0
-                        
-                except Exception as e:
-                    current_app.logger.error(f"🤖 AGENTIC: Error during intelligent parameter extraction: {e}")
-                    metrics["agentic_error"] = str(e)
-                    metrics["agentic_time_ms"] = round((time.time() - agentic_start) * 1000, 2) if 'agentic_start' in locals() else 0
-                    metrics["agentic_strategy_extraction"] = False
-                    metrics["agentic_strategy_time_ms"] = 0.0
-                    # Continue with original parameters
-            else:
-                current_app.logger.info("🤖 AGENTIC: No extraction needed - using provided parameters")
-                metrics["agentic_time_ms"] = 0.0
-                metrics["agentic_suggestions"] = {}
-                metrics["agentic_project_extraction"] = False
-                metrics["agentic_document_type_extraction"] = False
-                metrics["agentic_semantic_query_generated"] = False
-                metrics["agentic_strategy_extraction"] = False
-                metrics["agentic_strategy_time_ms"] = 0.0
+            try:
+                # Get available document types from vector search API
+                document_types_data = VectorSearchClient.get_document_types()
+                available_document_types = {}
                 
-            current_app.logger.info(f"🤖 AGENTIC: Final parameters - Project IDs: {project_ids}, Document Types: {document_type_ids}, Search Strategy: {search_strategy}, Inference: {inference}")
-            current_app.logger.info("=== AGENTIC MODE: Analysis complete ===")
-        else:
-            # Non-agentic mode
-            current_app.logger.info("=== NON-AGENTIC MODE: Using provided parameters directly ===")
-            metrics["agentic_time_ms"] = 0.0
-            metrics["agentic_suggestions"] = {}
-            metrics["agentic_project_extraction"] = False
-            metrics["agentic_document_type_extraction"] = False
-            metrics["agentic_semantic_query_generated"] = False
-            metrics["agentic_strategy_extraction"] = False
-            metrics["agentic_strategy_time_ms"] = 0.0
-            metrics["relevance_check_time_ms"] = 0.0
-            metrics["query_relevance"] = {"checked": False}
+                if isinstance(document_types_data, dict) and document_types_data:
+                    available_document_types = document_types_data.get('document_types', {})
+                    current_app.logger.info(f"🤖 LLM: Found {len(available_document_types)} available document types")
+                
+            except Exception as e:
+                current_app.logger.warning(f"🤖 LLM: Could not fetch document types: {e}")
+                available_document_types = {}
+            
+            try:
+                # Get available search strategies from vector search API
+                strategies_data = VectorSearchClient.get_search_strategies()
+                available_strategies = {}
+                
+                if isinstance(strategies_data, dict):
+                    search_strategies = strategies_data.get('search_strategies', {})
+                    for strategy_key, strategy_data in search_strategies.items():
+                        if isinstance(strategy_data, dict) and 'name' in strategy_data:
+                            strategy_name = strategy_data['name']
+                            description = strategy_data.get('description', f"Search strategy: {strategy_name}")
+                            available_strategies[strategy_name] = description
+                    
+                    current_app.logger.info(f"🤖 LLM: Found {len(available_strategies)} search strategies")
+                
+            except Exception as e:
+                current_app.logger.warning(f"🤖 LLM: Could not fetch search strategies: {e}")
+                available_strategies = {}
+            
+            # Use LLM parameter extractor from generation package
+            parameter_extractor = ParameterExtractorFactory.create_extractor()
+            
+            extraction_result = parameter_extractor.extract_parameters(
+                query=query,
+                available_projects=available_projects,
+                available_document_types=available_document_types,
+                available_strategies=available_strategies,
+                supplied_project_ids=project_ids if project_ids else None,
+                supplied_document_type_ids=document_type_ids if document_type_ids else None,
+                supplied_search_strategy=search_strategy if search_strategy else None
+            )
+            
+            
+            # Apply extracted parameters if not already provided
+            if not project_ids and extraction_result.get('project_ids'):
+                project_ids = extraction_result['project_ids']
+                current_app.logger.info(f"🤖 LLM: Extracted project IDs: {project_ids}")
+            
+            if not document_type_ids and extraction_result.get('document_type_ids'):
+                document_type_ids = extraction_result['document_type_ids']
+                current_app.logger.info(f"🤖 LLM: Extracted document type IDs: {document_type_ids}")
+            
+            # Apply extracted search strategy if not already provided
+            if not search_strategy and extraction_result.get('search_strategy'):
+                search_strategy = extraction_result['search_strategy']
+                current_app.logger.info(f"🤖 LLM: Extracted search strategy: {search_strategy}")
+            
+            # Use semantic query if available
+            semantic_query = extraction_result.get('semantic_query', query)
+            if semantic_query != query:
+                current_app.logger.info(f"🤖 LLM: Generated semantic query: '{semantic_query}'")
+            
+            # Record metrics
+            metrics["agentic_time_ms"] = round((time.time() - agentic_start) * 1000, 2)
+            metrics["agentic_extraction"] = extraction_result
+            metrics["agentic_project_extraction"] = bool(extraction_result.get('project_ids'))
+            metrics["agentic_document_type_extraction"] = bool(extraction_result.get('document_type_ids'))
+            metrics["agentic_semantic_query_generated"] = semantic_query != query
+            metrics["agentic_extraction_confidence"] = extraction_result.get('confidence', 0.0)
+            metrics["agentic_extraction_provider"] = ParameterExtractorFactory.get_provider()
+            
+            # Add extraction summary for clarity
+            extraction_sources = extraction_result.get('extraction_sources', {})
+            metrics["agentic_extraction_summary"] = {
+                "llm_calls_made": sum(1 for source in extraction_sources.values() if source in ["llm_extracted", "llm_optimized"]),
+                "parameters_supplied": sum(1 for source in extraction_sources.values() if source == "supplied"),
+                "parameters_extracted": sum(1 for source in extraction_sources.values() if source == "llm_extracted"),
+                "parameters_fallback": sum(1 for source in extraction_sources.values() if source == "fallback")
+            }
+            
+            current_app.logger.info(f"🤖 LLM: Parameter extraction completed in {metrics['agentic_time_ms']}ms using {ParameterExtractorFactory.get_provider()} (confidence: {extraction_result.get('confidence', 0.0)})")
+            
+        except Exception as e:
+            current_app.logger.error(f"🤖 LLM: Error during parameter extraction: {e}")
+            metrics["agentic_error"] = str(e)
+            metrics["agentic_time_ms"] = round((time.time() - agentic_start) * 1000, 2) if 'agentic_start' in locals() else 0
+            # Continue with original parameters
+            semantic_query = query
+        
+        current_app.logger.info(f"🤖 LLM: Final parameters - Project IDs: {project_ids}, Document Types: {document_type_ids}, Search Strategy: {search_strategy}")
+        current_app.logger.info("=== AGENTIC MODE: Direct LLM analysis complete ===")
         
         return project_ids, document_type_ids, search_strategy, semantic_query
 

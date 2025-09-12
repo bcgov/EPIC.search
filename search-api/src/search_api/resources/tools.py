@@ -201,7 +201,7 @@ class ApiCapabilities(Resource):
     @staticmethod
     @ApiHelper.swagger_decorators(API, endpoint_description="Get complete API metadata and capabilities")
     def get():
-        """Get comprehensive API metadata for adaptive clients and MCP server integration."""
+        """Get comprehensive API metadata for adaptive clients and frontend integration."""
         current_app.logger.info("=== API capabilities GET request started ===")
         current_app.logger.info(f"Request URL: {request.url}")
         

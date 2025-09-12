@@ -34,9 +34,6 @@ ENV PYTHONPATH=/opt/app-root/src \
     PYTHONUNBUFFERED=1 \
     ENVIRONMENT=production
 
-# MCP Server will auto-detect container environment
-# No need to set MCP_SERVER_COMMAND explicitly
-
 # Set proper permissions
 RUN chown -R appuser:appuser /opt/app-root
 
