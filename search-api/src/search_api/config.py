@@ -107,7 +107,9 @@ class _Config:  # pylint: disable=too-few-public-methods
 
     # LLM Config
     LLM_MODEL = os.getenv("LLM_MODEL")
-    LLM_TEMPERATURE = os.getenv("LLM_TEMPERATURE")
+    LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1000"))
+    LLM_MAX_CONTEXT_LENGTH = int(os.getenv("LLM_MAX_CONTEXT_LENGTH", "8192"))
 
 
 class DevConfig(_Config):  # pylint: disable=too-few-public-methods
