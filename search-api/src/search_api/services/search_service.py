@@ -442,15 +442,13 @@ class SearchService:
             query (str): The original search query
             
         Returns:
-            dict: Basic response with document count summary
+            str: Basic response string with document count summary
         """
         doc_count = len(documents_or_chunks) if documents_or_chunks else 0
                 
         current_app.logger.info(f"Basic mode: returning {doc_count} documents / sections without LLM processing")
         
-        return {
-            "response": f"Found {doc_count} documents / sections matching your query: '{query[:100]}{'...' if len(query) > 100 else ''}'"
-        }
+        return f"Found {doc_count} documents / sections matching your query: '{query[:100]}{'...' if len(query) > 100 else ''}'"
 
     @classmethod
     def _log_agentic_summary(cls, metrics, search_duration, search_quality, documents_or_chunks, query):

@@ -105,6 +105,7 @@ celerybeat.pid
 .env
 .env.local
 .env.docker.local
+deploy.env
 .venv
 env/
 venv/
