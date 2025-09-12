@@ -1,31 +1,32 @@
 # Azure App Service Deployment Guide
 
-This guide covers deploying the EPIC Search API to Azure App Service with proper MCP integration.
+This guide covers deploying the EPIC Search API to Azure App Service with agentic AI functionality.
 
 ## Architecture for Azure
 
 ### Environment Detection
 
-The API automatically detects the deployment environment and adapts the MCP integration:
+The API automatically detects the deployment environment and adapts the LLM integration:
 
-- **Local Development**: Uses subprocess MCP server (`python mcp_server.py`)
-- **Azure App Service**: Uses direct integration (no subprocess)
-- **Container Environments**: Uses direct integration for reliability
+- **Local Development**: Uses Ollama for local LLM processing
+- **Azure App Service**: Uses Azure OpenAI for cloud-based AI processing
+- **Container Environments**: Supports both providers via factory pattern
 
-### MCP Integration Modes
+### LLM Provider Integration
 
-#### 1. Direct Integration Mode (Azure/Container)
+#### 1. Azure OpenAI (Recommended for Production)
 
-- MCP tools are imported directly into the Flask app
-- No subprocess communication
-- Better performance and reliability in containers
-- Automatic failover and retry logic
+- Direct integration via official OpenAI SDK
+- Built-in retry logic and error handling
+- Optimized for cloud deployment
+- Automatic scaling and reliability
 
-#### 2. Subprocess Mode (Local Development)
+#### 2. Ollama (Local Development)
 
-- Spawns separate MCP server process
-- Uses stdio communication
-- Maintains development flexibility
+- Local LLM hosting for development
+- Privacy-focused deployment option
+- Consistent API interface via factory pattern
+- Easy switching between providers
 
 ## Azure App Service Configuration
 
@@ -36,13 +37,14 @@ Set these in your Azure App Service Configuration:
 ```bash
 # Required
 VECTOR_API_URL=https://your-vector-api.azurewebsites.net/api
+LLM_PROVIDER=openai
 AZURE_OPENAI_API_KEY=your_key_here
 AZURE_OPENAI_ENDPOINT=https://your-instance.openai.azure.com
-AZURE_OPENAI_DEPLOYMENT=your-deployment-name
+AZURE_OPENAI_DEPLOYMENT_NAME=your-deployment-name
+AZURE_OPENAI_API_VERSION=2024-02-01
 
 # Optional
 ENVIRONMENT=azure
-MCP_MODE=direct
 LOG_LEVEL=INFO
 CORS_ORIGIN=https://your-frontend.azurewebsites.net
 ```
@@ -116,7 +118,7 @@ Enable Application Insights for monitoring:
 The API includes health check endpoints:
 
 - `GET /health` - Basic health check
-- `GET /api/health` - Detailed health with MCP status
+- `GET /api/health` - Detailed health with LLM provider status
 
 #### Logging
 
@@ -131,11 +133,11 @@ Structured logging with appropriate levels:
 
 ### Common Issues
 
-#### MCP Tools Not Working
+#### Agentic Search Not Working
 
-- **Symptom**: Agentic mode returns fallback responses
-- **Solution**: Check that `MCP_MODE=direct` is set
-- **Verification**: Check logs for "Container environment detected"
+- **Symptom**: Agentic mode returns basic search responses
+- **Solution**: Check LLM provider configuration
+- **Verification**: Check logs for "LLM provider initialized successfully"
 
 #### High Latency
 

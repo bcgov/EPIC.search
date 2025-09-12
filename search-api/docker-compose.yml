@@ -27,7 +27,6 @@ services:
       - DATABASE_PASSWORD=${DB_PASSWORD:-search}
       - DATABASE_NAME=${DB_NAME:-search}
       - ENVIRONMENT=production
-      - MCP_SERVER_NAME=epic-search-tools
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - API_TIMEOUT=300.0
       - VECTOR_SEARCH_API_URL=${VECTOR_API_URL}

@@ -106,7 +106,7 @@ class DocumentSimilaritySearch(Resource):
     @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a specific document using document-level embeddings (new endpoint).")
     @API.expect(similar_request_model)
     def post():
-        """Document-level embedding similarity search - Maps to document_similarity_search MCP tool"""
+        """Document-level embedding similarity search"""
         current_app.logger.info("=== Document similarity search request started ===")
         current_app.logger.info(f"Request URL: {request.url}")
         current_app.logger.info(f"Request headers: {dict(request.headers)}")

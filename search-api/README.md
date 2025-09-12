@@ -21,7 +21,7 @@ For detailed documentation, see [DOCUMENTATION.md](./DOCUMENTATION.md).
 
 ## API Coverage Status
 
-🎉 **COMPLETE PARITY ACHIEVED!** The Search API now exposes **13/13 Vector API endpoints (100% coverage)** with full MCP server integration support.
+🎉 **COMPLETE PARITY ACHIEVED!** The Search API now exposes **13/13 Vector API endpoints (100% coverage)** with intelligent LLM-powered agentic search functionality.
 
 ### Vector API Endpoint Coverage: ✅ 13/13 (100%)
 
@@ -34,24 +34,23 @@ For detailed documentation, see [DOCUMENTATION.md](./DOCUMENTATION.md).
 
 - `POST /api/search/query` - Main search with LLM synthesis
 - `POST /api/search/document-similarity` - Document-level similarity
-- `GET /api/tools/*` - Discovery endpoints for UI metadata and MCP integration
+- `GET /api/tools/*` - Discovery endpoints for UI metadata and integration
 - `GET /api/stats/*` - Processing statistics and health monitoring
 - `GET /healthz`, `GET /readyz` - Public health endpoints
 
-### MCP Server Integration Ready
+### Agentic Search Features
 
-Our VectorSearchClient provides complete Vector API coverage with **5 essential MCP tools** for agentic search functionality.
+The Search API provides intelligent, LLM-powered search functionality with multi-step parameter extraction for better accuracy.
 
 **Key Features:**
 
 - 🛡️ **Query Relevance Validation** - LLM-powered EAO scope validation
-- 🔍 **Smart Filter Extraction** - AI-powered project/document type detection
+- 🔍 **Smart Parameter Extraction** - AI-powered project/document type detection
 - ⚡ **Search Strategy Optimization** - Intelligent search approach recommendations
 - 📊 **Dynamic Metadata Discovery** - Real-time project and document type lookup
+- 🔄 **Multi-Provider Support** - Works with both OpenAI and Ollama
 
-For complete MCP tool details, see: [`src/mcp_server/COMPLETE_TOOLS_REFERENCE.md`](src/mcp_server/COMPLETE_TOOLS_REFERENCE.md)
-
-See [DOCUMENTATION.md](./DOCUMENTATION.md) for complete endpoint details, implementation status, and MCP integration information.
+See [DOCUMENTATION.md](./DOCUMENTATION.md) for complete endpoint details and implementation information.
 
 ## Getting Started
 
@@ -70,11 +69,11 @@ See [DOCUMENTATION.md](./DOCUMENTATION.md) for complete endpoint details, implem
 
 ### Deployment
 
-The Search API uses **environment-aware MCP integration** that automatically adapts to deployment context:
+The Search API uses **intelligent LLM provider selection** that automatically adapts to deployment context:
 
-- **Local Development**: Uses subprocess MCP server for easy debugging
-- **Container/Azure**: Uses direct integration for better reliability and performance
-- **Auto-detection**: No manual configuration required
+- **Local Development**: Supports both OpenAI and Ollama for flexible development
+- **Container/Azure**: Optimized for OpenAI integration in production environments
+- **Auto-detection**: Configurable via environment variables
 
 For detailed deployment instructions including Azure App Service, container deployment, and environment configuration, see [DOCUMENTATION.md](./DOCUMENTATION.md#deployment-guide).
 
