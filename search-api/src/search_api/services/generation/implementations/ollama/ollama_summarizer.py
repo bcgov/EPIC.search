@@ -2,6 +2,7 @@
 
 import logging
 from typing import List, Dict, Any, Optional
+from flask import current_app
 from .ollama_client import OllamaClient
 from ...abstractions.summarizer import Summarizer
 
@@ -14,6 +15,11 @@ class OllamaSummarizer(Summarizer):
     def __init__(self):
         """Initialize the Ollama summarizer."""
         self.client = OllamaClient()
+        
+        # Load configuration with fallbacks
+        self.temperature = getattr(current_app.config, 'LLM_TEMPERATURE', 0.3)
+        self.max_tokens = getattr(current_app.config, 'LLM_MAX_TOKENS', 1000)
+        self.max_context_length = getattr(current_app.config, 'LLM_MAX_CONTEXT_LENGTH', 8192)
     
     def summarize_search_results(
         self, 
@@ -88,7 +94,7 @@ class OllamaSummarizer(Summarizer):
             prompt = self._build_summarization_prompt(query, context)
             
             # Prepare document content (with more aggressive truncation for Ollama)
-            doc_content = self._prepare_document_content(documents, max_doc_length=2000)
+            doc_content = self._prepare_document_content(documents)
             
             messages = [
                 {"role": "system", "content": prompt},
@@ -98,8 +104,8 @@ class OllamaSummarizer(Summarizer):
             logger.info(f"Summarizing {len(documents)} documents using Ollama")
             response = self.client.chat_completion(
                 messages=messages,
-                temperature=0.3,
-                max_tokens=1500  # Smaller max for Ollama
+                temperature=self.temperature,
+                max_tokens=min(self.max_tokens, 1500)  # Use config value but cap for Ollama summarization
             )
             
             summary = response["choices"][0]["message"]["content"]
@@ -142,8 +148,8 @@ class OllamaSummarizer(Summarizer):
             logger.info("Creating formatted response using Ollama")
             response = self.client.chat_completion(
                 messages=messages,
-                temperature=0.5,
-                max_tokens=1200  # Smaller max for Ollama
+                temperature=self.temperature,
+                max_tokens=min(self.max_tokens, 1200)  # Use config value but cap for Ollama response formatting
             )
             
             formatted_response = response["choices"][0]["message"]["content"]
@@ -157,42 +163,35 @@ class OllamaSummarizer(Summarizer):
     
     def _build_summarization_prompt(self, query: str, context: Optional[str] = None) -> str:
         """Build the summarization prompt."""
-        prompt = f"""You are an expert document analyst. Your task is to create a comprehensive summary of the provided documents that directly addresses the user's query.
+        prompt = f"""You are an expert document analyst. Your task is to create a concise summary of the provided documents that directly addresses the user's query.
 
 Key instructions:
 1. Focus on information that directly relates to the query: "{query}"
-2. Organize information logically with clear sections and headings
-3. Include specific details, numbers, dates, and technical specifications when relevant
-4. Highlight important findings, conclusions, and recommendations
-5. Note any conflicting information or gaps in the data
-6. Use clear, professional language appropriate for technical documentation
-7. Cite document titles or sources when referencing specific information
-
-Structure your summary with:
-- Executive Summary (key findings)
-- Detailed Analysis (organized by topic/theme)
-- Important Details (specific data, dates, requirements)
-- Conclusions and Recommendations (if applicable)
+2. Provide a short, focused summary in 1-2 paragraphs maximum
+3. Include the most important findings and key details
+4. Use clear, professional language
+5. Avoid lengthy sections and detailed breakdowns
+6. Keep the response brief and to the point
 
 {f"Additional context: {context}" if context else ""}
 
-Make the summary comprehensive but focused on the query's intent. Keep the response well-organized and professional."""
+Provide a concise summary that answers the query directly without extensive formatting or multiple sections."""
         
         return prompt
     
     def _build_response_prompt(self, metadata: Optional[Dict[str, Any]] = None) -> str:
         """Build the response formatting prompt."""
-        prompt = """You are a professional assistant helping users understand complex document information. 
+        prompt = """You are a professional assistant helping users understand document information. 
 
-Create a well-structured, comprehensive response that:
+Create a concise, focused response that:
 1. Directly answers the user's question based on the summary
-2. Uses clear, accessible language while maintaining technical accuracy
-3. Organizes information with appropriate headings and bullet points
-4. Provides specific details and examples when available
-5. Acknowledges limitations or gaps in the information
-6. Offers actionable insights or next steps when appropriate
+2. Uses clear, accessible language
+3. Keeps the response to 1-2 short paragraphs maximum
+4. Provides the most important information without extensive formatting
+5. Avoids multiple sections, headers, or bullet points unless absolutely necessary
+6. Gets straight to the point
 
-Format the response professionally with proper headings, bullet points, and clear organization. Keep the tone helpful and informative."""
+Keep the response brief and informative."""
         
         if metadata:
             search_info = []
@@ -211,17 +210,25 @@ Format the response professionally with proper headings, bullet points, and clea
     def _prepare_document_content(
         self, 
         documents: List[Dict[str, Any]], 
-        max_doc_length: int = 2000
+        max_doc_length: int = None
     ) -> str:
-        """Prepare document content for summarization with aggressive truncation for Ollama."""
+        """Prepare document content for summarization with context-aware truncation for Ollama."""
         content_parts = []
+        
+        # Calculate reasonable limits based on context length
+        # Reserve tokens for prompt, response, and overhead (~30% of context for Ollama)
+        available_tokens = int(self.max_context_length * 0.7)
+        
+        # Use provided max_doc_length or calculate based on context
+        if max_doc_length is None:
+            max_doc_length = min(2000, available_tokens // max(len(documents), 1))
         
         for i, doc in enumerate(documents, 1):
             title = doc.get("title", f"Document {i}")
             content = doc.get("content", "")
             doc_type = doc.get("document_type", "Unknown")
             
-            # More aggressive truncation for Ollama
+            # Truncate content based on calculated limits
             if len(content) > max_doc_length:
                 content = content[:max_doc_length] + "..."
             
@@ -229,11 +236,10 @@ Format the response professionally with proper headings, bullet points, and clea
         
         # Also limit total content length to avoid context overflow
         full_content = "\n".join(content_parts)
-        max_total_length = 8000  # Conservative limit for Ollama
         
-        if len(full_content) > max_total_length:
+        if len(full_content) > available_tokens:
             # Truncate and add note
-            full_content = full_content[:max_total_length] + "\n\n[Content truncated due to length...]"
+            full_content = full_content[:available_tokens] + "\n\n[Content truncated due to context length limits...]"
         
         return full_content
     

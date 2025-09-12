@@ -69,6 +69,13 @@ http {
     error_log /dev/stdout info;
     access_log /dev/stdout;
 
+    # Health check endpoint
+    location /healthz {
+      access_log off;
+      return 200 '{"status":"healthy","timestamp":"$time_iso8601","service":"epic-search-web"}\n';
+      add_header Content-Type application/json;
+    }
+
     # Serve the React Vite app
     location / {
       root   /usr/share/nginx/html;
