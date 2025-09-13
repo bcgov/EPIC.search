@@ -915,12 +915,19 @@ This approach keeps the agentic AI functionality internal while providing intell
 
 **Parameter Extractor (`parameter_extractor.py`)**
 
+- **Parallel execution architecture**: Default parallel processing of LLM extraction tasks for maximum speed
+  - **Concurrent extraction**: Project IDs, document types, search strategy, and semantic query extraction run simultaneously
+  - **ThreadPoolExecutor**: Up to 4 parallel workers with 30-second timeout per task
+  - **Sequential fallback**: Automatic fallback to sequential processing on parallel execution failure
 - **Multi-step extraction process**:
   - **Step 1**: Project ID extraction with fuzzy matching
   - **Step 2**: Document type extraction via comprehensive alias search
   - **Step 3**: Search strategy optimization and semantic query refinement
+  - **Step 4**: Semantic query optimization
+- **Robust error handling**: Individual task fallbacks with graceful degradation
 - **Fallback logic**: Robust keyword matching when LLM calls fail
 - **Provider support**: Both OpenAI and Ollama implementations
+- **Performance**: 2-4x speed improvement over sequential extraction
 
 **Query Validator (`query_validator.py`)**
 

@@ -4,6 +4,7 @@ Contains common logic for parameter extraction approach.
 """
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Any
 
 from search_api.services.generation.abstractions.parameter_extractor import ParameterExtractor
@@ -17,6 +18,50 @@ class BaseParameterExtractor(ParameterExtractor):
         self.client = client
     
     def extract_parameters(
+        self,
+        query: str,
+        available_projects: Optional[Dict] = None,
+        available_document_types: Optional[Dict] = None,
+        available_strategies: Optional[Dict] = None,
+        supplied_project_ids: Optional[List[str]] = None,
+        supplied_document_type_ids: Optional[List[str]] = None,
+        supplied_search_strategy: Optional[str] = None,
+        use_parallel: bool = True
+    ) -> Dict[str, Any]:
+        """Extract search parameters using parallel or sequential approach.
+        
+        Args:
+            query: The natural language search query.
+            available_projects: Dict of available projects {name: id}.
+            available_document_types: Dict of available document types with aliases.
+            available_strategies: Dict of available search strategies.
+            supplied_project_ids: Already provided project IDs (skip LLM extraction if provided).
+            supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided).
+            supplied_search_strategy: Already provided search strategy (skip LLM extraction if provided).
+            use_parallel: Whether to use parallel execution (default: True).
+            
+        Returns:
+            Dict containing extracted parameters.
+        """
+        if use_parallel:
+            try:
+                return self._extract_parameters_parallel(
+                    query, available_projects, available_document_types, available_strategies,
+                    supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+                )
+            except Exception as e:
+                logger.warning(f"Parallel extraction failed, falling back to sequential: {e}")
+                return self._extract_parameters_sequential(
+                    query, available_projects, available_document_types, available_strategies,
+                    supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+                )
+        else:
+            return self._extract_parameters_sequential(
+                query, available_projects, available_document_types, available_strategies,
+                supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+            )
+    
+    def _extract_parameters_sequential(
         self,
         query: str,
         available_projects: Optional[Dict] = None,
@@ -41,7 +86,7 @@ class BaseParameterExtractor(ParameterExtractor):
             Dict containing extracted parameters.
         """
         try:
-            logger.info("Starting multi-step parameter extraction")
+            logger.info("Starting sequential parameter extraction")
             
             # Step 1: Extract project IDs (skip if already provided)
             if supplied_project_ids:
@@ -68,7 +113,7 @@ class BaseParameterExtractor(ParameterExtractor):
                 logger.info(f"Step 3 - Extracted search strategy: {search_strategy}")
             
             # Step 4: Extract/optimize semantic query (usually always run for query optimization)
-            semantic_query = self._extract_semantic_query(query, project_ids, document_type_ids)
+            semantic_query = self._extract_semantic_query(query)
             logger.info(f"Step 4 - Optimized semantic query: {semantic_query}")
             
             # Combine results
@@ -79,16 +124,142 @@ class BaseParameterExtractor(ParameterExtractor):
                 "semantic_query": semantic_query,
                 "confidence": 0.8,
                 "extraction_sources": {
-                    "project_ids": "supplied" if supplied_project_ids else "llm_extracted",
-                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_extracted",
-                    "search_strategy": "supplied" if supplied_search_strategy else "llm_extracted",
-                    "semantic_query": "llm_optimized"
+                    "project_ids": "supplied" if supplied_project_ids else "llm_sequential",
+                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_sequential",
+                    "search_strategy": "supplied" if supplied_search_strategy else "llm_sequential",
+                    "semantic_query": "llm_sequential"
                 }
             }
             
         except Exception as e:
+            logger.error(f"Sequential parameter extraction failed: {e}")
+            return self._fallback_extraction(query, available_projects, available_document_types, available_strategies, supplied_project_ids, supplied_document_type_ids, supplied_search_strategy)
+            
+        except Exception as e:
             logger.error(f"Multi-step parameter extraction failed: {e}")
             return self._fallback_extraction(query, available_projects, available_document_types, available_strategies, supplied_project_ids, supplied_document_type_ids, supplied_search_strategy)
+    
+    def _extract_parameters_parallel(
+        self,
+        query: str,
+        available_projects: Optional[Dict] = None,
+        available_document_types: Optional[Dict] = None,
+        available_strategies: Optional[Dict] = None,
+        supplied_project_ids: Optional[List[str]] = None,
+        supplied_document_type_ids: Optional[List[str]] = None,
+        supplied_search_strategy: Optional[str] = None,
+        timeout: float = 30.0
+    ) -> Dict[str, Any]:
+        """Extract search parameters using parallel LLM calls for maximum speed.
+        
+        Args:
+            query: The natural language search query.
+            available_projects: Dict of available projects {name: id}.
+            available_document_types: Dict of available document types with aliases.
+            available_strategies: Dict of available search strategies.
+            supplied_project_ids: Already provided project IDs (skip LLM extraction if provided).
+            supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided).
+            supplied_search_strategy: Already provided search strategy (skip LLM extraction if provided).
+            timeout: Timeout in seconds for parallel execution.
+            
+        Returns:
+            Dict containing extracted parameters.
+        """
+        try:
+            logger.info("Starting parallel parameter extraction")
+            
+            # Prepare tasks for parallel execution
+            tasks = []
+            task_names = []
+            
+            # Task 1: Extract project IDs (if not supplied)
+            if not supplied_project_ids:
+                tasks.append(lambda: self._extract_project_ids(query, available_projects))
+                task_names.append("project_ids")
+            
+            # Task 2: Extract document type IDs (if not supplied)
+            if not supplied_document_type_ids:
+                tasks.append(lambda: self._extract_document_types(query, available_document_types))
+                task_names.append("document_type_ids")
+            
+            # Task 3: Extract search strategy (if not supplied)
+            if not supplied_search_strategy:
+                tasks.append(lambda: self._extract_search_strategy(query, available_strategies))
+                task_names.append("search_strategy")
+            
+            # Task 4: Extract semantic query (always run for optimization)
+            tasks.append(lambda: self._extract_semantic_query(query))
+            task_names.append("semantic_query")
+            
+            # Execute tasks in parallel using ThreadPoolExecutor
+            results = {}
+            
+            if tasks:
+                with ThreadPoolExecutor(max_workers=min(len(tasks), 4)) as executor:
+                    # Submit all tasks
+                    future_to_name = {
+                        executor.submit(task): name 
+                        for task, name in zip(tasks, task_names)
+                    }
+                    
+                    # Collect results with timeout
+                    for future in as_completed(future_to_name, timeout=timeout):
+                        task_name = future_to_name[future]
+                        try:
+                            result = future.result()
+                            results[task_name] = result
+                            logger.info(f"Parallel task '{task_name}' completed: {result}")
+                        except Exception as e:
+                            logger.warning(f"Parallel task '{task_name}' failed: {e}")
+                            # Use fallback for failed task
+                            results[task_name] = self._get_fallback_for_task(
+                                task_name, query, available_projects, 
+                                available_document_types, available_strategies
+                            )
+            
+            # Combine results with supplied values
+            return {
+                "project_ids": supplied_project_ids or results.get("project_ids", []),
+                "document_type_ids": supplied_document_type_ids or results.get("document_type_ids", []),
+                "search_strategy": supplied_search_strategy or results.get("search_strategy", "HYBRID_PARALLEL"),
+                "semantic_query": results.get("semantic_query", query),
+                "confidence": 0.8,
+                "extraction_sources": {
+                    "project_ids": "supplied" if supplied_project_ids else "llm_parallel",
+                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_parallel",
+                    "search_strategy": "supplied" if supplied_search_strategy else "llm_parallel",
+                    "semantic_query": "llm_parallel"
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Parallel parameter extraction failed: {e}")
+            # Fallback to sequential extraction
+            logger.info("Falling back to sequential extraction")
+            return self._extract_parameters_sequential(
+                query, available_projects, available_document_types, available_strategies,
+                supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+            )
+    
+    def _get_fallback_for_task(
+        self, 
+        task_name: str, 
+        query: str, 
+        available_projects: Optional[Dict] = None,
+        available_document_types: Optional[Dict] = None,
+        available_strategies: Optional[Dict] = None
+    ) -> Any:
+        """Get fallback result for a specific failed task."""
+        if task_name == "project_ids":
+            return self._fallback_project_extraction(query, available_projects or {})
+        elif task_name == "document_type_ids":
+            return self._fallback_document_extraction(query, available_document_types or {})
+        elif task_name == "search_strategy":
+            return "HYBRID_PARALLEL"
+        elif task_name == "semantic_query":
+            return query
+        else:
+            return None
     
     def _extract_project_ids(self, query: str, available_projects: Optional[Dict] = None) -> List[str]:
         """Extract project IDs from query using focused LLM call."""
@@ -278,7 +449,7 @@ Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
             logger.warning(f"Search strategy extraction failed: {e}")
             return "HYBRID_PARALLEL"
 
-    def _extract_semantic_query(self, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None) -> str:
+    def _extract_semantic_query(self, query: str) -> str:
         """Extract and optimize semantic query using focused LLM call."""
         try:
             prompt = f"""You are a semantic query optimization specialist. Extract the core search concepts from this query.

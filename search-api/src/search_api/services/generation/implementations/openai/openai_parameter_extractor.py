@@ -1,6 +1,6 @@
 """
 OpenAI Parameter Extractor Implementation
-Breaks parameter extraction into focused, sequential calls for better accuracy.
+Supports both parallel (default) and sequential parameter extraction for optimal performance.
 """
 import logging
 from typing import Dict, List, Any

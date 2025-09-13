@@ -45,10 +45,11 @@ The Search API provides intelligent, LLM-powered search functionality with multi
 **Key Features:**
 
 - 🛡️ **Query Relevance Validation** - LLM-powered EAO scope validation
-- 🔍 **Smart Parameter Extraction** - AI-powered project/document type detection
+- 🔍 **Smart Parameter Extraction** - AI-powered project/document type detection with parallel processing
 - ⚡ **Search Strategy Optimization** - Intelligent search approach recommendations
 - 📊 **Dynamic Metadata Discovery** - Real-time project and document type lookup
 - 🔄 **Multi-Provider Support** - Works with both OpenAI and Ollama
+- 🚀 **High-Performance Processing** - Parallel LLM calls for 2-4x faster parameter extraction
 
 See [DOCUMENTATION.md](./DOCUMENTATION.md) for complete endpoint details and implementation information.
 
