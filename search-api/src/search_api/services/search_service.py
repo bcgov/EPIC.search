@@ -545,6 +545,52 @@ class SearchService:
             current_app.logger.warning(f"🔍 VALIDATION: Query validation failed: {e} - proceeding with search")
             metrics["query_validation_error"] = str(e)
         
+        # Step 2: Analyze query complexity to determine processing approach
+        current_app.logger.info("🧠 COMPLEXITY: Analyzing query complexity...")
+        try:
+            from search_api.services.generation.factories.query_complexity_factory import QueryComplexityFactory
+            
+            complexity_start = time.time()
+            complexity_analyzer = QueryComplexityFactory.create_analyzer()
+            complexity_result = complexity_analyzer.analyze_complexity(query)
+            
+            complexity_time = round((time.time() - complexity_start) * 1000, 2)
+            metrics["complexity_analysis_time_ms"] = complexity_time
+            metrics["complexity_result"] = complexity_result
+            
+            complexity_tier = complexity_result["complexity_tier"]
+            complexity_reason = complexity_result["reason"]
+            
+            current_app.logger.info(f"🧠 COMPLEXITY: Analysis completed in {complexity_time}ms")
+            current_app.logger.info(f"🧠 COMPLEXITY: Tier={complexity_tier}, Reason={complexity_reason}")
+            
+            # Route based on complexity tier
+            if complexity_tier == "simple":
+                current_app.logger.info("🧠 COMPLEXITY: Simple query detected - using RAG mode")
+                return cls._handle_rag_mode(query, project_ids, document_type_ids, search_strategy, inference, metrics)
+                
+            elif complexity_tier == "agent_required":
+                current_app.logger.info("🧠 COMPLEXITY: Agent-required query detected - calling agent stub")
+                
+                # Call agent stub and log requirements
+                from search_api.services.generation.implementations.agent_stub import handle_agent_query
+                agent_result = handle_agent_query(query, complexity_reason)
+                
+                metrics["agent_stub_called"] = True
+                metrics["agent_stub_result"] = agent_result
+                
+                # Continue with normal complex flow as fallback
+                current_app.logger.info("🧠 COMPLEXITY: Falling back to normal complex LLM extraction after agent stub")
+                
+            else:  # complex
+                current_app.logger.info("🧠 COMPLEXITY: Complex query detected - proceeding with LLM parameter extraction")
+                
+        except Exception as e:
+            current_app.logger.warning(f"🧠 COMPLEXITY: Complexity analysis failed: {e} - proceeding with complex flow")
+            metrics["complexity_analysis_error"] = str(e)
+            complexity_tier = "complex"  # Default to complex on error
+        
+        # Step 3: Continue with complex LLM parameter extraction (for complex and agent_required tiers)
         try:
             from search_api.services.generation.factories import ParameterExtractorFactory
             
