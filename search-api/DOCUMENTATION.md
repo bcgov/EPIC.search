@@ -93,6 +93,7 @@ sequenceDiagram
     participant Client
     participant API as Search API
     participant Agentic as Agentic Service
+    participant Complexity as Complexity Analyzer
     participant Validator as Query Validator
     participant Extractor as Parameter Extractor
     participant LLM as LLM (Ollama/OpenAI)
@@ -107,17 +108,38 @@ sequenceDiagram
     LLM->>Validator: EAO relevance score
     Validator->>Agentic: Relevance result
     
-    Note over Agentic,LLM: Multi-Step Parameter Extraction
-    Agentic->>Extractor: extract_parameters
-    Extractor->>LLM: Step 1: Extract project IDs
-    LLM->>Extractor: Project ID suggestions
-    Extractor->>LLM: Step 2: Extract document types
-    LLM->>Extractor: Document type IDs
-    Extractor->>LLM: Step 3: Extract strategy & query
-    LLM->>Extractor: Search strategy & semantic query
-    Extractor->>Agentic: Complete parameters
+    Note over Agentic,LLM: Context-Aware Complexity Analysis
+    Agentic->>Complexity: analyze_query_complexity
+    Complexity->>Vector: Fetch available projects & document types
+    Vector->>Complexity: Real project/document context
+    Complexity->>LLM: Classify with context: projects, doc types, query
+    LLM->>Complexity: Tier: SIMPLE/COMPLEX/AGENT_REQUIRED + reasoning
+    Complexity->>Agentic: Complexity tier + confidence + context
     
-    Agentic->>Vector: Execute search with extracted parameters
+    alt Tier: SIMPLE
+        Note over Agentic,Vector: Direct RAG Search (Fastest)
+        Agentic->>Vector: Basic search with minimal extraction
+    else Tier: COMPLEX
+        Note over Agentic,LLM: Full LLM Parameter Extraction
+        Agentic->>Extractor: extract_parameters (parallel/sequential)
+        Extractor->>LLM: Step 1: Extract project IDs
+        LLM->>Extractor: Project ID suggestions
+        Extractor->>LLM: Step 2: Extract document types
+        LLM->>Extractor: Document type IDs
+        Extractor->>LLM: Step 3: Extract strategy & query
+        LLM->>Extractor: Search strategy & semantic query
+        Extractor->>Agentic: Complete parameters
+        Agentic->>Vector: Execute search with extracted parameters
+    else Tier: AGENT_REQUIRED
+        Note over Agentic,LLM: Agent Stub + LLM Fallback
+        Agentic->>Agentic: Log agent requirement for future
+        Agentic->>Extractor: Fallback to complex LLM extraction
+        Extractor->>LLM: Full parameter extraction process
+        LLM->>Extractor: Complete parameters
+        Extractor->>Agentic: Parameters with agent metadata
+        Agentic->>Vector: Execute search with extracted parameters
+    end
+    
     Vector->>API: Search results
     API->>LLM: Generate response summary
     LLM->>API: Final response
@@ -822,6 +844,81 @@ The Search API now serves as a **complete proxy and intelligent wrapper** around
 - `/api/agentic/search-with-inference` - Search with AI inference  
 - `/api/agentic/orchestrated-search` - Full agentic orchestration
 - `/api/agentic/health` - Agentic health check
+
+### **3-Tier Query Complexity System**
+
+The Search API now features an intelligent **3-tier query complexity analysis** system that automatically routes queries to the most appropriate processing method for optimal performance and accuracy.
+
+#### **Complexity Tiers**
+
+##### 🟢 SIMPLE Queries → Basic RAG Search
+
+- Clear project + document type patterns
+- Single concept searches with obvious parameters
+- Examples:
+  - `"For Anderson Mountain project, find correspondence"`
+  - `"Environmental reports from Black Creek project"`
+  - `"Letters about permits from Timber project"`
+
+- **Processing**: Direct to RAG with minimal parameter extraction
+- **Speed**: Fastest (no complex LLM parameter extraction needed)
+
+##### 🟡 COMPLEX Queries → LLM Parameter Extraction
+
+- Multiple projects or sophisticated filtering
+- Cross-references and ambiguous scope
+- Examples:
+  - `"Find reports from mountain projects"`
+  - `"Documents that discuss impacts BUT NOT routine permits"`
+  - `"Anything related to environmental concerns across projects"`
+
+- **Processing**: Full parallel/sequential LLM parameter extraction
+- **Speed**: Standard (uses existing optimized LLM extraction)
+
+##### 🔴 AGENT REQUIRED Queries → Future Agent Processing
+
+- Temporal analysis and comparative studies
+- Trend analysis and conditional logic
+- Examples:
+  - `"Documents from before 2020 about environmental impacts"`
+  - `"Compare environmental impacts across similar projects"`
+  - `"Show permit application trends over last 5 years"`
+
+- **Processing**: Agent stub logging + fallback to complex LLM extraction
+- **Speed**: Standard (agent capabilities logged for future implementation)
+
+#### **Intelligent Routing Benefits**
+
+- **⚡ Performance Optimization**: Simple queries bypass complex processing
+- **🎯 Accuracy Preservation**: Complex queries still get full LLM analysis
+- **🔮 Future-Ready**: Agent requirements logged for advanced capabilities
+- **🛡️ Robust Fallbacks**: System gracefully degrades on analysis failures
+- **📊 Transparency**: Full logging and metrics for each complexity tier
+
+#### **Implementation Details**
+
+- **Single LLM Call**: One complexity analysis call determines routing
+- **Context-Aware Analysis**: Uses real project and document type lists from vector search API
+- **Dynamic Classification**: Accurately distinguishes between actual projects and mentioned entities
+- **Conservative Approach**: When uncertain, defaults to more sophisticated processing
+- **Graceful Degradation**: Works even when project/document context unavailable
+- **Backward Compatible**: All existing functionality preserved
+- **Metrics Tracking**: Complexity analysis time and tier decisions logged
+
+#### **Context-Aware Accuracy**
+
+The complexity analyzer fetches real-time data to improve classification accuracy:
+
+- **📋 Real Project Lists**: Knows which entities are actual projects vs. mentioned organizations
+- **📄 Real Document Types**: Uses current document type catalog for precise matching
+- **🎯 Improved Classification**: Prevents misclassification of queries like:
+  - `"letters mentioning South Anderson Mountain Resort and Nooaitch Indian Band"`
+  - Correctly identifies only "South Anderson Mountain Resort" as a project
+  - Recognizes "Nooaitch Indian Band" as a mentioned entity, not a second project
+  - Results in **SIMPLE** classification instead of incorrect **COMPLEX**
+
+- **🔄 Dynamic Updates**: Context automatically updates as projects and document types change
+- **🛡️ Fallback Logic**: Uses general patterns when API context unavailable
 
 ### **How Agentic Functionality Works Now**
 
