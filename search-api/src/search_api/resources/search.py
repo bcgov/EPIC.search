@@ -23,6 +23,7 @@ from search_api.services.search_service import SearchService
 from search_api.utils.util import cors_preflight
 from search_api.schemas.search import SearchRequestSchema
 from search_api.schemas.search import SimilaritySearchRequestSchema
+from search_api.auth import auth
 from .apihelper import Api as ApiHelper
 from flask import Response, current_app
 
@@ -45,7 +46,7 @@ similar_request_model = ApiHelper.convert_ma_schema_to_restx_model(
 class Search(Resource):
     """Resource for search."""    
     @staticmethod
-    #@auth.require
+    @auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="Search Query")
     @API.expect(search_request_model)
     @API.response(400, "Bad Request")
@@ -103,6 +104,7 @@ class Search(Resource):
 @API.route("/document-similarity", methods=["POST", "OPTIONS"])
 class DocumentSimilaritySearch(Resource):
     @staticmethod
+    @auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a specific document using document-level embeddings (new endpoint).")
     @API.expect(similar_request_model)
     def post():

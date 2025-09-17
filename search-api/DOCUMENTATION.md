@@ -212,8 +212,15 @@ GET /api/document/view?key=path%2Fto%2Fdocument.pdf&file_name=document.pdf
 
 **Authentication:**
 
-- Currently disabled for development, but will require standard authentication headers when re-enabled
-- The @auth.require decorator will be used to enforce authentication
+- **REQUIRED**: All API endpoints require JWT authentication via OIDC
+- Authentication uses the `@auth.require` decorator on all protected endpoints
+- Health/readiness endpoints (`/healthz`, `/readyz`) remain public for monitoring
+- Bearer token format: `Authorization: Bearer <jwt-token>`
+- OIDC Configuration:
+  - **Dev Environment**: `https://dev.loginproxy.gov.bc.ca/auth/realms/eao-epic`
+  - **Test Environment**: `https://test.loginproxy.gov.bc.ca/auth/realms/eao-epic`
+  - **Expected Audience**: `epic-search` or `account`
+  - **Client ID**: `epic-search`
 
 **Response:**
 
@@ -687,10 +694,11 @@ The Search API is designed to be extensible in the following ways:
    - Implement proper CORS policies to restrict cross-origin requests
 
 3. Access Control
-   - Implement authentication for all API endpoints
+   - ✅ **Authentication implemented for all API endpoints** using JWT/OIDC
    - Use role-based access control (RBAC) to limit access to sensitive operations
    - Validate and sanitize all user inputs
    - Implement rate limiting to prevent abuse
+   - Health endpoints (`/healthz`, `/readyz`) remain public for monitoring
 
 ### Performance Optimization
 

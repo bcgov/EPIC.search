@@ -51,8 +51,25 @@ The Search API provides intelligent, LLM-powered search functionality with multi
 - 📊 **Dynamic Metadata Discovery** - Real-time project and document type lookup
 - 🔄 **Multi-Provider Support** - Works with both OpenAI and Ollama
 - 🚀 **High-Performance Processing** - Parallel LLM calls for 2-4x faster parameter extraction
+- 🔐 **Enterprise Security** - JWT/OIDC authentication required for all API endpoints
 
 See [DOCUMENTATION.md](./DOCUMENTATION.md) for complete endpoint details and implementation information.
+
+## Authentication
+
+🔐 **All API endpoints require JWT authentication via OIDC**
+
+- **Bearer Token Format**: `Authorization: Bearer <jwt-token>`
+- **OIDC Provider**: BC Government LoginProxy (dev/test environments)
+- **Client**: `epic-search`
+- **Public Endpoints**: Health checks (`/healthz`, `/readyz`) only
+
+### Environment Configuration
+
+- **Dev**: `https://dev.loginproxy.gov.bc.ca/auth/realms/eao-epic`
+- **Test**: `https://test.loginproxy.gov.bc.ca/auth/realms/eao-epic`
+
+For complete authentication setup, see [DOCUMENTATION.md](./DOCUMENTATION.md#authentication).
 
 ## Getting Started
 

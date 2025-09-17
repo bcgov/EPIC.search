@@ -14,6 +14,9 @@ dist-ssr
 
 # Environment files
 deploy.env
+.env.local
+.env.test
+.env.production
 
 # Editor directories and files
 .vscode/*

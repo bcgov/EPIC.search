@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Bring in the common JWT Manager."""
+import logging
 from functools import wraps
 
 from flask import g, request
 from flask_jwt_oidc import JwtManager
+from flask_jwt_oidc.exceptions import AuthError
 
 jwt = (
     JwtManager()
@@ -29,13 +31,32 @@ class Auth:  # pylint: disable=too-few-public-methods
     def require(cls, f):
         """Validate the Bearer Token."""
 
-        @jwt.requires_auth
         @wraps(f)
         def decorated(*args, **kwargs):
-            g.authorization_header = request.headers.get("Authorization", None)
-            g.token_info = g.jwt_oidc_token_info
-
-            return f(*args, **kwargs)
+            # Log authentication attempt for debugging
+            auth_header = request.headers.get("Authorization", None)
+            logging.info(f"=== Authentication Debug ===")
+            logging.info(f"Authorization Header: {auth_header[:50] + '...' if auth_header and len(auth_header) > 50 else auth_header}")
+            logging.info(f"Request Method: {request.method}")
+            logging.info(f"Request Path: {request.path}")
+            
+            try:
+                # Apply JWT validation
+                @jwt.requires_auth
+                @wraps(f)
+                def jwt_decorated(*inner_args, **inner_kwargs):
+                    g.authorization_header = request.headers.get("Authorization", None)
+                    g.token_info = g.jwt_oidc_token_info
+                    return f(*inner_args, **inner_kwargs)
+                
+                return jwt_decorated(*args, **kwargs)
+            except AuthError as e:
+                logging.error(f"JWT Authentication failed: {e}")
+                logging.error(f"AuthError details: {e.error}")
+                raise
+            except Exception as e:
+                logging.error(f"Unexpected auth error: {e}")
+                raise
 
         return decorated
 

@@ -1,12 +1,25 @@
-# React + TypeScript + Vite
+# EPIC.Search
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A React-based web application for searching and viewing environmental assessment documents. **Authentication is required** for accessing search and statistics functionality.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/# EPIC.Search
+- 🔍 **Document Search**: Advanced search capabilities with AI-powered strategies
+- 📊 **Statistics & Metrics**: Analytics dashboard for document usage and search patterns  
+- 🔐 **Secure Access**: OIDC authentication via Keycloak for protected content
+- 📱 **Responsive Design**: Optimized for desktop and mobile devices
 
-A React-based web application for searching and viewing environmental assessment documents.
+## Authentication
+
+This application requires authentication for core functionality:
+
+- **Public Access**: Home page with general information about environmental assessments
+- **Authenticated Access Required**:
+  - Document search functionality (`/search`)
+  - Statistics and metrics dashboard (`/stats`)
+  - User profile and preferences
+
+Users must sign in through Keycloak to access search and analytics features.
 
 ## Prerequisites
 
@@ -39,7 +52,6 @@ VITE_API_URL=http://localhost:3200/api
 VITE_KEYCLOAK_URL=https:/dev.loginproxy.gov.bc.ca
 VITE_KEYCLOAK_CLIENT=epicscaffold-web
 VITE_KEYCLOAK_REALM=eao-epic
-VITE_ENV=local
 VITE_APP_TITLE=EPIC.Search
 VITE_APP_URL=http://localhost:5173
 VITE_OIDC_AUTHORITY=https://dev.loginproxy.gov.bc.ca/auth/realms/eao-epic
