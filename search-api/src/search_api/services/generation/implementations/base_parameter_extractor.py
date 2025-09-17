@@ -43,6 +43,41 @@ class BaseParameterExtractor(ParameterExtractor):
         Returns:
             Dict containing extracted parameters.
         """
+        logger.info("=== PARAMETER EXTRACTION START ===")
+        logger.info(f"Query to extract from: '{query}'")
+        logger.info(f"Use parallel execution: {use_parallel}")
+        
+        # Log available context data - SHOW ALL DATA (no truncation)
+        logger.info("=== AVAILABLE CONTEXT DATA ===")
+        if available_projects:
+            logger.info(f"Available Projects ({len(available_projects)}):")
+            for name, proj_id in available_projects.items():  # Show ALL projects
+                logger.info(f"  - '{name}' -> {proj_id}")
+        else:
+            logger.info("Available Projects: None provided")
+            
+        if available_document_types:
+            logger.info(f"Available Document Types ({len(available_document_types)}):")
+            for doc_id, doc_data in available_document_types.items():  # Show ALL document types
+                name = doc_data.get('name', 'Unknown')
+                aliases = doc_data.get('aliases', [])
+                logger.info(f"  - '{name}' (ID: {doc_id}) - Aliases: {aliases}")
+        else:
+            logger.info("Available Document Types: None provided")
+            
+        if available_strategies:
+            logger.info(f"Available Strategies ({len(available_strategies)}):")
+            for name, description in available_strategies.items():
+                logger.info(f"  - '{name}': {description}")
+        else:
+            logger.info("Available Strategies: None provided")
+            
+        # Log supplied parameters
+        logger.info("=== SUPPLIED PARAMETERS ===")
+        logger.info(f"Supplied Project IDs: {supplied_project_ids}")
+        logger.info(f"Supplied Document Type IDs: {supplied_document_type_ids}")
+        logger.info(f"Supplied Search Strategy: {supplied_search_strategy}")
+        logger.info("=== END CONTEXT DATA ===")
         if use_parallel:
             try:
                 return self._extract_parameters_parallel(
@@ -262,10 +297,48 @@ class BaseParameterExtractor(ParameterExtractor):
             return None
     
     def _extract_project_ids(self, query: str, available_projects: Optional[Dict] = None) -> List[str]:
-        """Extract project IDs from query using focused LLM call."""
+        """Extract project IDs from query using focused LLM call with validation and retry."""
+        logger.info("=== PROJECT ID EXTRACTION START ===")
+        logger.info(f"Query for project extraction: '{query}'")
+        
         if not available_projects:
+            logger.warning("No available projects provided - returning empty list")
+            logger.info("=== PROJECT ID EXTRACTION END ===")
             return []
         
+        logger.info(f"Available projects for matching ({len(available_projects)}):")
+        for name, proj_id in available_projects.items():  # Show ALL projects, no truncation
+            logger.info(f"  - '{name}' -> {proj_id}")
+        
+        # Try LLM extraction with validation and retry
+        for attempt in range(3):  # Maximum 3 attempts
+            try:
+                logger.info(f"Attempt {attempt + 1}/3 for project ID extraction")
+                result = self._extract_project_ids_single_attempt(query, available_projects, attempt)
+                
+                # Validate the result quality
+                if self._validate_project_extraction_result(query, result, available_projects):
+                    logger.info(f"Project extraction successful on attempt {attempt + 1}: {result}")
+                    logger.info("=== PROJECT ID EXTRACTION END ===")
+                    return result
+                else:
+                    logger.warning(f"Project extraction attempt {attempt + 1} failed validation, will retry")
+                    
+            except Exception as e:
+                logger.warning(f"Project extraction attempt {attempt + 1} failed with error: {e}")
+                if attempt == 2:  # Last attempt
+                    logger.error("All LLM attempts failed, using fallback")
+                    break
+        
+        # All attempts failed, use fallback
+        logger.warning("LLM project extraction failed all attempts, using fallback method")
+        result = self._fallback_project_extraction(query, available_projects)
+        logger.info(f"Fallback extraction result: {result}")
+        logger.info("=== PROJECT ID EXTRACTION END ===")
+        return result
+    
+    def _extract_project_ids_single_attempt(self, query: str, available_projects: Dict, attempt: int) -> List[str]:
+        """Single attempt at project ID extraction with different strategies per attempt."""
         try:
             prompt = f"""You are a project ID extraction specialist. Analyze the query to find the most relevant project names and match them to available project IDs.
 
@@ -305,18 +378,30 @@ Return as JSON with format:
 
 Include matches with confidence >= 0.7 and prioritize complete/distinctive name matches over generic descriptor matches"""
 
+            logger.info("=== PROJECT EXTRACTION PROMPT ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info("=== END PROJECT EXTRACTION PROMPT ===")
+
             response = self._make_llm_call(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
             
+            logger.info("=== PROJECT EXTRACTION LLM RESPONSE ===")
+            logger.info(f"Raw LLM Response: {response}")
+            
             content = response["choices"][0]["message"]["content"].strip()
+            logger.info(f"Content extracted from response: '{content}'")
+            logger.info("=== END PROJECT EXTRACTION LLM RESPONSE ===")
             
             # Try to parse JSON response with confidence scores
             try:
                 if content.startswith('{') and content.endswith('}'):
                     result = json.loads(content)
                     project_matches = result.get("project_matches", [])
+                    
+                    logger.info("=== PROJECT MATCHES ANALYSIS ===")
+                    logger.info(f"Number of project matches returned: {len(project_matches)}")
                     
                     # Extract project IDs from matches with confidence >= 0.7
                     matched_ids = []
@@ -326,26 +411,46 @@ Include matches with confidence >= 0.7 and prioritize complete/distinctive name 
                         project_name = match.get("project_name", "")
                         reason = match.get("reason", "")
                         
+                        logger.info(f"Match: {project_name} (ID: {project_id}) - Confidence: {confidence} - Reason: {reason}")
+                        
+                        # Validate project ID exists in available projects
+                        if project_id in available_projects.values():
+                            logger.info(f"  ✓ Valid project ID found in available projects")
+                        else:
+                            logger.warning(f"  ✗ Project ID {project_id} NOT found in available projects")
+                        
                         # Use higher threshold for better quality matches
                         if confidence >= 0.7 and project_id and project_id in available_projects.values():
                             matched_ids.append(project_id)
-                            logger.info(f"Project match: {project_name} (confidence: {confidence}) - {reason}")
+                            logger.info(f"  → ACCEPTED: {project_name} added to results")
+                        else:
+                            logger.info(f"  → REJECTED: Confidence too low ({confidence}) or invalid ID")
                     
+                    logger.info(f"Final matched project IDs: {matched_ids}")
+                    logger.info("=== END PROJECT MATCHES ANALYSIS ===")
+                    logger.info("=== PROJECT ID EXTRACTION END ===")
                     return matched_ids[:3]  # Limit to 3 for more focused results
                     
                 elif content.startswith('[') and content.endswith(']'):
                     # Fallback: try old format
                     project_ids = json.loads(content)
                     valid_ids = [pid for pid in project_ids if pid in available_projects.values()]
-                    logger.warning(f"Using fallback array format, got {len(valid_ids)} project IDs")
+                    logger.warning(f"Using fallback array format, got {len(valid_ids)} project IDs: {valid_ids}")
+                    logger.info("=== PROJECT ID EXTRACTION END ===")
                     return valid_ids[:3]  # Limit to 3 for focused results
                 else:
                     logger.warning("LLM response not in expected JSON format, using fallback")
-                    return self._fallback_project_extraction(query, available_projects)
+                    result = self._fallback_project_extraction(query, available_projects)
+                    logger.info(f"Fallback extraction result: {result}")
+                    logger.info("=== PROJECT ID EXTRACTION END ===")
+                    return result
                     
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse LLM response as JSON: {e}")
-                return self._fallback_project_extraction(query, available_projects)
+                result = self._fallback_project_extraction(query, available_projects)
+                logger.info(f"Fallback extraction result: {result}")
+                logger.info("=== PROJECT ID EXTRACTION END ===")
+                return result
                 
         except Exception as e:
             logger.warning(f"Project ID extraction failed: {e}")
@@ -353,8 +458,19 @@ Include matches with confidence >= 0.7 and prioritize complete/distinctive name 
     
     def _extract_document_types(self, query: str, available_document_types: Optional[Dict] = None) -> List[str]:
         """Extract document type IDs from query using focused LLM call."""
+        logger.info("=== DOCUMENT TYPE EXTRACTION START ===")
+        logger.info(f"Query for document type extraction: '{query}'")
+        
         if not available_document_types:
+            logger.warning("No available document types provided - returning empty list")
+            logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
             return []
+        
+        logger.info(f"Available document types for matching ({len(available_document_types)}):")
+        for doc_id, doc_data in available_document_types.items():  # Show ALL document types, no truncation
+            name = doc_data.get('name', 'Unknown')
+            aliases = doc_data.get('aliases', [])
+            logger.info(f"  - '{name}' (ID: {doc_id}) - Aliases: {aliases}")
         
         try:
             # Build comprehensive document type info including aliases
@@ -391,24 +507,57 @@ Think through this step by step:
 
 Return ALL matching document type IDs as a JSON array of strings."""
 
+            logger.info("=== DOCUMENT TYPE EXTRACTION PROMPT ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info("=== END DOCUMENT TYPE EXTRACTION PROMPT ===")
+
             response = self._make_llm_call(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
             
+            logger.info("=== DOCUMENT TYPE EXTRACTION LLM RESPONSE ===")
+            logger.info(f"Raw LLM Response: {response}")
+            
             content = response["choices"][0]["message"]["content"].strip()
+            logger.info(f"Content extracted from response: '{content}'")
+            logger.info("=== END DOCUMENT TYPE EXTRACTION LLM RESPONSE ===")
             
             # Try to parse JSON response
             try:
                 if content.startswith('[') and content.endswith(']'):
                     doc_type_ids = json.loads(content)
+                    
+                    logger.info("=== DOCUMENT TYPE MATCHES ANALYSIS ===")
+                    logger.info(f"LLM returned document type IDs: {doc_type_ids}")
+                    
                     # Validate that returned IDs are actually available and limit to 5
-                    valid_ids = [dtid for dtid in doc_type_ids if dtid in available_document_types.keys()][:5]
-                    return valid_ids
+                    valid_ids = []
+                    for dtid in doc_type_ids:
+                        if dtid in available_document_types.keys():
+                            doc_name = available_document_types[dtid].get('name', 'Unknown')
+                            valid_ids.append(dtid)
+                            logger.info(f"  ✓ Valid document type ID: {dtid} -> '{doc_name}'")
+                        else:
+                            logger.warning(f"  ✗ Invalid document type ID: {dtid} (not found in available types)")
+                    
+                    final_ids = valid_ids[:5]  # Limit to 5
+                    logger.info(f"Final document type IDs (limited to 5): {final_ids}")
+                    logger.info("=== END DOCUMENT TYPE MATCHES ANALYSIS ===")
+                    logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                    return final_ids
                 else:
-                    return self._fallback_document_extraction(query, available_document_types)
-            except json.JSONDecodeError:
-                return self._fallback_document_extraction(query, available_document_types)
+                    logger.warning("LLM response not in expected JSON array format, using fallback")
+                    result = self._fallback_document_extraction(query, available_document_types)
+                    logger.info(f"Fallback extraction result: {result}")
+                    logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                    return result
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse LLM response as JSON: {e}")
+                result = self._fallback_document_extraction(query, available_document_types)
+                logger.info(f"Fallback extraction result: {result}")
+                logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                return result
                 
         except Exception as e:
             logger.warning(f"Document type extraction failed: {e}")
@@ -416,8 +565,13 @@ Return ALL matching document type IDs as a JSON array of strings."""
     
     def _extract_search_strategy(self, query: str, available_strategies: Optional[Dict] = None) -> str:
         """Extract search strategy using focused LLM call."""
+        logger.info("=== SEARCH STRATEGY EXTRACTION START ===")
+        logger.info(f"Query for search strategy extraction: '{query}'")
+        
         try:
             strategies_list = list(available_strategies.keys()) if available_strategies else ["HYBRID_PARALLEL", "SEMANTIC_ONLY", "KEYWORD_ONLY"]
+            
+            logger.info(f"Available strategies: {strategies_list}")
             
             prompt = f"""You are a search strategy specialist. Determine the best search strategy for this query.
 
@@ -432,17 +586,30 @@ Query: "{query}"
 
 Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
 
+            logger.info("=== SEARCH STRATEGY EXTRACTION PROMPT ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info("=== END SEARCH STRATEGY EXTRACTION PROMPT ===")
+
             response = self._make_llm_call(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
             
+            logger.info("=== SEARCH STRATEGY EXTRACTION LLM RESPONSE ===")
+            logger.info(f"Raw LLM Response: {response}")
+            
             content = response["choices"][0]["message"]["content"].strip().replace('"', '')
+            logger.info(f"Content extracted from response: '{content}'")
+            logger.info("=== END SEARCH STRATEGY EXTRACTION LLM RESPONSE ===")
             
             # Validate strategy
             if content in strategies_list:
+                logger.info(f"Strategy '{content}' is valid - using it")
+                logger.info("=== SEARCH STRATEGY EXTRACTION END ===")
                 return content
             else:
+                logger.warning(f"Strategy '{content}' not in available strategies, defaulting to HYBRID_PARALLEL")
+                logger.info("=== SEARCH STRATEGY EXTRACTION END ===")
                 return "HYBRID_PARALLEL"
                 
         except Exception as e:
@@ -451,6 +618,9 @@ Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
 
     def _extract_semantic_query(self, query: str) -> str:
         """Extract and optimize semantic query using focused LLM call."""
+        logger.info("=== SEMANTIC QUERY EXTRACTION START ===")
+        logger.info(f"Original query for semantic optimization: '{query}'")
+        
         try:
             prompt = f"""You are a semantic query optimization specialist. Extract the core search concepts from this query.
 
@@ -470,21 +640,35 @@ Original Query: "{query}"
 
 Return ONLY the optimized semantic query (no quotes, no explanation)"""
 
+            logger.info("=== SEMANTIC QUERY EXTRACTION PROMPT ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info("=== END SEMANTIC QUERY EXTRACTION PROMPT ===")
+
             response = self._make_llm_call(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
             
+            logger.info("=== SEMANTIC QUERY EXTRACTION LLM RESPONSE ===")
+            logger.info(f"Raw LLM Response: {response}")
+            
             content = response["choices"][0]["message"]["content"].strip().replace('"', '')
+            logger.info(f"Content extracted from response: '{content}'")
+            logger.info("=== END SEMANTIC QUERY EXTRACTION LLM RESPONSE ===")
             
             # Basic validation - should be shorter and meaningful
             if len(content) > 0 and len(content) < len(query) * 1.5:
+                logger.info(f"Semantic query optimization successful: '{query}' -> '{content}'")
+                logger.info("=== SEMANTIC QUERY EXTRACTION END ===")
                 return content
             else:
+                logger.warning(f"Semantic query validation failed - content too long or empty, using original query")
+                logger.info("=== SEMANTIC QUERY EXTRACTION END ===")
                 return query
                 
         except Exception as e:
             logger.warning(f"Semantic query extraction failed: {e}")
+            logger.info("=== SEMANTIC QUERY EXTRACTION END ===")
             return query
     
     def _fallback_project_extraction(self, query: str, available_projects: Dict) -> List[str]:

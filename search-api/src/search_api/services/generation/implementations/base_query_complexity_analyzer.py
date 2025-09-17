@@ -51,22 +51,50 @@ class BaseQueryComplexityAnalyzer(QueryComplexityAnalyzer):
     def analyze_complexity(self, query: str) -> Dict[str, Any]:
         """Single LLM call to determine query complexity tier."""
         
+        logger.info("=== QUERY COMPLEXITY ANALYSIS START ===")
+        logger.info(f"Query to analyze: '{query}'")
+        
         try:
             # Fetch available projects and document types for context
             available_projects, available_document_types = self._fetch_available_options()
             
+            logger.info("=== COMPLEXITY ANALYSIS CONTEXT ===")
+            logger.info(f"Available projects count: {len(available_projects)}")
+            if available_projects:
+                logger.info("Sample available projects:")
+                for name, proj_id in list(available_projects.items())[:5]:
+                    logger.info(f"  - '{name}' -> {proj_id}")
+                if len(available_projects) > 5:
+                    logger.info(f"  ... and {len(available_projects) - 5} more projects")
+            
+            logger.info(f"Available document types count: {len(available_document_types)}")
+            if available_document_types:
+                logger.info("Sample available document types:")
+                for name, doc_id in list(available_document_types.items())[:5]:
+                    logger.info(f"  - '{name}' -> {doc_id}")
+                if len(available_document_types) > 5:
+                    logger.info(f"  ... and {len(available_document_types) - 5} more document types")
+            logger.info("=== END COMPLEXITY ANALYSIS CONTEXT ===")
+            
             # Create context strings for the prompt
             if available_projects:
                 project_names = list(available_projects.keys())
-                project_context = ", ".join(project_names[:10]) + ("..." if len(project_names) > 10 else "")
+                project_context = ", ".join(project_names)  # NO TRUNCATION - send all projects
                 project_guidance = f"AVAILABLE PROJECTS: {project_context}\n- Only queries mentioning these exact project names should be considered for SIMPLE classification"
             else:
                 project_guidance = "AVAILABLE PROJECTS: Unable to fetch project list\n- Use general project name patterns for classification"
             
             if available_document_types:
-                doc_type_names = list(available_document_types.keys())
-                doc_type_context = ", ".join(doc_type_names[:15]) + ("..." if len(doc_type_names) > 15 else "")
-                doc_type_guidance = f"AVAILABLE DOCUMENT TYPES: {doc_type_context}\n- Only queries mentioning these exact document types should be considered for SIMPLE classification"
+                # Build document type context with names AND aliases for better matching
+                doc_type_context_parts = []
+                for doc_id, doc_data in available_document_types.items():
+                    name = doc_data.get('name', 'Unknown')
+                    aliases = doc_data.get('aliases', [])
+                    alias_text = f" (aliases: {', '.join(aliases)})" if aliases else ""
+                    doc_type_context_parts.append(f"{name}{alias_text}")
+                
+                doc_type_context = ", ".join(doc_type_context_parts)  # NO TRUNCATION - send all document types with names
+                doc_type_guidance = f"AVAILABLE DOCUMENT TYPES: {doc_type_context}\n- Only queries mentioning these exact document type names or aliases should be considered for SIMPLE classification"
             else:
                 doc_type_guidance = "AVAILABLE DOCUMENT TYPES: Unable to fetch document types list\n- Use general document type patterns for classification"
             
@@ -116,12 +144,21 @@ JSON response only:
     "confidence": 0.9
 }}"""
 
+            logger.info("=== COMPLEXITY ANALYSIS PROMPT ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info("=== END COMPLEXITY ANALYSIS PROMPT ===")
+
             response = self._make_llm_call(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
             
+            logger.info("=== COMPLEXITY ANALYSIS LLM RESPONSE ===")
+            logger.info(f"Raw LLM Response: {response}")
+            
             content = response["choices"][0]["message"]["content"].strip()
+            logger.info(f"Content extracted from response: '{content}'")
+            logger.info("=== END COMPLEXITY ANALYSIS LLM RESPONSE ===")
             
             # Log the raw response to help debug parsing issues
             logger.info(f"Raw LLM response for complexity analysis: {content}")
@@ -129,6 +166,7 @@ JSON response only:
             # Handle empty or very short responses
             if not content or len(content) < 10:
                 logger.warning(f"LLM returned empty or very short response: '{content}'")
+                logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
                 return {"complexity_tier": "complex", "reason": "Empty LLM response", "confidence": 0.0}
             
             # Try to extract JSON from response if it contains extra text
@@ -142,6 +180,7 @@ JSON response only:
                 logger.info(f"Extracted JSON portion: {content_clean}")
             else:
                 logger.warning(f"No JSON object markers found in response: '{content}'")
+                logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
                 return {"complexity_tier": "complex", "reason": "No JSON in response", "confidence": 0.0}
             
             try:
@@ -150,10 +189,19 @@ JSON response only:
                 # Validate that we got required fields
                 if not isinstance(result, dict) or "complexity_tier" not in result:
                     logger.warning(f"Invalid JSON structure: missing complexity_tier")
+                    logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
                     return {"complexity_tier": "complex", "reason": "Invalid JSON structure", "confidence": 0.0}
                 
-                # Validate response and apply rule-based corrections
+                logger.info("=== COMPLEXITY ANALYSIS RESULT VALIDATION ===")
                 tier = result.get("complexity_tier", "complex")
+                reason = result.get("reason", "No reason provided")
+                confidence = result.get("confidence", 0.5)
+                
+                logger.info(f"Initial LLM classification: {tier}")
+                logger.info(f"Reason: {reason}")
+                logger.info(f"Confidence: {confidence}")
+                
+                # Validate response and apply rule-based corrections
                 if tier not in ["simple", "complex", "agent_required"]:
                     logger.warning(f"Invalid tier '{tier}', defaulting to complex")
                     tier = "complex"
@@ -161,6 +209,8 @@ JSON response only:
                 # Apply rule-based corrections for obvious patterns
                 import re
                 query_lower = query.lower()
+                
+                logger.info("Applying rule-based validation...")
                 
                 # Check for agent-required keywords (using word boundaries for accuracy)
                 agent_patterns = [
@@ -172,6 +222,7 @@ JSON response only:
                 ]
                 
                 agent_detected = any(re.search(pattern, query_lower) for pattern in agent_patterns)
+                logger.info(f"Agent keywords detected: {agent_detected}")
                 if agent_detected and tier == "simple":
                     logger.info(f"Rule-based correction: detected agent keywords, upgrading from {tier} to agent_required")
                     tier = "agent_required"
@@ -184,22 +235,31 @@ JSON response only:
                 ]
                 
                 complex_detected = any(re.search(pattern, query_lower) for pattern in complex_patterns)
+                logger.info(f"Complex keywords detected: {complex_detected}")
                 if complex_detected and tier == "simple":
                     logger.info(f"Rule-based correction: detected complex keywords, upgrading from {tier} to complex")
                     tier = "complex"
                 
-                return {
+                final_result = {
                     "complexity_tier": tier,
                     "reason": result.get("reason", "No reason provided"),
                     "confidence": result.get("confidence", 0.5)
                 }
                 
+                logger.info(f"Final complexity classification: {tier}")
+                logger.info("=== END COMPLEXITY ANALYSIS RESULT VALIDATION ===")
+                logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
+                
+                return final_result
+                
             except (json.JSONDecodeError, ValueError) as e:
                 logger.warning(f"Failed to parse complexity analysis. Raw content: '{content}', Cleaned: '{content_clean}', Error: {e}")
+                logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
                 return {"complexity_tier": "complex", "reason": "JSON parsing failed", "confidence": 0.0}
                 
         except Exception as e:
             logger.warning(f"Query complexity analysis failed: {e}")
+            logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
             return {"complexity_tier": "complex", "reason": "Analysis failed", "confidence": 0.0}
     
     def _make_llm_call(self, messages: List[Dict[str, str]], temperature: float = 0.1) -> Dict[str, Any]:
