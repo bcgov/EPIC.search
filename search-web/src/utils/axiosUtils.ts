@@ -1,32 +1,35 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { AppConfig } from '@/utils/config'
+import { AppConfig, OidcConfig } from '@/utils/config'
 import axios, { AxiosError } from 'axios'
-// import { User } from "oidc-client-ts"
+import { User } from "oidc-client-ts"
 
 export type OnErrorType = (error: AxiosError) => void;
 export type OnSuccessType = (data: any) => void;
 
 const client = axios.create({ baseURL: AppConfig.apiUrl });
 
-
-// function getUser() {
-//   const oidcStorage = sessionStorage.getItem(`oidc.user:${OidcConfig.authority}:${OidcConfig.client_id}`)
-//   if (!oidcStorage) {
-//       return null;
-//   }
-
-//   return User.fromStorageString(oidcStorage);
-// }
+function getUser(): User | null {
+  try {
+    const oidcStorage = sessionStorage.getItem(`oidc.user:${OidcConfig.authority}:${OidcConfig.client_id}`)
+    if (!oidcStorage) {
+        return null;
+    }
+    return User.fromStorageString(oidcStorage);
+  } catch (error) {
+    console.warn('Failed to get user from storage:', error);
+    return null;
+  }
+}
 
 export const request = ({ ...options }) => {
   
-  // const user = getUser();
+  const user = getUser();
   
-  // if(user?.access_token) {
-  //   client.defaults.headers.common.Authorization = `Bearer ${user?.access_token}`
-  // } else {
-  //   throw new Error('No access token!')
-  // }
+  if(user?.access_token) {
+    client.defaults.headers.common.Authorization = `Bearer ${user?.access_token}`
+  }
+  // Note: Removed the error throw to allow non-authenticated requests
+  // Some endpoints might not require authentication
   
   const onSuccess = (response: any) => response
   const onError = (error: AxiosError) => {

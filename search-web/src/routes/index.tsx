@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Button, Paper } from "@mui/material";
 import { useNavigate } from "@tanstack/react-router";
+import { useAuth } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/")({
   component: Index,
@@ -8,6 +9,7 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   const navigate = useNavigate();
+  const { isAuthenticated, login } = useAuth();
   
   return (
     <>
@@ -19,13 +21,23 @@ function Index() {
           public to influence the outcome of environmental assessments in
           British Columbia.
         </p>
-        <Button
-          variant="outlined"
-          color="primary"
-          onClick={() => navigate({to: "/search"})}
-        >
-          Search
-        </Button>
+        {isAuthenticated ? (
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => navigate({to: "/search"})}
+          >
+            Search
+          </Button>
+        ) : (
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => login()}
+          >
+            Sign In to Search
+          </Button>
+        )}
       </Paper>
     </>
   );

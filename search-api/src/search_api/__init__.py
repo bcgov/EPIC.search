@@ -66,8 +66,8 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     app.register_blueprint(HEALTH_BLUEPRINT)
 
     # Setup jwt for keycloak
-    #if os.getenv("FLASK_ENV", "production") != "testing":
-    #    setup_jwt_manager(app, jwt)
+    if os.getenv("FLASK_ENV", "production") != "testing":
+        setup_jwt_manager(app, jwt)
 
     @app.before_request
     def log_request_info():

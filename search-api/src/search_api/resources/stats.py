@@ -5,6 +5,7 @@ import time
 import json
 
 from ..services.stats_service import StatsService
+from search_api.auth import auth
 from .apihelper import Api as ApiHelper
 from search_api.utils.util import cors_preflight
 
@@ -18,6 +19,7 @@ API = Namespace("stats", description="Endpoints for Search")
 @API.route("/processing", methods=["GET", "OPTIONS"])
 class StatsProcessing(Resource):
     @staticmethod
+    @auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="Get processing statistics for all or specific projects including successful, failed, and skipped file counts")
     def get():
         current_app.logger.info("=== Stats processing GET request started ===")
@@ -46,6 +48,7 @@ class StatsProcessing(Resource):
 @API.route("/processing/<string:project_id>", methods=["GET", "OPTIONS"])
 class StatsProject(Resource):
     @staticmethod
+    @auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="Get detailed processing logs for a specific project")
     def get(project_id):
         current_app.logger.info("=== Stats project GET request started ===")
@@ -75,6 +78,7 @@ class StatsProject(Resource):
 @API.route("/summary", methods=["GET", "OPTIONS"])
 class StatsSummary(Resource):
     @staticmethod
+    @auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="Get high-level processing summary across entire system")
     def get():
         current_app.logger.info("=== Stats summary GET request started ===")

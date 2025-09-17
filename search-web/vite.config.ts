@@ -20,6 +20,9 @@ export default defineConfig({
     },
   },
   server: {
+    port: 3000,
+    strictPort: false, // Allow Vite to use next available port if 3000 is busy
+    open: true, // Automatically open browser
     proxy: {
       '/api': {
         target: process.env.PROXY_API_URL || 'http://127.0.0.1:8081',

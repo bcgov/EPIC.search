@@ -13,6 +13,7 @@ from search_api.services.s3_reader import read_file_from_s3
 from search_api.exceptions import ResourceNotFoundError
 from search_api.schemas.document import DocumentDownloadSchema
 # from search_api.auth import auth
+from search_api.auth import auth
 from .apihelper import Api as ApiHelper
 
 API = Namespace("document", description="Endpoints for Document Operations")
@@ -114,7 +115,7 @@ class DocumentDownload(Resource):
         current_app.logger.info("DocumentDownload resource initialized")    
     
     @staticmethod
-    # @auth.require
+    @auth.require
     @ApiHelper.swagger_decorators(API, endpoint_description="View a document from S3 (supports PDF, Word, Excel, images, and text files)")    
     @API.param('key', 'The S3 key of the document to view (URL encoded)')
     @API.param('file_name', 'The filename to display in the browser (URL encoded)')

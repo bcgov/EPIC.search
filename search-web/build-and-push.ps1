@@ -2,7 +2,8 @@
 # This script builds a Docker image with a date-based tag and pushes it to ACR
 
 param(
-    [string]$EnvFile = "deploy.env"
+    [string]$EnvFile = "deploy.env",
+    [string]$TargetEnv = "test"
 )
 
 # Function to load environment variables from .env file
@@ -97,11 +98,11 @@ Write-Host "Using version tag: $versionTag" -ForegroundColor Green
 $versionedImage = "$Registry/$Repository`:$versionTag"
 $latestImage = "$Registry/$Repository`:latest"
 
-Write-Host "`nBuilding Docker image..." -ForegroundColor Cyan
+Write-Host "`nBuilding Docker image for environment: $TargetEnv" -ForegroundColor Cyan
 Write-Host "Image tag: $versionedImage" -ForegroundColor White
 
-# Build the Docker image
-docker build -t $versionedImage .
+# Build the Docker image with target environment
+docker build --build-arg TARGET_ENV=$TargetEnv -t $versionedImage .
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Docker build failed!"

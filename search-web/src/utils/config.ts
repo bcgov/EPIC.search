@@ -2,7 +2,6 @@ declare global {
   interface Window {
     _env_: {
       VITE_API_URL: string;
-      VITE_ENV: string;
       VITE_VERSION: string;
       VITE_APP_TITLE: string;
       VITE_APP_URL: string;
@@ -14,8 +13,6 @@ declare global {
 const API_URL =
   window._env_?.VITE_API_URL || import.meta.env.VITE_API_URL || "/api";
 
-const APP_ENVIRONMENT =
-  window._env_?.VITE_ENV || import.meta.env.VITE_ENV || "";
 const APP_VERSION =
   window._env_?.VITE_VERSION || import.meta.env.VITE_VERSION || "";
 const APP_TITLE =
@@ -26,7 +23,6 @@ const CLIENT_ID = window._env_?.VITE_CLIENT_ID || import.meta.env.VITE_CLIENT_ID
 
 export const AppConfig = {
   apiUrl: `${API_URL}`,
-  environment: APP_ENVIRONMENT,
   version: APP_VERSION,
   appTitle: APP_TITLE,
 };
@@ -36,6 +32,7 @@ export const OidcConfig = {
   client_id: CLIENT_ID,
   redirect_uri: `${APP_URL}/oidc-callback`,
   post_logout_redirect_uri: `${APP_URL}/`,
+  response_type: "code",
   scope: "openid profile email",
   revokeTokensOnSignout: true,
   automaticSilentRenew: false,

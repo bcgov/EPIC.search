@@ -2,6 +2,9 @@
 # pull official base image
 FROM node:20-alpine AS build-stage
 
+# Accept build argument for target environment
+ARG TARGET_ENV=test
+
 # set working directory
 WORKDIR /app
 
@@ -20,7 +23,8 @@ RUN mkdir -p node_modules/.cache && chmod -R 777 node_modules/.cache
 # add app files
 COPY . ./
 
-RUN npm run build
+# Build with specific environment
+RUN npm run build:${TARGET_ENV}
 
 # Stage 1, based on Nginx, to have only the compiled app, ready for production with Nginx
 FROM nginx:1.25.3-alpine AS production-stage

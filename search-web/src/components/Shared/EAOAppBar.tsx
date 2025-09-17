@@ -1,12 +1,29 @@
-import { AppBar, Button, Grid, Typography } from "@mui/material";
-import { BarChart } from "@mui/icons-material";
+import { AppBar, Button, Grid, Typography, Menu, MenuItem, Avatar, Box, CircularProgress } from "@mui/material";
+import { BarChart, Person, Login, Logout } from "@mui/icons-material";
+import { useState } from "react";
 import EAO_Logo from "@/assets/images/EAO_Logo.png";
 import { AppConfig } from "@/utils/config";
 import { BCDesignTokens } from "epic.theme";
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
+import useAuth from "@/hooks/useAuth";
 
 export default function EAOAppBar() {
-  const location = useLocation();
+  const { isAuthenticated, isLoading, user, login, logout } = useAuth();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+
+  const handleUserMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleUserMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleLogout = async () => {
+    handleUserMenuClose();
+    await logout();
+  };
+
   return (
     <>
       <AppBar
@@ -42,8 +59,8 @@ export default function EAOAppBar() {
             gap={2}
             paddingRight={"0.75rem"}
           >
-            {/* Stats & Metrics Button - only show on search route */}
-            {location.pathname === '/search' && (
+            {/* Stats & Metrics Button - only show when authenticated */}
+            {isAuthenticated && (
               <Link to="/stats">
                 <Button
                   variant="outlined"
@@ -60,6 +77,71 @@ export default function EAOAppBar() {
                   Stats & Metrics
                 </Button>
               </Link>
+            )}
+
+            {/* Authentication UI */}
+            {isLoading ? (
+              <CircularProgress size={24} />
+            ) : isAuthenticated ? (
+              <Box display="flex" alignItems="center" gap={1}>
+                <Button
+                  onClick={handleUserMenuOpen}
+                  startIcon={<Avatar sx={{ width: 24, height: 24 }}>{user?.name?.charAt(0) || 'U'}</Avatar>}
+                  sx={{ 
+                    color: 'white',
+                    textTransform: 'none',
+                    '&:hover': {
+                      backgroundColor: BCDesignTokens.themeBlue10,
+                      color: BCDesignTokens.themePrimaryBlue,
+                    }
+                  }}
+                >
+                  {user?.name || 'User'}
+                </Button>
+                <Menu
+                  anchorEl={anchorEl}
+                  open={Boolean(anchorEl)}
+                  onClose={handleUserMenuClose}
+                  anchorOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'right',
+                  }}
+                  transformOrigin={{
+                    vertical: 'top',
+                    horizontal: 'right',
+                  }}
+                >
+                  <MenuItem onClick={handleUserMenuClose}>
+                    <Link to="/profile" style={{ textDecoration: 'none', color: 'inherit' }}>
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <Person fontSize="small" />
+                        Profile
+                      </Box>
+                    </Link>
+                  </MenuItem>
+                  <MenuItem onClick={handleLogout}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Logout fontSize="small" />
+                      Sign Out
+                    </Box>
+                  </MenuItem>
+                </Menu>
+              </Box>
+            ) : (
+              <Button
+                variant="contained"
+                startIcon={<Login />}
+                onClick={login}
+                sx={{
+                  backgroundColor: BCDesignTokens.themePrimaryBlue,
+                  color: 'white',
+                  '&:hover': {
+                    backgroundColor: BCDesignTokens.themeBlue70,
+                  }
+                }}
+              >
+                Sign In
+              </Button>
             )}
           </Grid>
         </Grid>
