@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "rg-tools-automation"
+    },
+    "location": {
+      "value": "East US"
+    },
+    "automationAccountName": {
+      "value": "auto-myproject-tools"
+    },
+    "sku": {
+      "value": "Basic"
+    },
+    "deployStartRunbook": {
+      "value": true
+    },
+    "deployStopRunbook": {
+      "value": true
+    }
+  }
+}

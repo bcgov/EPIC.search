@@ -4,13 +4,23 @@ param networkSecurityGroups_nsg_bastion_name string = 'nsg-bastion'
 @description('Location for all resources')
 param location string = resourceGroup().location
 
-@description('Tags to apply to all resources - provided automatically via policy')
-param tags object = {}
+@description('Additional custom tags to merge with required organizational tags')
+param customTags object = {}
+
+// Required organizational tags
+var organizationalTags = {
+  account_coding: 'your-account-coding'
+  billing_group: 'your-billing-group'
+  ministry_name: 'your-ministry'
+}
+
+// Combine organizational tags with any custom tags
+var allTags = union(organizationalTags, customTags)
 
 resource networkSecurityGroups_nsg_bastion_name_resource 'Microsoft.Network/networkSecurityGroups@2024-07-01' = {
   name: networkSecurityGroups_nsg_bastion_name
   location: location
-  tags: tags
+  tags: allTags
   properties: {
     securityRules: [
       {

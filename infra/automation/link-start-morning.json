@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-myproject-tools"
+    },
+    "runbookName": {
+      "value": "Start-AppServices"
+    },
+    "scheduleName": {
+      "value": "MorningStart-Weekdays"
+    },
+    "runbookParameters": {
+      "value": {
+        "ResourceGroupName": "rg-myproject-apps",
+        "AppServiceNames": "app1,app2,app3",
+        "SubscriptionId": "your-subscription-id",
+        "WaitForStartup": true
+      }
+    }
+  }
+}

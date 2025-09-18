@@ -29,7 +29,6 @@ module bastionNsg './nsg.bicep' = {
   params: {
     networkSecurityGroups_nsg_bastion_name: bastionNsgName
     location: location
-    tags: tags
   }
 }
 

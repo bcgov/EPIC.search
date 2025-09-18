@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-myproject-tools"
+    },
+    "scheduleName": {
+      "value": "MorningStart-Weekdays"
+    },
+    "scheduleDescription": {
+      "value": "Start App Services at 8 AM PST, Monday-Friday"
+    },
+    "startTime": {
+      "value": "2025-09-19T15:00:00"
+    },
+    "timeZone": {
+      "value": "America/Vancouver"
+    },
+    "frequency": {
+      "value": "Week"
+    },
+    "interval": {
+      "value": 1
+    },
+    "weekDays": {
+      "value": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    }
+  }
+}
