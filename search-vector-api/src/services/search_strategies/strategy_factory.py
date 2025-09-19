@@ -5,7 +5,7 @@ search strategy instances, with built-in fallback handling and strategy validati
 """
 
 import logging
-from typing import Dict, Type, Optional
+from typing import Dict, Type
 from .base_strategy import BaseSearchStrategy
 
 

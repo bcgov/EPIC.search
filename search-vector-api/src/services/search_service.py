@@ -157,6 +157,11 @@ class SearchService:
         original_project_ids = project_ids
         original_document_type_ids = document_type_ids
         
+        # Debug logging for project_ids parameter tracking
+        logging.info(f"SearchService.get_documents_by_query - Received project_ids: {project_ids} (type: {type(project_ids)})")
+        if project_ids:
+            logging.info(f"SearchService.get_documents_by_query - project_ids length: {len(project_ids)}, values: {project_ids}")
+        
         # Determine which inference pipelines to run based on the inference parameter and environment setting
         from flask import current_app
         use_default_inference = current_app.search_settings.use_default_inference

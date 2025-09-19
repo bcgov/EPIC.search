@@ -111,7 +111,9 @@ class VectorStore:
         
         # Handle predicates for additional filtering
         if predicates:
+            logging.info(f"VectorStore.semantic_search - Processing predicates: {predicates}")
             for key, value in predicates.items():
+                logging.info(f"VectorStore.semantic_search - Processing predicate: {key} = {value} (type: {type(value)})")
                 if key == 'project_ids':
                     # Handle multiple project IDs for chunk search
                     if value and len(value) > 0:
@@ -120,10 +122,15 @@ class VectorStore:
                         if table_name == current_app.vector_settings.vector_table_name:
                             where_conditions.append(f"project_id IN ({placeholders})")
                             params.extend(value)
+                            logging.info(f"VectorStore.semantic_search - Added project_ids IN condition for chunks table")
+                            logging.info(f"VectorStore.semantic_search - Extended params with: {value}")
                         else:
                             # For other tables, check metadata
                             where_conditions.append(f"metadata->>'project_id' IN ({placeholders})")
                             params.extend(value)
+                            logging.info(f"VectorStore.semantic_search - Added project_ids IN condition for metadata")
+                    else:
+                        logging.info(f"VectorStore.semantic_search - Skipped empty project_ids: {value}")
                 elif key == 'document_type_ids':
                     # Handle multiple document type IDs
                     if value and len(value) > 0:
@@ -338,6 +345,197 @@ class VectorStore:
             else:
                 return results
 
+    def keyword_search_with_predicates(
+        self, 
+        table_name: str, 
+        query: str, 
+        limit: int = 5, 
+        predicates: Optional[dict] = None,
+        return_dataframe: bool = True, 
+        weighted_keywords=None
+    ) -> Union[List[Tuple[Any, ...]], pd.DataFrame]:
+        """
+        Enhanced keyword search with support for project and document type filtering.
+        
+        This method combines the keyword search functionality with predicate-based filtering
+        similar to semantic_search, providing consistent filtering behavior across all search methods.
+        
+        Args:
+            table_name: The table to search in.
+            query: The search query text.
+            limit: Maximum number of results to return (default: 5).
+            predicates: Optional dictionary of field-value pairs to filter results.
+            return_dataframe: If True, returns results as a DataFrame; otherwise as a list of tuples.
+            weighted_keywords: Pre-extracted keywords to use for search.
+            
+        Returns:
+            Either a pandas DataFrame or a list of tuples containing search results.
+        """
+        if weighted_keywords is None:
+            raise ValueError("weighted_keywords must be provided by the caller.")
+        
+        tags = get_tags(query)
+        keywords = [keyword for keyword in weighted_keywords]
+        start_time = time.time()
+
+        # Debug logging
+        logging.info(f"VectorStore.keyword_search_with_predicates - Processing predicates: {predicates}")
+
+        # Step 1: Find documents that match keywords/tags/headings with optional project/document type filtering
+        doc_where_conditions = ["TRUE"]
+        doc_params = []
+        doc_search_conditions = []
+        
+        # Add keyword and tag search conditions
+        if keywords:
+            doc_search_conditions.append("document_keywords ?| %s")
+            doc_params.append(keywords)
+        if tags:
+            doc_search_conditions.append("document_tags ?| %s")
+            doc_params.append(tags)
+        if keywords:
+            doc_search_conditions.append("document_headings ?| %s")
+            doc_params.append(keywords)
+        if tags:
+            doc_search_conditions.append("document_headings ?| %s")
+            doc_params.append(tags)
+        
+        if doc_search_conditions:
+            doc_where_conditions.append("(" + " OR ".join(doc_search_conditions) + ")")
+
+        # Add predicate-based filtering (project_ids, document_type_ids)
+        if predicates:
+            for key, value in predicates.items():
+                logging.info(f"VectorStore.keyword_search_with_predicates - Processing predicate: {key} = {value} (type: {type(value)})")
+                if key == 'project_ids':
+                    # Handle multiple project IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        doc_where_conditions.append(f"project_id IN ({placeholders})")
+                        doc_params.extend(value)
+                        logging.info(f"VectorStore.keyword_search_with_predicates - Added project_ids IN condition with {len(value)} IDs")
+                    else:
+                        logging.info(f"VectorStore.keyword_search_with_predicates - Skipped empty project_ids: {value}")
+                elif key == 'document_type_ids':
+                    # Handle multiple document type IDs
+                    if value and len(value) > 0:
+                        placeholders = ','.join(['%s'] * len(value))
+                        doc_where_conditions.append(f"document_metadata->>'document_type_id' IN ({placeholders})")
+                        doc_params.extend(value)
+                        logging.info(f"VectorStore.keyword_search_with_predicates - Added document_type_ids IN condition with {len(value)} IDs")
+
+        doc_where_clause = " AND ".join(doc_where_conditions)
+        logging.info(f"VectorStore.keyword_search_with_predicates - Document search WHERE clause: {doc_where_clause}")
+        logging.info(f"VectorStore.keyword_search_with_predicates - Document search parameters: {doc_params}")
+        
+        documents_table = current_app.vector_settings.documents_table_name
+        doc_search_sql = f"""
+        SELECT document_id
+        FROM {documents_table}
+        WHERE {doc_where_clause}
+        ORDER BY document_id DESC
+        LIMIT %s
+        """
+        doc_params.append(limit)
+        
+        conn_params = current_app.vector_settings.database_url
+        with psycopg.connect(conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute(doc_search_sql, doc_params)
+                doc_id_results = cur.fetchall()
+                
+        document_ids = [row[0] for row in doc_id_results]
+        logging.info(f"VectorStore.keyword_search_with_predicates - Found {len(document_ids)} matching documents")
+
+        # Step 2: Return results based on target table
+        if table_name == "documents":
+            # Return document-level results
+            if not document_ids:
+                results = []
+            else:
+                placeholders = ','.join(['%s'] * len(document_ids))
+                fetch_sql = f"""
+                SELECT document_id, content, metadata, document_metadata
+                FROM {documents_table}
+                WHERE document_id IN ({placeholders})
+                ORDER BY document_id DESC
+                """
+                with psycopg.connect(conn_params) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(fetch_sql, document_ids)
+                        results = cur.fetchall()
+            
+            elapsed_time = time.time() - start_time
+            self._log_search_time("Keyword (with predicates)", elapsed_time)
+            logging.info(f"VectorStore.keyword_search_with_predicates - Returning {len(results)} document results")
+            
+            if return_dataframe:
+                columns = ["id", "content", "metadata", "document_metadata"]
+                df = pd.DataFrame(results, columns=columns)
+                if not df.empty:
+                    df["id"] = df["id"].astype(str)
+                return df
+            else:
+                return results
+        else:
+            # Return chunk-level results from document_chunks table
+            if not document_ids:
+                results = []
+            else:
+                chunks_table = current_app.vector_settings.vector_table_name
+                placeholders = ','.join(['%s'] * len(document_ids))
+                chunk_where_conditions = [f"document_id IN ({placeholders})"]
+                chunk_params = document_ids.copy()
+                
+                # Add chunk-level keyword/tag filtering
+                chunk_search_conditions = []
+                if keywords:
+                    chunk_search_conditions.append("(metadata->'keywords') ?| %s")
+                    chunk_params.append(keywords)
+                if tags:
+                    chunk_search_conditions.append("(metadata->'tags') ?| %s")
+                    chunk_params.append(tags)
+                if keywords:
+                    chunk_search_conditions.append("(metadata->'headings') ?| %s")
+                    chunk_params.append(keywords)
+                if tags:
+                    chunk_search_conditions.append("(metadata->'headings') ?| %s")
+                    chunk_params.append(tags)
+                
+                if chunk_search_conditions:
+                    chunk_where_conditions.append("(" + " OR ".join(chunk_search_conditions) + ")")
+                
+                chunk_where_clause = " AND ".join(chunk_where_conditions)
+                chunk_sql = f"""
+                SELECT id, content, metadata
+                FROM {chunks_table}
+                WHERE {chunk_where_clause}
+                ORDER BY id DESC
+                LIMIT %s
+                """
+                chunk_params.append(limit)
+                
+                logging.info(f"VectorStore.keyword_search_with_predicates - Chunk search WHERE clause: {chunk_where_clause}")
+                logging.info(f"VectorStore.keyword_search_with_predicates - Chunk search parameters: {chunk_params}")
+                
+                with psycopg.connect(conn_params) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(chunk_sql, chunk_params)
+                        results = cur.fetchall()
+            
+            elapsed_time = time.time() - start_time
+            self._log_search_time("Keyword (with predicates)", elapsed_time)
+            logging.info(f"VectorStore.keyword_search_with_predicates - Returning {len(results)} chunk results")
+            
+            if return_dataframe:
+                columns = ["id", "content", "metadata"]
+                df = pd.DataFrame(results, columns=columns)
+                if not df.empty:
+                    df["id"] = df["id"].astype(str)
+                return df
+            else:
+                return results
+
     def document_level_search(
         self,
         query: str,
@@ -443,29 +641,41 @@ class VectorStore:
         
         # Handle predicates for additional filtering
         if predicates:
+            logging.info(f"VectorStore.document_level_search - Processing predicates: {predicates}")
             for key, value in predicates.items():
+                logging.info(f"VectorStore.document_level_search - Processing predicate: {key} = {value} (type: {type(value)})")
                 if key == 'project_id':
                     where_conditions.append("project_id = %s")
                     params.append(value)
+                    logging.info(f"VectorStore.document_level_search - Added single project_id condition, params now: {params}")
                 elif key == 'project_ids':
                     # Handle multiple project IDs
                     if value and len(value) > 0:
                         placeholders = ','.join(['%s'] * len(value))
                         where_conditions.append(f"project_id IN ({placeholders})")
                         params.extend(value)
+                        logging.info(f"VectorStore.document_level_search - Added project_ids IN condition with {len(value)} IDs")
+                        logging.info(f"VectorStore.document_level_search - Placeholders: {placeholders}")
+                        logging.info(f"VectorStore.document_level_search - Extended params with: {value}")
+                        logging.info(f"VectorStore.document_level_search - Params now: {params}")
+                    else:
+                        logging.info(f"VectorStore.document_level_search - Skipped empty project_ids: {value}")
                 elif key == 'document_type_ids':
                     # Handle multiple document type IDs
                     if value and len(value) > 0:
                         placeholders = ','.join(['%s'] * len(value))
                         where_conditions.append(f"document_metadata->>'document_type_id' IN ({placeholders})")
                         params.extend(value)
+                        logging.info(f"VectorStore.document_level_search - Added document_type_ids IN condition with {len(value)} IDs")
                 # Add other predicate handling as needed
+        else:
+            logging.info("VectorStore.document_level_search - No predicates to process")
         
         # Build the final WHERE clause
         where_clause = " AND ".join(where_conditions)
         
-        logging.info(f"Document search WHERE clause: {where_clause}")
-        logging.info(f"Document search parameters: {params}")
+        logging.info(f"VectorStore.document_level_search - Final WHERE clause: {where_clause}")
+        logging.info(f"VectorStore.document_level_search - Final parameters: {params}")
         
         # Construct the SQL query for document-level search
         documents_table = current_app.vector_settings.documents_table_name
@@ -480,12 +690,17 @@ class VectorStore:
         
         params.append(limit)
         
+        logging.info(f"VectorStore.document_level_search - Complete SQL query: {search_sql}")
+        logging.info(f"VectorStore.document_level_search - Complete parameters list: {params}")
+        
         # Execute the query using psycopg
         conn_params = current_app.vector_settings.database_url
         with psycopg.connect(conn_params) as conn:
             with conn.cursor() as cur:
                 cur.execute(search_sql, params)
                 results = cur.fetchall()
+        
+        logging.info(f"VectorStore.document_level_search - Query returned {len(results)} rows")
         
         elapsed_time = time.time() - start_time
         self._log_search_time("Document-level", elapsed_time)
