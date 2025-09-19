@@ -1,6 +1,6 @@
 import { Link, CircularProgress, Box } from "@mui/material";
 import { useState } from "react";
-import { AppConfig } from '@/utils/config';
+import { request } from '@/utils/axiosUtils';
 
 interface FileLinkProps {
   s3Key: string | null;
@@ -109,22 +109,21 @@ const FileLink = ({
       const encodedKey = encodeURIComponent(keyToUse);
       const encodedFileName = encodeURIComponent(fileName);
       
-      // Fetch the file
-      const response = await fetch(
-        `${AppConfig.apiUrl}/document/view?key=${encodedKey}&file_name=${encodedFileName}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': '*/*',
-          }
+      // Fetch the file using authenticated axios client
+      const response = await request({
+        url: `/document/view?key=${encodedKey}&file_name=${encodedFileName}`,
+        method: 'GET',
+        responseType: 'blob',
+        headers: {
+          'Accept': '*/*',
         }
-      );
+      });
 
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      if (!response?.data) {
+        throw new Error('No data received from server');
       }
 
-      const blob = await response.blob();
+      const blob = response.data;
       
       // Determine how to handle the file based on its type
       if (shouldOpenInBrowser(resolvedFileType)) {
