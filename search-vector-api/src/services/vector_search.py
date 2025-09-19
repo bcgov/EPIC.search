@@ -277,9 +277,11 @@ def search(question, project_ids=None, document_type_ids=None, min_relevance_sco
     
     # Route to appropriate search strategy
     import logging
-    logging.info(f"Executing search strategy: {search_strategy}")
-    logging.info(f"Search parameters: project_ids={project_ids}, document_type_ids={document_type_ids}")
-    logging.info(f"Search query: '{question}'")
+    logging.info(f"vector_search.search - Executing search strategy: {search_strategy}")
+    logging.info(f"vector_search.search - Search parameters: project_ids={project_ids} (type: {type(project_ids)}), document_type_ids={document_type_ids}")
+    if project_ids:
+        logging.info(f"vector_search.search - project_ids length: {len(project_ids)}, values: {project_ids}")
+    logging.info(f"vector_search.search - Search query: '{question}'")
     
     # Add query information to metrics for debugging
     metrics["search_query"] = question
@@ -355,6 +357,11 @@ def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None
             - DataFrame: Search results with id, content, search_type, and metadata columns
             - float: Time taken in milliseconds
     """
+    # Debug logging for project_ids parameter tracking
+    logging.info(f"perform_keyword_search - Called with project_ids: {project_ids} (type: {type(project_ids)})")
+    if project_ids:
+        logging.info(f"perform_keyword_search - project_ids length: {len(project_ids)}, values: {project_ids}")
+    
     # Use the appropriate keyword extraction method based on document configuration
     extraction_method = current_app.model_settings.document_keyword_extraction_method
     
@@ -366,26 +373,39 @@ def perform_keyword_search(vec_store, table_name, query, limit, project_ids=None
     # Extract just the keywords from the (keyword, score) tuples
     keywords_only = [keyword for keyword, score in weighted_keywords] if weighted_keywords else []
 
-    # Pass the extracted keywords to the vector store (without unsupported parameters)
     start_time = time.time()
     
-    keyword_results = vec_store.keyword_search(
-        table_name, query, limit=limit, return_dataframe=True, 
+    # Build predicates for project and document type filtering (same as semantic search)
+    predicates = {}
+    if project_ids:
+        predicates['project_ids'] = project_ids
+        logging.info(f"perform_keyword_search - Added project_ids to predicates: {predicates['project_ids']}")
+    if document_type_ids:
+        predicates['document_type_ids'] = document_type_ids
+        logging.info(f"perform_keyword_search - Added document_type_ids to predicates: {predicates['document_type_ids']}")
+    
+    logging.info(f"perform_keyword_search - Final predicates dict: {predicates}")
+    
+    # Use the enhanced keyword search method that supports predicates
+    keyword_results = vec_store.keyword_search_with_predicates(
+        table_name, query, limit=limit, predicates=predicates, return_dataframe=True, 
         weighted_keywords=keywords_only
     )
     
-    # Apply project and document type filtering after the search if needed
-    if not keyword_results.empty and (project_ids or document_type_ids):
-        keyword_results = apply_post_search_filtering(keyword_results, project_ids, document_type_ids)
-    
-    keyword_results["search_type"] = "keyword"
-    
-    # Ensure we have the expected columns
-    expected_columns = ["id", "content", "search_type", "metadata"]
-    available_columns = [col for col in expected_columns if col in keyword_results.columns]
-    keyword_results = keyword_results[available_columns]
+    if not keyword_results.empty:
+        keyword_results["search_type"] = "keyword"
+        
+        # Ensure we have the expected columns - handle both old and new result formats
+        if "metadata" not in keyword_results.columns:
+            # Add empty metadata column for compatibility
+            keyword_results["metadata"] = [{}] * len(keyword_results)
+        
+        expected_columns = ["id", "content", "search_type", "metadata"]
+        available_columns = [col for col in expected_columns if col in keyword_results.columns]
+        keyword_results = keyword_results[available_columns]
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
+    logging.info(f"perform_keyword_search - Returned {len(keyword_results) if not keyword_results.empty else 0} results")
     return keyword_results, elapsed_ms
 
 
@@ -616,12 +636,21 @@ def perform_document_level_search(vec_store, query, limit, project_ids=None, doc
     """
     start_time = time.time()
     
+    # Debug logging for project_ids parameter tracking
+    logging.info(f"perform_document_level_search - Called with project_ids: {project_ids} (type: {type(project_ids)})")
+    if project_ids:
+        logging.info(f"perform_document_level_search - project_ids length: {len(project_ids)}, values: {project_ids}")
+    
     # Build predicates for project and document type filtering
     predicates = {}
     if project_ids:
         predicates['project_ids'] = project_ids  # Pass as a special key
+        logging.info(f"perform_document_level_search - Added project_ids to predicates: {predicates['project_ids']}")
     if document_type_ids:
         predicates['document_type_ids'] = document_type_ids  # Pass as a special key
+        logging.info(f"perform_document_level_search - Added document_type_ids to predicates: {predicates['document_type_ids']}")
+    
+    logging.info(f"perform_document_level_search - Final predicates dict: {predicates}")
     
     # Perform document-level search
     document_results = vec_store.document_level_search(
@@ -629,6 +658,7 @@ def perform_document_level_search(vec_store, query, limit, project_ids=None, doc
     )
     
     elapsed_ms = round((time.time() - start_time) * 1000, 2)
+    logging.info(f"perform_document_level_search - Returned {len(document_results) if not document_results.empty else 0} documents")
     return document_results, elapsed_ms
 
 
