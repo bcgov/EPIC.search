@@ -96,6 +96,14 @@ http {
       # Add Content-Type header if not present
       proxy_set_header Content-Type application/json;
       
+      # Configure timeouts for longer-running requests
+      proxy_connect_timeout       60s;
+      proxy_send_timeout          60s;
+      proxy_read_timeout          300s;  # 5 minutes for search operations
+      proxy_buffer_size           4k;
+      proxy_buffers               8 4k;
+      proxy_busy_buffers_size     8k;
+      
       # Add error handling
       proxy_intercept_errors on;
       error_page 502 503 504 = @fallback;
@@ -114,7 +122,7 @@ http {
 
     # Fallback location for when the API is not available
     location @fallback {
-      return 502 '{"error": "API server is not available"}';
+      return 502 '{"error": "API server is not available or request timed out", "message": "The backend API may be experiencing high load or connectivity issues. Please try again."}';
       add_header Content-Type application/json;
     }
 

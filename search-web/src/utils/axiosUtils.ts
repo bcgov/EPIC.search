@@ -6,7 +6,13 @@ import { User } from "oidc-client-ts"
 export type OnErrorType = (error: AxiosError) => void;
 export type OnSuccessType = (data: any) => void;
 
-const client = axios.create({ baseURL: AppConfig.apiUrl });
+const client = axios.create({ 
+  baseURL: AppConfig.apiUrl,
+  timeout: 330000, // 5.5 minutes - slightly longer than nginx proxy_read_timeout
+  headers: {
+    'Content-Type': 'application/json',
+  }
+});
 
 function getUser(): User | null {
   try {
