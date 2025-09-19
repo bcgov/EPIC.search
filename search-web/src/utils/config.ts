@@ -35,8 +35,10 @@ export const OidcConfig = {
   response_type: "code",
   scope: "openid profile email",
   revokeTokensOnSignout: true,
-  automaticSilentRenew: false,
+  automaticSilentRenew: true,
   loadUserInfo: false,
-  monitorSession: false,
-  checkSessionInterval: 0,
+  monitorSession: true,
+  checkSessionInterval: 30000, // Check every 30 seconds
+  silentRequestTimeoutInSeconds: 10,
+  accessTokenExpiringNotificationTimeInSeconds: 60, // Notify 1 minute before expiration
 };

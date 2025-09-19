@@ -20,10 +20,20 @@ import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
 export const Route = createFileRoute("/search")({
   component: Search,
   beforeLoad: ({ context }) => {
-    const { isAuthenticated, signinRedirect } = context.authentication;
-    if (!isAuthenticated) {
-      signinRedirect();
+    const { isAuthenticated, isLoading, signinRedirect } = context.authentication;
+    
+    // Wait for auth to load before making decision
+    if (isLoading) {
+      return {};
     }
+    
+    if (!isAuthenticated) {
+      console.log('User not authenticated, redirecting to login');
+      signinRedirect();
+      return {};
+    }
+    
+    return {};
   },
 });
 

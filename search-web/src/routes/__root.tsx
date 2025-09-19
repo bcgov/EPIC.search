@@ -1,5 +1,6 @@
 import EAOAppBar from "@/components/Shared/EAOAppBar";
 import PageNotFound from "@/components/Shared/PageNotFound";
+import AuthMonitor from "@/components/Auth/AuthMonitor";
 // import SideNavBar from "@/components/Shared/SideNavBar";
 import { Box } from "@mui/system";
 import { createRootRouteWithContext, Outlet } from "@tanstack/react-router";
@@ -18,6 +19,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function Layout() {
   return (
     <>
+      <AuthMonitor />
       <EAOAppBar />
       <Box
         display={"flex"}
