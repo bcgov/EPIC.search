@@ -2,13 +2,12 @@ using './main.bicep'
 
 // Basic Configuration
 param automationAccountName = 'auto-myproject'
-param location = 'East US'
+param location = 'Canada Central'
 
-// Additional custom tags (optional)
-// param customTags = {
-//   Owner: 'MyTeam'
-//   CostCenter: 'dev'
-// }
+// Organizational Tags (use shared values)
+param accountCoding = 'EPIC-001'
+param billingGroup = 'EPIC-Team'
+param ministryName = 'EPIC Services'
 
 // Automation Account SKU
 param sku = 'Basic'  // 'Free' or 'Basic'

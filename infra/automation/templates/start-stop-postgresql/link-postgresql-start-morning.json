@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-your-automation-account"
+    },
+    "runbookName": {
+      "value": "Start-PostgreSQL"
+    },
+    "scheduleName": {
+      "value": "MorningStart-Weekdays"
+    },
+    "runbookParameters": {
+      "value": {
+        "ResourceGroupName": "rg-your-postgresql-resourcegroup",
+        "PostgreSQLNames": "your-postgresql-server-name",
+        "SubscriptionId": "your-subscription-id"
+      }
+    }
+  }
+}

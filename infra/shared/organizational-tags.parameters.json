@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "accountCoding": {
+      "value": "your-account-coding-here"
+    },
+    "billingGroup": {
+      "value": "your-billing-group-code"
+    },
+    "ministryName": {
+      "value": "Your Ministry Name"
+    }
+  }
+}

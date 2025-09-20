@@ -1,49 +1,84 @@
 # Azure Automation Infrastructure
 
-This solution provides Infrastructure as Code templates for deploying an Azure Automation Account with extensible runbook support. The core infrastructure is minimal and secure, with optional runbooks and schedules available via templates.
+This solution provides Infrastructure as Code templates for deploying an Azure Automation Account with extensible runbook support for cross-subscription resource management. The solution includes automated start/stop capabilities for App Services and PostgreSQL Flexible Servers.
 
 ## 🎯 Features
 
-- **Azure Automation Account** with system-assigned managed identity
-- **Modular template architecture** for extensible runbook deployment
-- **IAM role assignments** for secure resource management
-- **Source-controlled runbooks** stored in Git
-- **Cross-resource group support** for resources in different RGs
-- **Built-in scheduling templates** for automation tasks
-- **Security-focused design** with least-privilege access
+- **Cross-subscription automation** - Automation account in tools subscription manages resources in dev/test/prod
+- **Custom RBAC roles** - Environment-specific custom roles with least-privilege access
+- **Modular template architecture** - Reusable templates for different service types
+- **Automated scheduling** - Built-in weekday start/stop schedules
+- **Parameterized deployments** - Environment-specific configurations
+- **Source-controlled runbooks** - All automation scripts stored in Git
+- **Security-focused design** - Managed identity with minimal required permissions
 
-## 📁 Architecture
+## 🏗️ Architecture
 
-### Core Components (Always Deployed)
-- **Azure Automation Account**: PowerShell 7.2 runtime with managed identity
-- **Role Assignments**: Secure access to specified resource groups
-- **Network Security Group**: Bastion host protection (if using bastion module)
+### Multi-Subscription Setup
 
-### Optional Components (Deploy via Templates)
-- **Runbooks**: PowerShell scripts for automation tasks
-- **Schedules**: Time-based triggers for runbook execution
-- **Job Schedules**: Links between runbooks and schedules
+```text
+Tools Subscription (c4b0a8-tools)
+├── Azure Automation Account (auto-epic-tools)
+├── Runbooks (Start/Stop scripts)
+└── Schedules (Morning start / Evening stop)
+
+Environment Subscriptions (dev/test/prod)
+├── Custom Roles (PostgreSQL Operator - {Environment})
+├── Role Assignments (Tools → Environment resources)
+├── App Services
+└── PostgreSQL Flexible Servers
+```
+
+### Core Components
+
+- **Azure Automation Account**: PowerShell 7.2 runtime with system-assigned managed identity
+- **Custom Roles**: Environment-specific roles with start/stop permissions
+- **Role Assignments**: Cross-subscription permissions for automation account
+- **Runbooks**: PowerShell scripts for service management
+- **Schedules**: Automated timing for start/stop operations
 
 ## 📁 File Structure
 
 ```text
 automation/
-├── main.bicep                    # Core infrastructure orchestration
-├── main.bicepparam              # Core deployment parameters
-├── deploy-subscription.bicep    # Subscription-level deployment (creates RG)
-├── deploy-subscription.bicepparam # Parameters for subscription deployment
-├── modules/                     # Reusable Bicep modules
-│   ├── automation-account.bicep # Automation account with managed identity
-│   ├── iam-assignment.bicep     # Role-based access control
-│   └── runbook.bicep           # Individual runbook deployment
-├── templates/                   # Optional deployments and extensions
-│   ├── runbook-template.bicep   # Template for deploying new runbooks
-│   ├── schedule-template.bicep  # Template for creating schedules
-│   ├── job-schedule-template.bicep # Template for linking runbooks to schedules
-│   └── start-stop-appservices/  # App Services automation example
-│       ├── deploy-appservice-runbooks.bicep # Deploy start/stop runbooks
-│       ├── Start-AppServices.ps1 # PowerShell script to start App Services
-│       └── Stop-AppServices.ps1 # PowerShell script to stop App Services
+├── main.bicep                          # Core infrastructure orchestration
+├── main.bicepparam                     # Core deployment parameters
+├── deploy-subscription.bicep           # Subscription-level deployment
+├── deploy-subscription.bicepparam      # Subscription deployment parameters
+├── shared/
+│   ├── tags.bicep                      # Centralized tagging function
+│   └── organizational-tags.parameters.json # Organization tag values
+├── modules/
+│   ├── automation-account.bicep        # Automation account with managed identity
+│   ├── iam-assignment.bicep           # Role-based access control
+│   ├── runbook.bicep                  # Individual runbook deployment
+│   └── postgresql-custom-role.bicep    # PostgreSQL custom role definition
+├── templates/
+│   ├── runbook-template.bicep          # Template for deploying runbooks
+│   ├── schedule-template.bicep         # Template for creating schedules
+│   ├── job-schedule-template.bicep     # Template for linking runbooks to schedules
+│   ├── start-stop-appservices/         # App Services automation
+│   │   ├── deploy-appservice-runbooks.bicep
+│   │   ├── publish-runbooks.ps1
+│   │   ├── Assign-AppServiceRoles.ps1
+│   │   ├── Start-AppServices.ps1
+│   │   ├── Stop-AppServices.ps1
+│   │   ├── link-start-morning.json
+│   │   └── link-stop-evening.json
+│   └── start-stop-postgresql/          # PostgreSQL automation
+│       ├── deploy-postgresql-customrole.bicep
+│       ├── deploy-postgresql-customrole.bicepparam
+│       ├── deploy-postgresql-runbooks.bicep
+│       ├── publish-runbooks.ps1
+│       ├── Assign-PostgreSQLRoles.ps1
+│       ├── Start-PostgreSQL.ps1
+│       ├── Stop-PostgreSQL.ps1
+│       ├── link-postgresql-start-morning.json
+│       └── link-postgresql-stop-evening.json
+├── morning-start-schedule.json         # Weekday morning schedule definition
+├── evening-stop-schedule.json          # Weekday evening schedule definition
+└── docs/                              # Additional documentation
+```text
 ├── bastion/                     # Network security components
 │   └── nsg.bicep               # Network Security Group for Bastion
 ├── docs/                       # Documentation
@@ -52,63 +87,207 @@ automation/
 └── README.md                   # This file
 ```
 
-## 🚀 Quick Start
+## 🚀 Complete Setup Guide
 
-### 1. Deploy Core Infrastructure
+### Prerequisites
 
-The core infrastructure includes only the Azure Automation Account, managed identity, and IAM permissions. Runbooks are deployed separately via templates.
+1. **Azure CLI** installed and logged in
+2. **Bicep CLI** (latest version recommended)
+3. **PowerShell 7+** for running scripts
+4. **Appropriate Azure permissions**:
+   - Subscription Owner or Contributor + User Access Administrator
+   - Ability to create custom roles and role assignments
+
+### Step 1: Configure Organizational Tags
+
+Edit the organizational tag values for your environment:
 
 ```bash
-# Deploy to subscription (creates resource group + automation account)
+# Edit shared/organizational-tags.parameters.json
+{
+  "parameters": {
+    "accountCoding": {
+      "value": "your-account-coding-here"     # Replace with your account coding
+    },
+    "billingGroup": {
+      "value": "your-billing-group-code"     # Replace with your billing group
+    },
+    "ministryName": {
+      "value": "Your Ministry Name"          # Replace with your ministry/org name
+    }
+  }
+}
+```
+
+### Step 2: Deploy Core Infrastructure (Tools Subscription)
+
+Deploy the automation account in your tools/shared services subscription:
+
+```bash
+# Switch to tools subscription
+az account set --subscription "your-tools-subscription"
+
+# Option A: Deploy with new resource group
 az deployment sub create \
-  --location "East US" \
+  --location "Canada Central" \
   --template-file deploy-subscription.bicep \
   --parameters @deploy-subscription.bicepparam
 
-# OR deploy to existing resource group
+# Option B: Deploy to existing resource group
 az deployment group create \
-  --resource-group "rg-automation-dev" \
+  --resource-group "rg-tools-automation" \
   --template-file main.bicep \
   --parameters @main.bicepparam
 ```
 
-### 2. Add Runbooks (Optional)
-
-Use templates to add specific runbooks and automation tasks:
+### Step 3: Deploy and Publish App Services Automation
 
 ```bash
-# Deploy App Service Start/Stop runbooks
+# 1. Deploy App Services runbooks
+cd templates/start-stop-appservices
 az deployment group create \
-  --resource-group "rg-automation-dev" \
-  --template-file templates/start-stop-appservices/deploy-appservice-runbooks.bicep \
-  --parameters automationAccountName="auto-myproject-dev"
+  --resource-group "rg-tools-automation" \
+  --template-file deploy-appservice-runbooks.bicep \
+  --parameters automationAccountName="auto-your-automation-account"
 
-# Add your own runbooks using the template
+# 2. Publish runbook content
+.\publish-runbooks.ps1 -AutomationAccountName "auto-your-automation-account" -ResourceGroupName "rg-tools-automation"
+
+# 3. Assign Website Contributor role to App Services (run for each environment)
+az account set --subscription "your-target-subscription"
+.\Assign-AppServiceRoles.ps1 -PrincipalId "your-automation-principal-id" -ResourceGroupName "rg-your-appservices" -SubscriptionName "your-target-subscription"
+
+# 4. Link to schedules (back in tools subscription)
+az account set --subscription "your-tools-subscription"
+cd ../../  # Back to automation root
 az deployment group create \
-  --resource-group "rg-automation-dev" \
-  --template-file templates/runbook-template.bicep \
-  --parameters automationAccountName="auto-myproject-dev" runbookName="MyCustomRunbook"
+  --resource-group "rg-tools-automation" \
+  --template-file templates/job-schedule-template.bicep \
+  --parameters @templates/start-stop-appservices/link-start-morning.json
+
+az deployment group create \
+  --resource-group "rg-tools-automation" \
+  --template-file templates/job-schedule-template.bicep \
+  --parameters @templates/start-stop-appservices/link-stop-evening.json
 ```
 
-### 3. Add Schedules (Optional)
-
-Create automated schedules for your runbooks:
+### Step 4: Deploy and Publish PostgreSQL Automation
 
 ```bash
-# Create business hours schedule (8 AM - 5 PM PST)
-az deployment group create \
-  --resource-group "rg-automation-dev" \
-  --template-file templates/schedule-template.bicep \
-  --parameters automationAccountName="auto-myproject-dev" \
-    scheduleName="BusinessHours-Start" \
-    startTime="2024-01-01T16:00:00Z" \
-    frequency="Daily" \
-    interval=1
+# 1. Deploy PostgreSQL custom role (in each target subscription)
+cd templates/start-stop-postgresql
+az account set --subscription "your-target-subscription"
 
-# Link runbook to schedule
+# Edit deploy-postgresql-customrole.bicepparam with environment suffix (Dev/Test/Prod)
+az deployment sub create \
+  --location "Canada Central" \
+  --template-file deploy-postgresql-customrole.bicep \
+  --parameters @deploy-postgresql-customrole.bicepparam
+
+# 2. Deploy PostgreSQL runbooks (in tools subscription)
+az account set --subscription "your-tools-subscription"
 az deployment group create \
-  --resource-group "rg-automation-dev" \
+  --resource-group "rg-tools-automation" \
+  --template-file deploy-postgresql-runbooks.bicep \
+  --parameters automationAccountName="auto-your-automation-account"
+
+# 3. Publish runbook content
+.\publish-runbooks.ps1 -AutomationAccountName "auto-your-automation-account" -ResourceGroupName "rg-tools-automation"
+
+# 4. Assign PostgreSQL custom role (run for each environment)
+az account set --subscription "your-target-subscription"
+.\Assign-PostgreSQLRoles.ps1 -PrincipalId "your-automation-principal-id" -ResourceGroupName "rg-your-postgresql" -SubscriptionName "your-target-subscription" -EnvironmentSuffix "Dev"
+
+# 5. Link to schedules (back in tools subscription)
+az account set --subscription "your-tools-subscription"
+cd ../../  # Back to automation root
+az deployment group create \
+  --resource-group "rg-tools-automation" \
   --template-file templates/job-schedule-template.bicep \
+  --parameters @templates/start-stop-postgresql/link-postgresql-start-morning.json
+
+az deployment group create \
+  --resource-group "rg-tools-automation" \
+  --template-file templates/job-schedule-template.bicep \
+  --parameters @templates/start-stop-postgresql/link-postgresql-stop-evening.json
+```
+
+### Step 5: Configure Schedule Link Files
+
+Before deploying schedule links, customize the JSON files with your environment values:
+
+```bash
+# Edit templates/start-stop-appservices/link-start-morning.json
+{
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-your-automation-account"  # Your automation account name
+    },
+    "runbookParameters": {
+      "value": {
+        "ResourceGroupName": "rg-your-appservices",     # Your App Services RG
+        "AppServiceNames": "app1,app2,app3",            # Your App Service names
+        "SubscriptionId": "your-subscription-id"        # Target subscription ID
+      }
+    }
+  }
+}
+
+# Edit templates/start-stop-postgresql/link-postgresql-start-morning.json
+{
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-your-automation-account"  # Your automation account name
+    },
+    "runbookParameters": {
+      "value": {
+        "ResourceGroupName": "rg-your-postgresql",      # Your PostgreSQL RG
+        "PostgreSQLNames": "your-postgresql-server",    # Your PostgreSQL server name
+        "SubscriptionId": "your-subscription-id"        # Target subscription ID
+      }
+    }
+  }
+}
+```
+
+## 🔑 Key Information to Gather
+
+Before starting the deployment, collect this information:
+
+### Subscription Information
+
+- **Tools Subscription ID**: Where automation account will be deployed
+- **Target Subscription IDs**: Where your App Services/PostgreSQL servers are located
+- **Subscription Names**: For authentication and role assignment scripts
+
+### Resource Information
+
+- **Automation Account Name**: e.g., `auto-your-organization-tools`
+- **Resource Group Names**: Where your services are located
+- **App Service Names**: Comma-separated list of App Services to manage
+- **PostgreSQL Server Names**: Names of PostgreSQL Flexible Servers to manage
+
+### Automation Account Identity
+
+- **Principal ID**: Get this after automation account deployment:
+
+```bash
+ az automation account show --name "auto-your-automation-account" --resource-group "rg-tools-automation" --query "identity.principalId" --output tsv
+```
+
+## 🔐 Authentication Setup
+
+The role assignment scripts require Microsoft Graph permissions. If you encounter authentication errors:
+
+```bash
+# Fix authentication issues
+az logout
+az login --scope https://graph.microsoft.com//.default
+az account set --subscription "your-target-subscription"
+# Re-run the role assignment script
+```
+
+```text
   --parameters automationAccountName="auto-myproject-dev" \
     runbookName="Start-AppServices" \
     scheduleName="BusinessHours-Start"
@@ -119,6 +298,7 @@ az deployment group create \
 After deployment, install required PowerShell modules in the automation account:
 
 **Via Azure Portal (Recommended):**
+
 1. Go to Azure Portal → Automation Account → Modules → Browse Gallery  
 2. Search for and install: `Az.Accounts` (install first), then `Az.Websites`
 3. Wait for each module to install completely before installing the next
@@ -177,6 +357,7 @@ Use the provided script to assign Website Contributor role to tagged App Service
 ```
 
 **Note**: If you encounter Microsoft Graph authentication errors, run:
+
 ```powershell
 az logout
 az login --scope https://graph.microsoft.com//.default
@@ -301,16 +482,19 @@ Each template in the `templates/` directory has its own parameters. See the indi
 ## 🚀 Example Use Cases
 
 ### Business Hours Automation
+
 - Start App Services at 8 AM PST (4 PM UTC)
 - Stop App Services at 5 PM PST (1 AM UTC next day)
 - Weekend shutdown Friday 5 PM to Monday 8 AM
 
 ### Cost Optimization
+
 - Automated scaling down of non-production environments
 - Scheduled shutdown of development resources
 - Smart resource management during off-hours
 
 ### Operational Tasks
+
 - Automated backup triggers
 - Health check runbooks
 - Maintenance window automation

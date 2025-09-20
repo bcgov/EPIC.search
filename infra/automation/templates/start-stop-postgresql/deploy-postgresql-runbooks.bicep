@@ -16,10 +16,10 @@ param ministryName string = 'Citizens Services'
 @description('Additional custom tags to merge with standard tags')
 param customTags object = {}
 
-@description('Deploy Start-AppServices runbook')
+@description('Deploy Start-PostgreSQL runbook')
 param deployStartRunbook bool = true
 
-@description('Deploy Stop-AppServices runbook')
+@description('Deploy Stop-PostgreSQL runbook')
 param deployStopRunbook bool = true
 
 // Import the shared tags function
@@ -28,7 +28,7 @@ import { generateTags } from '../../../shared/tags.bicep'
 // Generate tags using the shared function
 var tags = generateTags(accountCoding, billingGroup, ministryName, union(customTags, {
   Component: 'Runbooks'
-  Purpose: 'AppService-StartStop'
+  Purpose: 'PostgreSQL-StartStop'
 }))
 
 // Reference existing automation account
@@ -36,14 +36,14 @@ resource automationAccount 'Microsoft.Automation/automationAccounts@2024-10-23' 
   name: automationAccountName
 }
 
-// Deploy Start-AppServices runbook
-resource startAppServicesRunbook 'Microsoft.Automation/automationAccounts/runbooks@2024-10-23' = if (deployStartRunbook) {
+// Deploy Start-PostgreSQL runbook
+resource startPostgreSQLRunbook 'Microsoft.Automation/automationAccounts/runbooks@2024-10-23' = if (deployStartRunbook) {
   parent: automationAccount
-  name: 'Start-AppServices'
+  name: 'Start-PostgreSQL'
   location: location
   tags: tags
   properties: {
-    description: 'PowerShell runbook to start Azure App Services'
+    description: 'PowerShell runbook to start Azure PostgreSQL servers'
     runbookType: 'PowerShell72'
     logVerbose: false
     logProgress: false
@@ -51,14 +51,14 @@ resource startAppServicesRunbook 'Microsoft.Automation/automationAccounts/runboo
   }
 }
 
-// Deploy Stop-AppServices runbook
-resource stopAppServicesRunbook 'Microsoft.Automation/automationAccounts/runbooks@2024-10-23' = if (deployStopRunbook) {
+// Deploy Stop-PostgreSQL runbook
+resource stopPostgreSQLRunbook 'Microsoft.Automation/automationAccounts/runbooks@2024-10-23' = if (deployStopRunbook) {
   parent: automationAccount
-  name: 'Stop-AppServices'
+  name: 'Stop-PostgreSQL'
   location: location
   tags: tags
   properties: {
-    description: 'PowerShell runbook to stop Azure App Services'
+    description: 'PowerShell runbook to stop Azure PostgreSQL servers'
     runbookType: 'PowerShell72'
     logVerbose: false
     logProgress: false
@@ -67,7 +67,7 @@ resource stopAppServicesRunbook 'Microsoft.Automation/automationAccounts/runbook
 }
 
 // Outputs
-output startRunbookId string = deployStartRunbook ? startAppServicesRunbook.id : ''
-output stopRunbookId string = deployStopRunbook ? stopAppServicesRunbook.id : ''
-output startRunbookName string = deployStartRunbook ? startAppServicesRunbook.name : ''
-output stopRunbookName string = deployStopRunbook ? stopAppServicesRunbook.name : ''
+output startRunbookId string = deployStartRunbook ? startPostgreSQLRunbook.id : ''
+output stopRunbookId string = deployStopRunbook ? stopPostgreSQLRunbook.id : ''
+output startRunbookName string = deployStartRunbook ? startPostgreSQLRunbook.name : ''
+output stopRunbookName string = deployStopRunbook ? stopPostgreSQLRunbook.name : ''

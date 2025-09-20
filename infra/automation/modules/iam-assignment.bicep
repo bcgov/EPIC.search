@@ -8,11 +8,14 @@ param automationAccountPrincipalId string
 ])
 param roleDefinitionId string = 'de139f84-1756-47ae-9be6-808fbbe84772' // Website Contributor
 
-// Create role assignment for the automation account to manage App Services in this resource group
+@description('Custom role definition ID (if using custom role instead of built-in role)')
+param customRoleDefinitionId string = ''
+
+// Create role assignment for the automation account to manage resources in this resource group
 resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(resourceGroup().id, automationAccountPrincipalId, roleDefinitionId)
+  name: guid(resourceGroup().id, automationAccountPrincipalId, !empty(customRoleDefinitionId) ? customRoleDefinitionId : roleDefinitionId)
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionId)
+    roleDefinitionId: !empty(customRoleDefinitionId) ? customRoleDefinitionId : subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleDefinitionId)
     principalId: automationAccountPrincipalId
     principalType: 'ServicePrincipal'
   }
@@ -20,5 +23,5 @@ resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 // Outputs
 output roleAssignmentId string = roleAssignment.id
-output roleDefinitionId string = roleDefinitionId
+output roleDefinitionId string = !empty(customRoleDefinitionId) ? customRoleDefinitionId : roleDefinitionId
 output targetScope string = resourceGroup().id
