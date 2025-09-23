@@ -129,6 +129,7 @@ The application uses strongly-typed configuration classes for different aspects 
 
    * `keyword_fetch_count`: Number of results to fetch in keyword search
    * `semantic_fetch_count`: Number of results to fetch in semantic search
+   * `max_chunks_per_document`: Maximum number of chunks to return per document to prevent semantic bias
    * `top_record_count`: Number of top records to return after re-ranking
    * `reranker_batch_size`: Batch size for processing document re-ranking
    * `min_relevance_score`: Minimum relevance score for re-ranked results (default: -10.0)
@@ -1048,6 +1049,7 @@ The configuration variables are organized into logical groups:
 |-----------|-------------|---------|
 | KEYWORD_FETCH_COUNT | Number of results to fetch in keyword search | 100 |
 | SEMANTIC_FETCH_COUNT | Number of results to fetch in semantic search | 100 |
+| MAX_CHUNKS_PER_DOCUMENT | Maximum number of chunks to return per document to prevent semantic bias | 10 |
 | TOP_RECORD_COUNT | Number of top records to return after re-ranking | 10 |
 | RERANKER_BATCH_SIZE | Batch size for the cross-encoder re-ranker | 8 |
 | MIN_RELEVANCE_SCORE | Minimum relevance score for re-ranked results | 0.0 |

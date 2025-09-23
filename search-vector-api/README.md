@@ -79,6 +79,7 @@ The application uses typed configuration classes for different aspects of the sy
 
 * `KEYWORD_FETCH_COUNT`: Number of results to fetch in keyword search (default: 100)
 * `SEMANTIC_FETCH_COUNT`: Number of results to fetch in semantic search (default: 100)
+* `MAX_CHUNKS_PER_DOCUMENT`: Maximum number of chunks to return per document to prevent semantic bias (default: 10)
 * `TOP_RECORD_COUNT`: Number of top records to return after re-ranking (default: 10)
 * `RERANKER_BATCH_SIZE`: Batch size for the cross-encoder re-ranker (default: 8)
 * `MIN_RELEVANCE_SCORE`: Minimum relevance score for re-ranked results (default: -8.0)

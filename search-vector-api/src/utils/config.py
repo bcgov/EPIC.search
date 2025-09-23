@@ -142,6 +142,15 @@ class SearchSettings:
         return self._config.get("SEMANTIC_FETCH_COUNT")
     
     @property
+    def max_chunks_per_document(self) -> int:
+        """Get the maximum number of chunks to return per document.
+        
+        Returns:
+            int: The maximum number of chunks allowed per document in search results
+        """
+        return self._config.get("MAX_CHUNKS_PER_DOCUMENT")
+    
+    @property
     def top_record_count(self) -> int:
         """Get the number of top records to return after re-ranking.
         
@@ -315,6 +324,7 @@ class _Config:  # pylint: disable=too-few-public-methods
     VECTOR_TABLE = os.getenv("VECTOR_TABLE", "document_chunks")
     KEYWORD_FETCH_COUNT = int(os.getenv("KEYWORD_FETCH_COUNT", "100"))
     SEMANTIC_FETCH_COUNT = int(os.getenv("SEMANTIC_FETCH_COUNT", "100"))
+    MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("MAX_CHUNKS_PER_DOCUMENT", "10"))
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))
     RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "8"))
     USE_DEFAULT_INFERENCE = os.getenv("USE_DEFAULT_INFERENCE", "true")

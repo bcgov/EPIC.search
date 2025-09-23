@@ -440,6 +440,45 @@ def perform_semantic_search(vec_store, table_name, query, limit):
     return semantic_results, elapsed_ms
 
 
+def limit_chunks_per_document(results, max_chunks_per_doc):
+    """Limit the number of chunks returned per document to prevent semantic bias.
+    
+    This function prevents a single document from dominating search results
+    by limiting how many chunks can be returned from each document.
+    
+    Args:
+        results (DataFrame): Combined search results containing document chunks
+        max_chunks_per_doc (int): Maximum number of chunks allowed per document
+        
+    Returns:
+        DataFrame: Filtered results with chunk limits applied per document
+    """
+    if results.empty or max_chunks_per_doc <= 0:
+        return results
+    
+    # Track chunks per document
+    document_counts = {}
+    filtered_indices = []
+    
+    for idx, row in results.iterrows():
+        # Extract document_id from metadata
+        metadata = row.get('metadata', {})
+        doc_id = metadata.get('document_id')
+        
+        if doc_id is None:
+            # If no document_id, include the chunk
+            filtered_indices.append(idx)
+        else:
+            # Check if we've reached the limit for this document
+            current_count = document_counts.get(doc_id, 0)
+            if current_count < max_chunks_per_doc:
+                filtered_indices.append(idx)
+                document_counts[doc_id] = current_count + 1
+    
+    # Return filtered results maintaining original order
+    return results.iloc[filtered_indices].reset_index(drop=True)
+
+
 def perform_reranking(query, combined_results, top_n, min_relevance_score=None):
     """Re-rank the results using the cross-encoder re-ranker model.
     
@@ -475,6 +514,10 @@ def perform_reranking(query, combined_results, top_n, min_relevance_score=None):
             "score_range_included": None
         }
         return combined_results, elapsed_ms, empty_metrics
+    
+    # Apply document chunk limit to prevent semantic bias
+    max_chunks_per_doc = current_app.search_settings.max_chunks_per_document
+    combined_results = limit_chunks_per_document(combined_results, max_chunks_per_doc)
     
     # Re-rank the results using the batch size from config and get metrics
     batch_size = current_app.search_settings.reranker_batch_size
