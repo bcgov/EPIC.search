@@ -258,6 +258,127 @@ graph LR
 - **Deployment**: Azure App Service environment variables
 - **Runtime**: `env.sh` script generates `config.js` from environment variables
 
+## Location-Aware Search
+
+The application includes location detection and forwarding capabilities to enable location-aware search functionality.
+
+### Overview
+
+Users can:
+- Enable/disable location detection through the UI
+- View their current location (city, region, country)
+- Perform location-enhanced searches automatically
+- Control location privacy settings with full transparency
+
+### Architecture
+
+#### Components
+
+1. **LocationContext** (`src/contexts/LocationContext.tsx`)
+   - React Context provider for global location state management
+   - Handles geolocation detection, caching, and permission management
+   - Provides hooks for components to access location functionality
+
+2. **LocationControl** (`src/components/Location/LocationControl.tsx`)
+   - UI component for location interaction
+   - Available in compact mode (app bar) and full mode (search page)
+   - Handles user permissions, settings, and manual controls
+
+3. **Axios Integration** (`src/utils/axiosUtils.ts`)
+   - Automatically includes location data in search request bodies
+   - Validates location data freshness (24-hour expiry)
+   - CORS-safe implementation using request body instead of headers
+
+#### Location Data Format
+
+Location data is stored in localStorage and included in search requests:
+
+```json
+{
+  "latitude": 49.2827,
+  "longitude": -123.1207,
+  "city": "Vancouver",
+  "region": "British Columbia", 
+  "country": "Canada",
+  "timestamp": "2025-09-22T10:30:00.000Z"
+}
+```
+
+#### Search Request Integration
+
+Location data is automatically added to search request bodies:
+
+```json
+{
+  "query": "search term",
+  "searchStrategy": "HYBRID_SEMANTIC_FALLBACK",
+  "projectIds": ["project1"],
+  "userLocation": {
+    "latitude": 49.2827,
+    "longitude": -123.1207,
+    "city": "Vancouver",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1703123456789
+  }
+}
+```
+
+### Privacy & Security
+
+#### User Consent
+- Location sharing is **opt-in only**
+- Users can easily disable location sharing
+- Clear visual indicators show location status
+- No location data is sent without explicit user consent
+
+#### Data Handling
+- Location data is only cached locally (localStorage)
+- No server-side storage of location data
+- 24-hour automatic cache expiry
+- User can manually clear location data anytime
+
+#### Browser Security
+- Requires HTTPS for geolocation API
+- Handles permission denied gracefully
+- Respects browser geolocation settings
+- Falls back gracefully when location is unavailable
+
+### Backend Integration
+
+The backend can access location data from the `userLocation` property in search request bodies:
+
+```javascript
+// Example backend handling
+const searchRequest = req.body;
+if (searchRequest.userLocation) {
+  const { latitude, longitude, city, region, country, timestamp } = searchRequest.userLocation;
+  
+  // Check data freshness (24 hours)
+  const locationAge = Date.now() - timestamp;
+  const maxAge = 24 * 60 * 60 * 1000;
+  
+  if (locationAge < maxAge) {
+    // Use location data for search enhancement:
+    // - Boost results near user location
+    // - Filter by proximity
+    // - Enhance "near me" queries
+  }
+}
+```
+
+### Configuration
+
+#### Storage Keys
+- `epic_search_user_location`: Cached location data
+- `epic_search_location_enabled`: User preference for location sharing
+- `epic_search_location_permission`: Permission state cache
+
+#### CORS Considerations
+- Uses request body instead of custom headers to avoid CORS preflight
+- No additional backend CORS configuration required
+- Reverse geocoding may be blocked by corporate firewalls (gracefully handled)
+
 ## Troubleshooting
 
 Common issues and solutions:
@@ -284,7 +405,24 @@ Common issues and solutions:
 - Check document permissions and access controls
 - Validate PDF viewer compatibility
 
-### 5. Deployment Issues
+### 5. Location Feature Issues
+
+**Location not detected:**
+- Check browser location permissions
+- Ensure HTTPS is used (required for geolocation API)
+- Verify geolocation is enabled in browser settings
+
+**Reverse geocoding fails:**
+- Expected behavior in some corporate networks
+- GPS coordinates still available for search
+- City/region names will be empty but functionality preserved
+
+**Location not included in search:**
+- Check if location sharing is enabled in UI
+- Verify location data hasn't expired (24 hours)
+- Check browser console for any errors
+
+### 6. Deployment Issues
 - **Config.js not generated**: Check environment variables in deployment platform
 - **Authentication redirects to wrong URL**: Verify VITE_APP_URL in deployment
 - **Mixed content errors**: Ensure all URLs use HTTPS in production

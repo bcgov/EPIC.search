@@ -11,6 +11,54 @@ search capabilities while maintaining backward compatibility.
 from marshmallow import EXCLUDE, Schema, fields
 
 
+class UserLocationSchema(Schema):
+    """Schema for user location information in search requests.
+    
+    Defines the structure for optional location data that can be provided
+    to enhance search results with geographic context.
+    """
+    
+    class Meta:
+        unknown = EXCLUDE
+    
+    latitude = fields.Float(
+        data_key="latitude",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Latitude coordinate of the user's location"}
+    )
+    longitude = fields.Float(
+        data_key="longitude", 
+        required=False,
+        allow_none=True,
+        metadata={"description": "Longitude coordinate of the user's location"}
+    )
+    city = fields.Str(
+        data_key="city",
+        required=False,
+        allow_none=True,
+        metadata={"description": "City name of the user's location"}
+    )
+    region = fields.Str(
+        data_key="region",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Region/state/province of the user's location"}
+    )
+    country = fields.Str(
+        data_key="country",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Country of the user's location"}
+    )
+    timestamp = fields.Int(
+        data_key="timestamp",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Unix timestamp when the location was captured"}
+    )
+
+
 class RankingSchema(Schema):
     """Schema for ranking configuration in search requests.
     
@@ -150,6 +198,13 @@ class SearchRequestSchema(Schema):
         required=False,
         allow_none=True,
         metadata={"description": "Optional flag to enable agentic mode. When true, the system will use AI to intelligently extract project IDs and filters from natural language queries (e.g., 'for the Anderson Project, find me all correspondence'). If no project_ids or inference parameters are provided, the LLM will analyze the query and suggest appropriate filters."}
+    )
+    userLocation = fields.Nested(
+        UserLocationSchema,
+        data_key="userLocation",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Optional user location information to enhance search results with geographic context for location-based queries (e.g., 'near me', 'projects in my area')"}
     )
 
 

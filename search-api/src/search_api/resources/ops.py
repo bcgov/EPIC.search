@@ -58,3 +58,62 @@ class Readyz(Resource):
         
         current_app.logger.info("Readiness check completed successfully")
         return {'message': 'api is ready'}, 200
+
+
+@API.route('cache-status')
+class CacheStatus(Resource):
+    """Cache monitoring and management endpoint."""
+
+    @staticmethod
+    def get():
+        """Return cache statistics and status information."""
+        current_app.logger.info("Cache status endpoint called")
+        
+        try:
+            from ..utils.cache import get_cache_stats
+            stats = get_cache_stats()
+            
+            # Add human readable information
+            cache_info = {
+                'cache_statistics': stats,
+                'cache_health': {
+                    'total_entries': stats['total_entries'],
+                    'expired_entries': stats['expired_entries'],
+                    'active_entries': stats['total_entries'] - stats['expired_entries'],
+                    'cache_hit_potential': f"{((stats['total_entries'] - stats['expired_entries']) / max(stats['total_entries'], 1)) * 100:.1f}%"
+                },
+                'cache_keys_summary': [
+                    {
+                        'function': key_info['key'].split(':')[0] if ':' in key_info['key'] else key_info['key'],
+                        'age_hours': round(key_info['age_seconds'] / 3600, 1),
+                        'is_expired': key_info['is_expired']
+                    }
+                    for key_info in stats['cache_keys']
+                ]
+            }
+            
+            current_app.logger.info(f"Cache status: {stats['total_entries']} total, {stats['expired_entries']} expired")
+            return cache_info, 200
+            
+        except Exception as e:
+            current_app.logger.error(f"Error getting cache status: {e}")
+            return {'error': 'Failed to get cache status', 'message': str(e)}, 500
+
+    @staticmethod
+    def delete():
+        """Clear expired cache entries."""
+        current_app.logger.info("Cache cleanup endpoint called")
+        
+        try:
+            from ..utils.cache import clear_expired_cache
+            cleared_count = clear_expired_cache()
+            
+            current_app.logger.info(f"Cache cleanup completed: {cleared_count} expired entries removed")
+            return {
+                'message': 'Cache cleanup completed',
+                'expired_entries_removed': cleared_count
+            }, 200
+            
+        except Exception as e:
+            current_app.logger.error(f"Error clearing cache: {e}")
+            return {'error': 'Failed to clear cache', 'message': str(e)}, 500

@@ -55,3 +55,46 @@ def cache_with_ttl(ttl_seconds: int = 3600):
             return result
         return wrapper
     return decorator
+
+
+def get_cache_stats():
+    """Get cache statistics for monitoring."""
+    current_time = time.time()
+    stats = {
+        'total_entries': len(_memory_cache),
+        'expired_entries': 0,
+        'cache_keys': []
+    }
+    
+    for key, (data, timestamp) in _memory_cache.items():
+        stats['cache_keys'].append({
+            'key': key,
+            'age_seconds': int(current_time - timestamp),
+            'is_expired': current_time - timestamp > 86400  # Default 24h TTL check
+        })
+        if current_time - timestamp > 86400:
+            stats['expired_entries'] += 1
+    
+    return stats
+
+
+def clear_cache():
+    """Clear all cached entries."""
+    global _memory_cache
+    _memory_cache.clear()
+
+
+def clear_expired_cache():
+    """Clear only expired cache entries."""
+    global _memory_cache
+    current_time = time.time()
+    expired_keys = []
+    
+    for key, (data, timestamp) in _memory_cache.items():
+        if current_time - timestamp > 86400:  # Default 24h TTL
+            expired_keys.append(key)
+    
+    for key in expired_keys:
+        del _memory_cache[key]
+    
+    return len(expired_keys)

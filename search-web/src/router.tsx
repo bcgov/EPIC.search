@@ -2,6 +2,7 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { AuthProvider, useAuth } from "react-oidc-context";
 import { routeTree } from "@/routeTree.gen";
 import { OidcConfig } from "@/utils/config";
+import { LocationProvider } from "@/contexts/LocationContext";
 
 // Create a new router instance
 const router = createRouter({
@@ -21,7 +22,11 @@ declare module "@tanstack/react-router" {
 function RouterWithAuth() {
   const auth = useAuth();
   
-  return <RouterProvider router={router} context={{ authentication: auth }} />
+  return (
+    <LocationProvider>
+      <RouterProvider router={router} context={{ authentication: auth }} />
+    </LocationProvider>
+  )
 }
 
 export default function RouterProviderWithAuthContext() {

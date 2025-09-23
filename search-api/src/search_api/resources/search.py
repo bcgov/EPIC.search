@@ -69,6 +69,7 @@ class Search(Resource):
             ranking = request_data.get("ranking", None)
             search_strategy = request_data.get("searchStrategy", None)
             agentic = request_data.get("agentic", False)
+            user_location = request_data.get("userLocation", None)
             
             current_app.logger.info(f"Search parameters - Query: {query[:100] if query else None}{'...' if query and len(query) > 100 else ''}")
             current_app.logger.info(f"Search parameters - Project IDs: {project_ids}")
@@ -77,10 +78,11 @@ class Search(Resource):
             current_app.logger.info(f"Search parameters - Ranking: {ranking}")
             current_app.logger.info(f"Search parameters - Search Strategy: {search_strategy}")
             current_app.logger.info(f"Search parameters - Agentic Mode: {agentic}")
+            current_app.logger.info(f"Search parameters - User Location: {user_location}")
             
             current_app.logger.info("Calling SearchService.get_documents_by_query")
             start_time = time.time()
-            documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, ranking, search_strategy, agentic)
+            documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, ranking, search_strategy, agentic, user_location)
             end_time = time.time()
             
             current_app.logger.info(f"SearchService completed in {(end_time - start_time):.2f} seconds")

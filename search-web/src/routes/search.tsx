@@ -16,6 +16,7 @@ import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
 import { getStoredSearchStrategy, setStoredSearchStrategy, RankingConfig, getStoredRankingConfig, scoreSettings, resultsSettings, getStoredAiMode, setStoredAiMode } from "@/utils/searchConfig";
 import { useProjects } from "@/hooks/useProjects";
 import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
+import { LocationControl } from "@/components/Location";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -273,6 +274,11 @@ function Search() {
             )}
         </Box>
       )}
+
+      {/* Location Control */}
+      <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'center' }}>
+        <LocationControl showInSearch />
+      </Box>
 
       <SearchConfigModal
         open={configModalOpen}

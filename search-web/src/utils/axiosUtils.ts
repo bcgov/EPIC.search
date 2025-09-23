@@ -2,6 +2,7 @@
 import { AppConfig, OidcConfig } from '@/utils/config'
 import axios, { AxiosError, AxiosResponse } from 'axios'
 import { User } from "oidc-client-ts"
+import type { LocationData } from '@/contexts/LocationContext'
 
 export type OnErrorType = (error: AxiosError) => void;
 export type OnSuccessType = (data: any) => void;
@@ -27,6 +28,30 @@ function getUser(): User | null {
   }
 }
 
+function getLocationData(): LocationData | null {
+  try {
+    const locationStr = localStorage.getItem('epic_search_user_location');
+    if (!locationStr) return null;
+    
+    const locationData = JSON.parse(locationStr);
+    // Check if location data is not too old (24 hours)
+    const now = Date.now();
+    const locationTimestamp = new Date(locationData.timestamp).getTime();
+    const locationAge = now - locationTimestamp;
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    
+    if (locationAge > maxAge) {
+      localStorage.removeItem('epic_search_user_location');
+      return null;
+    }
+    
+    return locationData;
+  } catch (error) {
+    console.warn('Failed to get location data from storage:', error);
+    return null;
+  }
+}
+
 function isTokenExpired(user: User | null): boolean {
   if (!user) return true;
   const now = Math.floor(Date.now() / 1000);
@@ -35,13 +60,32 @@ function isTokenExpired(user: User | null): boolean {
   return expiresAt <= (now + 30);
 }
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and location headers
 client.interceptors.request.use(
   (config) => {
     const user = getUser();
     if (user?.access_token && !isTokenExpired(user)) {
       config.headers.Authorization = `Bearer ${user.access_token}`;
     }
+    
+    // Add location data to search requests
+    if (config.url?.includes('/search')) {
+      const locationData = getLocationData();
+      if (locationData && config.data && typeof config.data === 'object') {
+        config.data = {
+          ...config.data,
+          userLocation: {
+            latitude: locationData.latitude,
+            longitude: locationData.longitude,
+            city: locationData.city,
+            region: locationData.region,
+            country: locationData.country,
+            timestamp: new Date(locationData.timestamp).getTime()
+          }
+        };
+      }
+    }
+    
     return config;
   },
   (error) => {

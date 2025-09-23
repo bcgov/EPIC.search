@@ -131,7 +131,7 @@ sequenceDiagram
         Extractor->>Agentic: Complete parameters
         Agentic->>Vector: Execute search with extracted parameters
     else Tier: AGENT_REQUIRED
-        Note over Agentic,LLM: Agent Stub + LLM Fallback
+        Note over Agentic,LLM: ✅ Agent Processing Implemented
         Agentic->>Agentic: Log agent requirement for future
         Agentic->>Extractor: Fallback to complex LLM extraction
         Extractor->>LLM: Full parameter extraction process
@@ -251,7 +251,14 @@ Processes a search query and returns relevant documents with an LLM-generated su
     "minScore": 0.7,
     "topN": 10
   },
-  "searchStrategy": "HYBRID_PARALLEL"
+  "searchStrategy": "HYBRID_PARALLEL",
+  "agentic": true,
+  "userLocation": {
+    "city": "Victoria",
+    "region": "British Columbia",
+    "latitude": 48.4284,
+    "longitude": -123.3656
+  }
 }
 ```
 
@@ -268,6 +275,12 @@ Processes a search query and returns relevant documents with an LLM-generated su
   - `SEMANTIC_ONLY`: Pure semantic search without document-level filtering or keyword fallbacks. Best for conceptual queries when exact keyword matches aren't important
   - `KEYWORD_ONLY`: Pure keyword search without semantic components. Best for exact term matching and fastest performance
   - `HYBRID_PARALLEL`: Runs both semantic and keyword searches simultaneously then merges results. Best for maximum recall when computational cost is not a concern
+- `agentic` (boolean, optional): Enable intelligent agent-based processing with enhanced query analysis and tool execution
+- `userLocation` (object, optional): User location for location-aware query enhancement. Used for "local", "near me" queries. Contains:
+  - `city` (string, optional): User's city name
+  - `region` (string, optional): User's region/province
+  - `latitude` (number, optional): User's latitude coordinate
+  - `longitude` (number, optional): User's longitude coordinate
 
 **Response:**
 
@@ -861,47 +874,57 @@ The Search API now features an intelligent **3-tier query complexity analysis** 
 
 ##### 🟢 SIMPLE Queries → Basic RAG Search
 
-- Clear project + document type patterns
-- Single concept searches with obvious parameters
+- **Direct RAG Processing**: Queries that can be handled by the RAG engine alone
+- **UI Context Provided**: Project IDs or document type IDs selected in the UI
+- **Basic Content Searches**: Simple entity mentions that don't require parameter extraction
 - Examples:
-  - `"For Anderson Mountain project, find correspondence"`
-  - `"Environmental reports from Black Creek project"`
-  - `"Letters about permits from Timber project"`
+  - `"Letters that mention the 'Nooaitch Indian Band'"` + project IDs provided
+  - `"Documents about First Nations consultation"` + document type IDs provided  
+  - `"Environmental reports"` (basic content search, handled by RAG)
+  - `"Correspondence from Anderson Mountain project"` (if project in available list)
 
-- **Processing**: Direct to RAG with minimal parameter extraction
+- **Processing**: Direct to RAG with minimal processing
 - **Speed**: Fastest (no complex LLM parameter extraction needed)
 
-##### 🟡 COMPLEX Queries → LLM Parameter Extraction
+##### 🟡 COMPLEX Queries → NLP Parameter Extraction Required
 
-- Multiple projects or sophisticated filtering
-- Cross-references and ambiguous scope
+- **NLP Extraction Needed**: Queries requiring natural language processing to fill in parameters
+- **Ambiguous References**: Need to resolve vague terms to specific system parameters
+- **Parameter Mapping**: Extract and map natural language to structured search parameters
 - Examples:
-  - `"Find reports from mountain projects"`
-  - `"Documents that discuss impacts BUT NOT routine permits"`
-  - `"Anything related to environmental concerns across projects"`
+  - `"Show me environmental docs for the pipeline project"` (need to map "environmental docs" → specific doc types, "pipeline project" → project ID)
+  - `"The big LNG project near Prince George"` (need to resolve which specific project)
+  - `"Reports for that mountain project we discussed"` (need entity resolution)
+  - `"All environmental assessments"` (need to map to specific document types)
 
-- **Processing**: Full parallel/sequential LLM parameter extraction
-- **Speed**: Standard (uses existing optimized LLM extraction)
+- **Processing**: NLP-powered parameter extraction and entity resolution
+- **Speed**: Standard (focused LLM extraction for parameter mapping)
 
-##### 🔴 AGENT REQUIRED Queries → Future Agent Processing
+##### 🔴 AGENT REQUIRED Queries → ✅ **IMPLEMENTED** Agent Processing
 
-- Temporal analysis and comparative studies
-- Trend analysis and conditional logic
+- **Advanced Operations**: Temporal, comparative, analytical, or location-based queries
+- **Complex Logic**: Broad searches requiring context understanding and reasoning
+- **Multi-step Processing**: Queries needing sophisticated query enhancement
 - Examples:
-  - `"Documents from before 2020 about environmental impacts"`
-  - `"Compare environmental impacts across similar projects"`
-  - `"Show permit application trends over last 5 years"`
+  - `"Documents from before 2020 about environmental impacts"` (temporal)
+  - `"Compare environmental impacts across similar projects"` (comparison)
+  - `"Show permit application trends over last 5 years"` (trend analysis)
+  - `"Projects near me within 10 miles"` (location analysis)
+  - `"Anything related to First Nations"` (broad context understanding)
+  - `"Multiple projects AND environmental BUT NOT routine permits"` (complex logic)
 
-- **Processing**: Agent stub logging + fallback to complex LLM extraction
-- **Speed**: Standard (agent capabilities logged for future implementation)
+- **Processing**: **✅ Agent Stub with dual planning** (LLM + rule-based fallback)
+- **Features**: Query enhancement, tool execution, location awareness, keyword stuffing
+- **Speed**: Optimized with intelligent enhancement and caching
 
 #### **Intelligent Routing Benefits**
 
-- **⚡ Performance Optimization**: Simple queries bypass complex processing
-- **🎯 Accuracy Preservation**: Complex queries still get full LLM analysis
-- **🔮 Future-Ready**: Agent requirements logged for advanced capabilities
+- **⚡ Performance Optimization**: SIMPLE queries go directly to RAG without parameter extraction overhead
+- **🎯 Focused Processing**: COMPLEX queries get targeted NLP extraction only when needed
+- **🤖 Advanced Processing**: AGENT_REQUIRED queries trigger sophisticated enhancement and reasoning
 - **🛡️ Robust Fallbacks**: System gracefully degrades on analysis failures
 - **📊 Transparency**: Full logging and metrics for each complexity tier
+- **🎚️ Right-Sized Processing**: Each query gets exactly the level of processing it needs
 
 #### **Implementation Details**
 
@@ -917,13 +940,17 @@ The Search API now features an intelligent **3-tier query complexity analysis** 
 
 The complexity analyzer fetches real-time data to improve classification accuracy:
 
-- **📋 Real Project Lists**: Knows which entities are actual projects vs. mentioned organizations
+- **📋 Real Project Lists**: Distinguishes between actual projects vs. mentioned entities  
 - **📄 Real Document Types**: Uses current document type catalog for precise matching
-- **🎯 Improved Classification**: Prevents misclassification of queries like:
-  - `"letters mentioning South Anderson Mountain Resort and Nooaitch Indian Band"`
-  - Correctly identifies only "South Anderson Mountain Resort" as a project
-  - Recognizes "Nooaitch Indian Band" as a mentioned entity, not a second project
-  - Results in **SIMPLE** classification instead of incorrect **COMPLEX**
+- **🎯 Improved Classification**: Prevents misclassification by understanding context:
+  - `"letters mentioning South Anderson Mountain Resort and Nooaitch Indian Band"` + UI context
+  - Correctly classifies as **SIMPLE** (content search with UI filtering context)
+  - No parameter extraction needed when UI context provided
+  - Avoids unnecessary **COMPLEX** classification
+
+- **🔍 NLP Detection**: Accurately identifies when parameter extraction is truly needed:
+  - `"environmental docs for the pipeline project"` → **COMPLEX** (need to map vague terms)
+  - `"documents mentioning First Nations"` → **SIMPLE** (direct content search)
 
 - **🔄 Dynamic Updates**: Context automatically updates as projects and document types change
 - **🛡️ Fallback Logic**: Uses general patterns when API context unavailable
@@ -960,6 +987,59 @@ POST /api/search/query
    - Uses direct LLM service integration
    - Recommends optimal search approach based on query type
    - Provides confidence scores and explanations
+
+4. **🎯 Agent-Required Query Processing** (NEW)
+   - **Complexity Analysis**: Advanced queries trigger agent-mode processing
+   - **Dual Planning**: LLM-based planning (preferred) with rule-based fallback
+   - **Tool Execution**: Multi-step execution with comprehensive tool support
+   - **Location-Aware Processing**: Supports userLocation in request body to avoid CORS
+
+5. **🔍 Intelligent Query Enhancement** (NEW)
+   - **Temporal Keyword Stuffing**: Automatically enhances time-related queries
+     - "before 2020" → adds "2019 2018 2017 before 2020"
+     - "recent projects" → adds "2023 2024 2025 recent latest"
+   - **Location Keyword Stuffing**: Automatically enhances location-based queries
+     - "local projects" → adds user location + "British Columbia BC"
+     - "near me" → adds geographic context for better semantic matching
+   - **Universal Enhancement**: Works across both LLM and rule-based planning
+   - **Transparent Logging**: All query enhancements logged for debugging
+
+6. **🌍 Location Context Support** (NEW)
+   - **Request Body Location**: Accepts userLocation in POST body (avoids CORS)
+   - **Geographic Enhancement**: Intelligently adds regional context
+   - **BC Default Context**: Falls back to British Columbia scope when no location provided
+   - **Smart Detection**: Only enhances queries with location-related terms
+
+#### **Query Enhancement Examples**
+
+**Temporal Enhancement:**
+
+```json
+// Input query: "environmental reports before 2020"
+// Enhanced to: "environmental reports before 2020 2019 2018 2017 before 2020"
+
+// Input query: "recent mining projects"  
+// Enhanced to: "recent mining projects 2023 2024 2025 recent latest"
+```
+
+**Location Enhancement:**
+
+```json
+// With userLocation: {"city": "Vancouver", "region": "British Columbia"}
+// Input query: "local water quality projects"
+// Enhanced to: "local water quality projects Vancouver British Columbia BC"
+
+// Without userLocation (BC default):
+// Input query: "projects near me"
+// Enhanced to: "projects near me British Columbia BC"
+```
+
+**Combined Enhancement:**
+
+```json
+// Input query: "recent local environmental assessments"
+// Enhanced to: "recent local environmental assessments 2023 2024 2025 recent latest British Columbia BC"
+```
 
 **Response includes:**
 
@@ -1080,6 +1160,54 @@ The agentic functionality uses **direct LLM integration** with:
 - **Clean separation of concerns** between validation, extraction, and synthesis
 
 This is a maintainable, efficient architecture that provides robust AI capabilities while keeping the codebase simple and testable.
+
+### **Advanced Agent Processing** (NEW)
+
+For agent-required queries (complex temporal, comparative, or multi-step analysis), the system now includes:
+
+#### **Agent Stub Implementation** (`agent_stub.py`)
+
+**VectorSearchAgent Class:**
+
+- **Dual Planning Modes**:
+  - **LLM-based planning**: Uses LLM to create intelligent execution plans
+  - **Rule-based planning**: Fallback logic for when LLM is unavailable
+- **Tool Execution**: Multi-step execution with comprehensive tool support
+- **Query Enhancement**: Automatic temporal and location keyword stuffing
+
+**Key Features:**
+
+- **Universal Keyword Stuffing**: Applied during tool execution regardless of planning method
+- **Location-Aware Processing**: Supports userLocation from request body
+- **Transparent Logging**: All enhancements and tool executions logged
+- **Comprehensive Tools**: Supports search, document similarity, metadata retrieval, and statistics
+
+**Agent Tool Capabilities:**
+
+```text
+1. search - Vector similarity search with enhancement
+2. get_document_similarity - Find similar documents  
+3. get_projects_list - Available projects metadata
+4. get_document_types - Document type information
+5. get_search_strategies - Available search strategies
+6. get_project_statistics - Processing metrics
+```
+
+**Agent Processing Flow:**
+
+```text
+1. Query Complexity Analysis → AGENT_REQUIRED
+2. Agent Initialization (with userLocation if provided)
+3. Execution Plan Creation:
+   - LLM Planning (preferred): Uses prompt with examples
+   - Rule-Based Planning (fallback): Keyword-based logic
+4. Tool Execution:
+   - Parameter validation
+   - Query enhancement (temporal + location stuffing)
+   - VectorSearchClient execution
+   - Result logging
+5. Tool Suggestions Generation (temporal/location filtering recommendations)
+```
 
 ## Deployment Guide
 

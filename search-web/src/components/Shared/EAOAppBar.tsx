@@ -6,6 +6,7 @@ import { AppConfig } from "@/utils/config";
 import { BCDesignTokens } from "epic.theme";
 import { Link } from "@tanstack/react-router";
 import useAuth from "@/hooks/useAuth";
+import { LocationControl } from "@/components/Location";
 
 export default function EAOAppBar() {
   const { isAuthenticated, isLoading, user, login, logout } = useAuth();
@@ -61,22 +62,25 @@ export default function EAOAppBar() {
           >
             {/* Stats & Metrics Button - only show when authenticated */}
             {isAuthenticated && (
-              <Link to="/stats">
-                <Button
-                  variant="outlined"
-                  startIcon={<BarChart />}
-                  sx={{ 
-                    borderColor: BCDesignTokens.themePrimaryBlue,
-                    color: BCDesignTokens.themePrimaryBlue,
-                    '&:hover': {
-                      borderColor: BCDesignTokens.themeBlue70,
-                      backgroundColor: BCDesignTokens.themeBlue10,
-                    }
-                  }}
-                >
-                  Stats & Metrics
-                </Button>
-              </Link>
+              <>
+                <LocationControl compact />
+                <Link to="/stats">
+                  <Button
+                    variant="outlined"
+                    startIcon={<BarChart />}
+                    sx={{ 
+                      borderColor: BCDesignTokens.themePrimaryBlue,
+                      color: BCDesignTokens.themePrimaryBlue,
+                      '&:hover': {
+                        borderColor: BCDesignTokens.themeBlue70,
+                        backgroundColor: BCDesignTokens.themeBlue10,
+                      }
+                    }}
+                  >
+                    Stats & Metrics
+                  </Button>
+                </Link>
+              </>
             )}
 
             {/* Authentication UI */}

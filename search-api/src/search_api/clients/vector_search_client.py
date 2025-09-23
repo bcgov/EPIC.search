@@ -11,6 +11,7 @@ The client is organized into logical groups:
 import os
 import requests
 from flask import current_app
+from ..utils.cache import cache_with_ttl
 
 class VectorSearchClient:
     """Client for communicating with the external vector search API."""
@@ -142,6 +143,7 @@ class VectorSearchClient:
     # =============================================================================
 
     @staticmethod
+    @cache_with_ttl(ttl_seconds=86400)  # Cache for 24 hours (86400 seconds)
     def get_projects_list():
         """Get list of available projects for filtering.
         
@@ -166,6 +168,7 @@ class VectorSearchClient:
             return []
 
     @staticmethod
+    @cache_with_ttl(ttl_seconds=86400)  # Cache for 24 hours (86400 seconds)
     def get_document_types():
         """Get document types with aliases and descriptions.
         
@@ -215,6 +218,7 @@ class VectorSearchClient:
             return {}
 
     @staticmethod
+    @cache_with_ttl(ttl_seconds=86400)  # Cache for 24 hours (86400 seconds)
     def get_search_strategies():
         """Get available search strategies and capabilities.
         

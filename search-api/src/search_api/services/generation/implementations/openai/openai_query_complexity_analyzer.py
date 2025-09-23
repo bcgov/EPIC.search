@@ -16,14 +16,14 @@ class OpenAIQueryComplexityAnalyzer(BaseQueryComplexityAnalyzer):
         """Initialize OpenAI complexity analyzer."""
         self.client = OpenAIClient()
     
-    def _make_llm_call(self, messages: List[Dict[str, str]], temperature: float = 0.1) -> Dict[str, Any]:
+    def _make_llm_call(self, messages: List[Dict[str, str]], temperature: float = 0.1, max_tokens: int = 200) -> Dict[str, Any]:
         """Make OpenAI API call."""
         try:
             response = self.client.chat_completions_create(
                 model="gpt-4o-mini",  # Model name (will use configured deployment)
                 messages=messages,
                 temperature=temperature,
-                max_tokens=200  # Small response needed
+                max_tokens=max_tokens
             )
             
             return response

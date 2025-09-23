@@ -22,7 +22,7 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query, project_ids=None, document_type_ids=None, inference=None, ranking=None, search_strategy=None, agentic=False):
+    def get_documents_by_query(cls, query, project_ids=None, document_type_ids=None, inference=None, ranking=None, search_strategy=None, agentic=False, user_location=None):
         """Process a user query to retrieve and synthesize relevant information.
         
         This method orchestrates the complete search flow:
@@ -50,6 +50,9 @@ class SearchService:
                                      extract project IDs and filters from natural language queries.
                                      When enabled and no project_ids/inference provided, the system
                                      will use LLM services to analyze the query and suggest appropriate filters.
+            user_location (dict, optional): Optional user location data for location-aware queries.
+                                           Should contain location information like latitude, longitude,
+                                           city, or region for geographic search enhancement.
             
         Returns:
             dict: A dictionary containing:
@@ -85,7 +88,7 @@ class SearchService:
         
         # Handle parameter extraction based on mode
         if agentic:
-            parameters = cls._handle_agentic_mode(query, project_ids, document_type_ids, search_strategy, inference, metrics)
+            parameters = cls._handle_agentic_mode(query, project_ids, document_type_ids, search_strategy, inference, metrics, user_location)
         else:
             parameters = cls._handle_rag_mode(query, project_ids, document_type_ids, search_strategy, inference, metrics)
         
@@ -491,7 +494,7 @@ class SearchService:
         current_app.logger.info(f"Query: '{query[:50]}{'...' if len(query) > 50 else ''}'")
 
     @classmethod
-    def _handle_agentic_mode(cls, query, project_ids, document_type_ids, search_strategy, inference, metrics):
+    def _handle_agentic_mode(cls, query, project_ids, document_type_ids, search_strategy, inference, metrics, user_location=None):
         """Handle agentic mode processing using direct LLM parameter extraction.
         
         Uses direct LLM integration for intelligent parameter extraction and query optimization.
@@ -503,6 +506,7 @@ class SearchService:
             search_strategy (str): Current search strategy (may be None)
             inference (list): Inference settings
             metrics (dict): Metrics dictionary to update
+            user_location (dict, optional): Optional user location data for location-aware queries.
             
         Returns:
             tuple: (project_ids, document_type_ids, search_strategy, semantic_query) or
@@ -552,7 +556,11 @@ class SearchService:
             
             complexity_start = time.time()
             complexity_analyzer = QueryComplexityFactory.create_analyzer()
-            complexity_result = complexity_analyzer.analyze_complexity(query)
+            complexity_result = complexity_analyzer.analyze_complexity(
+                query=query, 
+                project_ids=project_ids, 
+                document_type_ids=document_type_ids
+            )
             
             complexity_time = round((time.time() - complexity_start) * 1000, 2)
             metrics["complexity_analysis_time_ms"] = complexity_time
@@ -572,9 +580,11 @@ class SearchService:
             elif complexity_tier == "agent_required":
                 current_app.logger.info("🧠 COMPLEXITY: Agent-required query detected - calling agent stub")
                 
-                # Call agent stub and log requirements
+                # Call agent stub with LLM client for intelligent planning
                 from search_api.services.generation.implementations.agent_stub import handle_agent_query
-                agent_result = handle_agent_query(query, complexity_reason)
+                
+                # Pass the same LLM client that was used for complexity analysis
+                agent_result = handle_agent_query(query, complexity_reason, llm_client=complexity_analyzer, user_location=user_location)
                 
                 metrics["agent_stub_called"] = True
                 metrics["agent_stub_result"] = agent_result
