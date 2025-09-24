@@ -30,7 +30,7 @@ const fetchProjects = async (): Promise<Project[]> => {
   // Fetch from API with better error handling
   try {
     const res = await request({ url: "/tools/projects", method: "get" });
-    const projects = res.data?.result?.projects || [];
+    const projects = res.data?.projects || [];
     
     // Cache in localStorage
     try {

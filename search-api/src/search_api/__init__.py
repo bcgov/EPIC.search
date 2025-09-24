@@ -109,6 +109,16 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
 
     @app.errorhandler(Exception)
     def handle_error(err):
+        # Handle JWT authentication errors first
+        from flask_jwt_oidc.exceptions import AuthError
+        if isinstance(err, AuthError):
+            current_app.logger.warning(f"401 Unauthorized: {err.error}")
+            return {
+                "error": "Unauthorized", 
+                "message": "Authentication required",
+                "code": err.error.get('code', 'authorization_required')
+            }, HTTPStatus.UNAUTHORIZED
+        
         # Handle 404 errors gracefully in all environments
         if isinstance(err, NotFound):
             current_app.logger.warning(f"404 Not Found: {request.url}")

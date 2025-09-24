@@ -44,7 +44,7 @@ const SearchConfigModal = ({
   const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [showHelp, setShowHelp] = useState<string | null>(null);
   
-  const { data: searchStrategyOptions, isLoading: strategiesLoading, isError: strategiesError } = useSearchStrategies(open);
+  const { data: searchStrategyOptions, isLoading: strategiesLoading, isError: strategiesError } = useSearchStrategies(true);
   
   const handleSave = () => {
     onSave(selectedStrategy, rankingConfig);

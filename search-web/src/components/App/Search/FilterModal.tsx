@@ -9,20 +9,18 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Chip,
   Box,
   Typography,
   IconButton,
-  Tooltip,
   Divider
 } from "@mui/material";
 import { FilterList, Close } from "@mui/icons-material";
 import { BCDesignTokens } from "epic.theme";
 import React, { useState } from "react";
-import { useProjects, Project } from "@/hooks/useProjects";
+import { useProjects } from "@/hooks/useProjects";
 import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
 import ProjectLoadingScreen from "./ProjectLoadingScreen";
-
+import { formatActName } from "@/utils/formatUtils";
 
 interface FilterModalProps {
   open: boolean;
@@ -34,7 +32,7 @@ interface FilterModalProps {
 
 const FilterModal = ({ open, onClose, selectedProjectIds, selectedDocumentTypeIds = [], onSave }: FilterModalProps) => {
   const { data: projects, isLoading, isError } = useProjects();
-  const { data: docTypesData, isLoading: docTypesLoading, isError: docTypesError } = useDocumentTypeMappings(open);
+  const { data: docTypesData, isLoading: docTypesLoading, isError: docTypesError } = useDocumentTypeMappings(true);
   const [selectedProjects, setSelectedProjects] = useState<string[]>(selectedProjectIds);
   const [selectedDocTypes, setSelectedDocTypes] = useState<string[]>(selectedDocumentTypeIds);
 
@@ -71,6 +69,11 @@ const FilterModal = ({ open, onClose, selectedProjectIds, selectedDocumentTypeId
     setSelectedProjects(selectedProjectIds);
     setSelectedDocTypes(selectedDocumentTypeIds);
     onClose();
+  };
+
+  const handleClearAll = () => {
+    setSelectedProjects([]);
+    setSelectedDocTypes([]);
   };
 
 return (
@@ -151,11 +154,14 @@ return (
             </Box>
             {docTypesLoading && <Typography>Loading document types...</Typography>}
             {docTypesError && <Typography color="error">Failed to load document types.</Typography>}
-            {!docTypesLoading && docTypesData && (
+            {!docTypesLoading && !docTypesError && (!docTypesData || !docTypesData.result || !docTypesData.result.grouped_by_act) && (
+              <Typography color="warning">No document types available.</Typography>
+            )}
+            {!docTypesLoading && docTypesData?.result?.grouped_by_act && (
               <Box>
                 {Object.entries(docTypesData.result.grouped_by_act).map(([group, types]) => (
                   <Box key={group} sx={{ mb: 1 }}>
-                    <Typography variant="subtitle2" sx={{ color: BCDesignTokens.themePrimaryBlue, mb: 0.5 }}>{group}</Typography>
+                    <Typography variant="subtitle2" sx={{ color: BCDesignTokens.themePrimaryBlue, mb: 0.5 }}>{formatActName(group)}</Typography>
                     <List dense sx={{ pl: 2 }}>
                       {Object.entries(types).map(([typeId, typeName]) => {
                         const isSelected = selectedDocTypes.includes(typeId);
@@ -205,13 +211,23 @@ return (
         </Box>
       </DialogContent>
       <Divider sx={{ my: 2 }} />
-      <DialogActions>
-        <Button onClick={handleCancel} variant="outlined">
-          Cancel
+      <DialogActions sx={{ justifyContent: 'space-between' }}>
+        <Button 
+          onClick={handleClearAll} 
+          variant="text"
+          color="secondary"
+          disabled={selectedProjects.length === 0 && selectedDocTypes.length === 0}
+        >
+          Clear All Filters
         </Button>
-        <Button onClick={handleSave} variant="contained" disabled={isLoading || docTypesLoading}>
-          Apply Filter
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button onClick={handleCancel} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={handleSave} variant="contained" disabled={isLoading || docTypesLoading}>
+            Apply Filter
+          </Button>
+        </Box>
       </DialogActions>
     </Dialog>
   );

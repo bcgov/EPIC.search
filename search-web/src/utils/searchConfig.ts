@@ -1,8 +1,8 @@
-import { SearchStrategy } from "@/hooks/useSearch";
+import { SearchStrategy, SearchMode } from "@/hooks/useSearch";
 
 const SEARCH_STRATEGY_KEY = "epic-search-strategy";
 const RANKING_CONFIG_KEY = "epic-ranking-config";
-const AI_MODE_KEY = "epic-ai-mode";
+const SEARCH_MODE_KEY = "epic-search-mode";
 
 export interface RankingConfig {
   useCustomRanking: boolean;
@@ -74,22 +74,22 @@ export const setStoredSearchStrategy = (strategy: SearchStrategy | undefined): v
   }
 };
 
-export const getStoredAiMode = (): boolean => {
+export const getStoredSearchMode = (): SearchMode => {
   try {
-    const stored = localStorage.getItem(AI_MODE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
+    const stored = localStorage.getItem(SEARCH_MODE_KEY);
+    if (stored && ['rag', 'ai', 'agent', 'summary'].includes(stored)) {
+      return stored as SearchMode;
     }
   } catch (error) {
-    console.warn("Failed to read AI mode from localStorage:", error);
+    console.warn("Failed to read search mode from localStorage:", error);
   }
-  return true; // Default to AI mode enabled
+  return 'rag'; // Default to RAG mode
 };
 
-export const setStoredAiMode = (aiMode: boolean): void => {
+export const setStoredSearchMode = (mode: SearchMode): void => {
   try {
-    localStorage.setItem(AI_MODE_KEY, JSON.stringify(aiMode));
+    localStorage.setItem(SEARCH_MODE_KEY, mode);
   } catch (error) {
-    console.warn("Failed to store AI mode in localStorage:", error);
+    console.warn("Failed to store search mode in localStorage:", error);
   }
 };

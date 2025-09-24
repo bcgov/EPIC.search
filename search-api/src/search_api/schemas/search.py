@@ -8,7 +8,7 @@ The search request schema supports optional filtering parameters for enhanced
 search capabilities while maintaining backward compatibility.
 """
 
-from marshmallow import EXCLUDE, Schema, fields
+from marshmallow import EXCLUDE, Schema, fields, validate
 
 
 class UserLocationSchema(Schema):
@@ -193,11 +193,13 @@ class SearchRequestSchema(Schema):
         allow_none=True,
         metadata={"description": "Optional search strategy to use. Available options: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL'. If not provided, uses the vector search API's default strategy."}
     )
-    agentic = fields.Bool(
-        data_key="agentic",
+    mode = fields.Str(
+        data_key="mode",
         required=False,
         allow_none=True,
-        metadata={"description": "Optional flag to enable agentic mode. When true, the system will use AI to intelligently extract project IDs and filters from natural language queries (e.g., 'for the Anderson Project, find me all correspondence'). If no project_ids or inference parameters are provided, the LLM will analyze the query and suggest appropriate filters."}
+        validate=validate.OneOf(["rag", "summary", "ai", "agent", "auto"]),
+        load_default="rag",
+        metadata={"description": "Processing mode: 'rag' for pure RAG search (default), 'summary' for RAG search with AI summarization, 'ai' for AI processing with parameter extraction and summarization, 'agent' for full agent processing including advanced reasoning, 'auto' for automatic mode selection based on query complexity. Controls the level of AI processing applied to the query."}
     )
     userLocation = fields.Nested(
         UserLocationSchema,

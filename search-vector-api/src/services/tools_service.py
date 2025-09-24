@@ -368,13 +368,16 @@ class ToolsService:
                 }
             }
             
+            # Convert dictionary of strategies to an array
+            strategies_array = list(strategies.values())
+            
             response = {
-                "search_strategies": strategies,
+                "search_strategies": strategies_array,
                 "default_strategy": "HYBRID_SEMANTIC_FALLBACK",
-                "total_strategies": len(strategies)
+                "total_strategies": len(strategies_array)
             }
             
-            logging.info(f"Retrieved {len(strategies)} search strategies")
+            logging.info(f"Retrieved {len(strategies_array)} search strategies")
             return response
             
         except Exception as e:

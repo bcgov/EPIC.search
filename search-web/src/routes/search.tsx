@@ -1,5 +1,5 @@
-import { Cancel, Search as SearchIcon, Settings, FilterList, AutoAwesome } from "@mui/icons-material";
-import { Box, Container, Typography, Tooltip, IconButton, Chip, ToggleButton } from "@mui/material";
+import { Cancel, Search as SearchIcon, Settings, FilterList, Psychology, SmartToy, Summarize, FindInPage } from "@mui/icons-material";
+import { Box, Container, Typography, Tooltip, IconButton, Chip, Menu, MenuItem, ListItemIcon, ListItemText } from "@mui/material";
 import { InputBase } from "@mui/material";
 import { Paper } from "@mui/material";
 import { createFileRoute } from "@tanstack/react-router";
@@ -13,10 +13,11 @@ import SearchLanding from "@/components/App/Search/SearchLanding";
 import SearchConfigModal from "@/components/App/Search/SearchConfigModal";
 import FilterModal from "@/components/App/Search/FilterModal";
 import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
-import { getStoredSearchStrategy, setStoredSearchStrategy, RankingConfig, getStoredRankingConfig, scoreSettings, resultsSettings, getStoredAiMode, setStoredAiMode } from "@/utils/searchConfig";
+import { getStoredSearchStrategy, setStoredSearchStrategy, RankingConfig, getStoredRankingConfig, scoreSettings, resultsSettings, getStoredSearchMode, setStoredSearchMode } from "@/utils/searchConfig";
 import { useProjects } from "@/hooks/useProjects";
 import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
 import { LocationControl } from "@/components/Location";
+import { SearchMode } from "@/hooks/useSearch";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -47,17 +48,43 @@ function Search() {
   const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [selectedDocumentTypeIds, setSelectedDocumentTypeIds] = useState<string[]>([]);
-  const [aiMode, setAiMode] = useState<boolean>(getStoredAiMode());
+  const [searchMode, setSearchMode] = useState<SearchMode>(getStoredSearchMode());
+  const [modeMenuAnchor, setModeMenuAnchor] = useState<null | HTMLElement>(null);
 
   const { isLoading: projectsLoading, isError: projectsError, data: allProjects } = useProjects();
   const { data: allDocTypes } = useDocumentTypeMappings(selectedDocumentTypeIds.length > 0);
 
   const onSuccess = (data: SearchResponse) => {
-    setSearchResults(data);
+    try {
+      // Validate the response structure
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response: Expected object');
+      }
+      
+      if (!data.result) {
+        throw new Error('Invalid response: Missing result property');
+      }
+      
+      // Ensure documents array exists or create empty array
+      if (!data.result.documents && !data.result.document_chunks) {
+        console.warn('Response has no documents or document_chunks, creating empty result');
+        data.result.documents = [];
+      }
+      
+      setSearchResults(data);
+    } catch (error) {
+      console.error('Error processing search response:', error);
+      // Treat malformed response as an error
+      onError(error);
+    }
   };
 
   const onError = (error: any) => {
-    console.error(error);
+    console.error('Search error:', error);
+    setSearchResults(null);
+    
+    // You could also show a user-friendly error message here
+    // For example, using a toast notification or error state
   };
 
   useEffect(() => {
@@ -77,6 +104,13 @@ function Search() {
 
   const onSubmitSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    
+    // Prevent double search: don't start new search if one is already in progress
+    if (isPending) {
+      console.log('Search already in progress, ignoring new search request');
+      return;
+    }
+    
     const searchRequest: SearchRequest = {
       query: searchText,
       ...(searchStrategy && { searchStrategy }),
@@ -88,7 +122,7 @@ function Search() {
           topN: resultsSettings[rankingConfig.resultsSetting]
         }
       }),
-      agentic: aiMode
+      mode: searchMode
     };
     doSearch(searchRequest);
   };
@@ -99,10 +133,63 @@ function Search() {
     setRankingConfig(newRankingConfig);
   };
 
-  const handleAiModeToggle = () => {
-    const newAiMode = !aiMode;
-    setAiMode(newAiMode);
-    setStoredAiMode(newAiMode);
+  const handleModeChange = (newMode: SearchMode) => {
+    setSearchMode(newMode);
+    setStoredSearchMode(newMode);
+    setModeMenuAnchor(null);
+  };
+
+  const handleModeMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setModeMenuAnchor(event.currentTarget);
+  };
+
+  const handleModeMenuClose = () => {
+    setModeMenuAnchor(null);
+  };
+
+  const getModeDescription = (mode: SearchMode): string => {
+    switch (mode) {
+      case 'rag':
+        return 'Pure vector search, fastest';
+      case 'ai':
+        return 'Use NLP to interpret your query and summarize';
+      case 'agent':
+        return 'Full AI processing with agent capabilities';
+      case 'summary':
+        return 'Use RAG search and summarize';
+      default:
+        return 'Pure vector search, fastest';
+    }
+  };
+
+  const getModeIcon = (mode: SearchMode) => {
+    switch (mode) {
+      case 'rag':
+        return <FindInPage sx={{ fontSize: 24 }} />;
+      case 'ai':
+        return <Psychology sx={{ fontSize: 24 }} />;
+      case 'agent':
+        return <SmartToy sx={{ fontSize: 24 }} />;
+      case 'summary':
+        return <Summarize sx={{ fontSize: 24 }} />;
+      default:
+        return <SearchIcon sx={{ fontSize: 24 }} />;
+    }
+  };
+
+  const getModeLabel = (mode: SearchMode): string => {
+    switch (mode) {
+      case 'rag':
+        return 'RAG Search';
+      case 'ai':
+        return 'AI Search';
+      case 'agent':
+        return 'Agent Search';
+      case 'summary':
+        return 'Summary Search';
+      default:
+        return 'RAG Search';
+    }
   };
 
   if (projectsLoading) {
@@ -151,41 +238,145 @@ function Search() {
           },
         }}
       >
-        <Tooltip title={aiMode ? "AI Mode: ON" : "AI Mode: OFF"}>
-          <ToggleButton
-            value="ai-mode"
-            selected={aiMode}
-            onChange={handleAiModeToggle}
+        <Tooltip title={`${getModeLabel(searchMode)}: ${getModeDescription(searchMode)}`}>
+          <IconButton
+            onClick={handleModeMenuOpen}
             sx={{
               mr: 1,
-              border: "none",
               borderRadius: "12px",
               minWidth: "48px",
               height: "48px",
-              color: aiMode ? BCDesignTokens.iconsColorSuccess : BCDesignTokens.themeGray60,
-              backgroundColor: aiMode ? BCDesignTokens.supportSurfaceColorSuccess : "transparent",
+              color: BCDesignTokens.iconsColorSuccess,
+              backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
               "&:hover": {
-                backgroundColor: aiMode 
-                  ? BCDesignTokens.supportSurfaceColorSuccess 
-                  : BCDesignTokens.themeGray10,
-              },
-              "&.Mui-selected": {
                 backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-                color: BCDesignTokens.iconsColorSuccess,
-                "&:hover": {
-                  backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-                },
               },
             }}
           >
-            <AutoAwesome sx={{ fontSize: 24 }} />
-          </ToggleButton>
+            {getModeIcon(searchMode)}
+          </IconButton>
         </Tooltip>
+        
+        <Menu
+          anchorEl={modeMenuAnchor}
+          open={Boolean(modeMenuAnchor)}
+          onClose={handleModeMenuClose}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'left',
+          }}
+          transformOrigin={{
+            vertical: 'top',
+            horizontal: 'left',
+          }}
+          PaperProps={{
+            sx: {
+              borderRadius: '12px',
+              boxShadow: '0px 4px 20px rgba(0, 0, 0, 0.1)',
+            }
+          }}
+        >
+          <MenuItem 
+            onClick={() => handleModeChange('rag')}
+            selected={searchMode === 'rag'}
+            sx={{
+              px: 2,
+              py: 1.5,
+              backgroundColor: searchMode === 'rag' ? BCDesignTokens.themeBlue10 : 'transparent',
+              '&:hover': {
+                backgroundColor: BCDesignTokens.themeBlue10,
+              }
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: '36px' }}>
+              <FindInPage sx={{ fontSize: 20, color: BCDesignTokens.themePrimaryBlue }} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="RAG Search"
+              secondary="Pure vector search, fastest"
+              secondaryTypographyProps={{
+                sx: { fontSize: '0.75rem', color: BCDesignTokens.themeGray60 }
+              }}
+            />
+          </MenuItem>
+          
+          <MenuItem 
+            onClick={() => handleModeChange('summary')}
+            selected={searchMode === 'summary'}
+            sx={{
+              px: 2,
+              py: 1.5,
+              backgroundColor: searchMode === 'summary' ? BCDesignTokens.themeBlue10 : 'transparent',
+              '&:hover': {
+                backgroundColor: BCDesignTokens.themeBlue10,
+              }
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: '36px' }}>
+              <Summarize sx={{ fontSize: 20, color: BCDesignTokens.themePrimaryBlue }} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Summary Search"
+              secondary="Use RAG search and summarize"
+              secondaryTypographyProps={{
+                sx: { fontSize: '0.75rem', color: BCDesignTokens.themeGray60 }
+              }}
+            />
+          </MenuItem>
+          
+          <MenuItem 
+            onClick={() => handleModeChange('ai')}
+            selected={searchMode === 'ai'}
+            sx={{
+              px: 2,
+              py: 1.5,
+              backgroundColor: searchMode === 'ai' ? BCDesignTokens.themeBlue10 : 'transparent',
+              '&:hover': {
+                backgroundColor: BCDesignTokens.themeBlue10,
+              }
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: '36px' }}>
+              <Psychology sx={{ fontSize: 20, color: BCDesignTokens.themePrimaryBlue }} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="AI Search"
+              secondary="Use NLP to interpret your query and summarize"
+              secondaryTypographyProps={{
+                sx: { fontSize: '0.75rem', color: BCDesignTokens.themeGray60 }
+              }}
+            />
+          </MenuItem>
+          
+          <MenuItem 
+            onClick={() => handleModeChange('agent')}
+            selected={searchMode === 'agent'}
+            sx={{
+              px: 2,
+              py: 1.5,
+              backgroundColor: searchMode === 'agent' ? BCDesignTokens.themeBlue10 : 'transparent',
+              '&:hover': {
+                backgroundColor: BCDesignTokens.themeBlue10,
+              }
+            }}
+          >
+            <ListItemIcon sx={{ minWidth: '36px' }}>
+              <SmartToy sx={{ fontSize: 20, color: BCDesignTokens.themePrimaryBlue }} />
+            </ListItemIcon>
+            <ListItemText 
+              primary="Agent Search"
+              secondary="Full AI processing with agent capabilities"
+              secondaryTypographyProps={{
+                sx: { fontSize: '0.75rem', color: BCDesignTokens.themeGray60 }
+              }}
+            />
+          </MenuItem>
+        </Menu>
         <InputBase
           sx={{ ml: 1, flex: 1, height: 64 }}
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          placeholder={aiMode ? "Ask AI about documents..." : "Search text..."}
+          placeholder={searchMode !== 'rag' ? "Ask AI about documents..." : "Search documents..."}
           inputProps={{ "aria-label": "search text" }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -215,27 +406,58 @@ function Search() {
             <Settings sx={{ fontSize: 24, color: BCDesignTokens.themeGray60 }} />
           </IconButton>
         </Tooltip>
-        {searchText && (
-          <IconButton
-            type="button"
-            sx={{ p: "10px" }}
-            aria-label="clear search"
-            size="large"
-            onClick={() => setSearchText("")}
-          >
-            <Cancel sx={{ fontSize: 30 }} />
-          </IconButton>
-        )}
-        {!searchText && (
-          <IconButton
-            type="button"
-            sx={{ p: "10px" }}
-            aria-label="search"
-            size="large"
-            onClick={onSubmitSearch}
-          >
-            <SearchIcon sx={{ fontSize: 30 }} />
-          </IconButton>
+        {isPending ? (
+          <Tooltip title="Cancel search">
+            <IconButton
+              type="button"
+              sx={{ p: "10px" }}
+              aria-label="cancel search"
+              size="large"
+              onClick={() => {
+                reset();
+                setSearchResults(null);
+              }}
+            >
+              <Cancel sx={{ fontSize: 30, color: '#d32f2f' }} />
+            </IconButton>
+          </Tooltip>
+        ) : searchText ? (
+          <>
+            <Tooltip title="Search">
+              <IconButton
+                type="button"
+                sx={{ p: "10px" }}
+                aria-label="search"
+                size="large"
+                onClick={onSubmitSearch}
+              >
+                <SearchIcon sx={{ fontSize: 30 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Clear search">
+              <IconButton
+                type="button"
+                sx={{ p: "10px" }}
+                aria-label="clear search"
+                size="large"
+                onClick={() => setSearchText("")}
+              >
+                <Cancel sx={{ fontSize: 30 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        ) : (
+          <Tooltip title="Search">
+            <IconButton
+              type="button"
+              sx={{ p: "10px" }}
+              aria-label="search"
+              size="large"
+              onClick={onSubmitSearch}
+            >
+              <SearchIcon sx={{ fontSize: 30 }} />
+            </IconButton>
+          </Tooltip>
         )}
       </Paper>
 
@@ -256,9 +478,9 @@ function Search() {
               />
             ) : null;
           })}
-          {selectedDocumentTypeIds.length > 0 && allDocTypes &&
+          {selectedDocumentTypeIds.length > 0 && allDocTypes && allDocTypes.result && allDocTypes.result.grouped_by_act &&
             Object.entries(allDocTypes.result.grouped_by_act).flatMap(([, types]) =>
-              Object.entries(types).map(([typeId, typeName]) =>
+              Object.entries(types || {}).map(([typeId, typeName]) =>
                 selectedDocumentTypeIds.includes(typeId) ? (
                   <Chip
                     key={typeId}
@@ -308,13 +530,33 @@ function Search() {
       >
         {!searchResults && !isPending && !error && <SearchLanding />}
         {isPending && <SearchSkelton />}
-        {error && <Typography>Error: {error.message}</Typography>}
+        {error && (
+          <Box 
+            sx={{ 
+              textAlign: 'center', 
+              mt: 4, 
+              p: 3, 
+              borderRadius: 2, 
+              backgroundColor: 'error.light',
+              color: 'error.contrastText'
+            }}
+          >
+            <Typography variant="h6" gutterBottom>
+              Search Error
+            </Typography>
+            <Typography variant="body1" gutterBottom>
+              {error.message || 'An error occurred while searching. Please try again.'}
+            </Typography>
+            <Typography variant="body2" sx={{ mt: 2, opacity: 0.8 }}>
+              If the problem persists, please contact support.
+            </Typography>
+          </Box>
+        )}
         {isSuccess && searchResults?.result && (
           <SearchResult 
             searchResults={searchResults} 
             searchText={searchText} 
-            searchStrategy={searchStrategy}
-            aiMode={aiMode}
+            searchMode={searchMode}
           />
         )}
       </Box>

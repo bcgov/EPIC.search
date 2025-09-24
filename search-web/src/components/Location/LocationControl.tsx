@@ -123,6 +123,20 @@ const LocationControl: React.FC<LocationControlProps> = ({
       );
     }
 
+    // isLocationEnabled is true but no locationData yet - need to request location
+    if (isLocationEnabled) {
+      return (
+        <Chip
+          icon={<MyLocation />}
+          label="Request Location"
+          variant="outlined"
+          size="small"
+          onClick={handleLocationToggle}
+        />
+      );
+    }
+
+    // Fallback - location not enabled
     return (
       <Chip
         icon={<MyLocation />}

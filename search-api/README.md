@@ -44,7 +44,7 @@ The Search API provides intelligent, LLM-powered search functionality with multi
 
 **Key Features:**
 
-- 🧠 **Intelligent Query Routing** - Context-aware 3-tier complexity analysis using real project/document data
+- 🧠 **Intelligent Query Routing** - 4-tier mode system (RAG/Summary/AI/Agent) with context-aware complexity analysis
 - 🛡️ **Query Relevance Validation** - LLM-powered EAO scope validation
 - 🔍 **Smart Parameter Extraction** - AI-powered project/document type detection with parallel processing
 - ⚡ **Search Strategy Optimization** - Intelligent search approach recommendations

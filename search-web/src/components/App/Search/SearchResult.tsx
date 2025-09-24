@@ -8,18 +8,34 @@ import RawResponseViewer from "./RawResponseViewer";
 import { SearchResponse, getDocumentsFromResponse, Document } from "@/models/Search";
 import { useSimilarSearch } from "@/hooks/useSimilarSearch";
 import { useState } from "react";
-import { SearchStrategy } from "@/hooks/useSearch";
+import { SearchMode } from "@/hooks/useSearch";
 
 interface SearchResultProps {
   searchResults: SearchResponse;
   searchText: string;
-  searchStrategy?: SearchStrategy;
-  aiMode?: boolean;
+  searchMode?: SearchMode;
 }
 
-const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: SearchResultProps) => {
-  const documents = getDocumentsFromResponse(searchResults);
-  const hasDocumentChunks = !!searchResults.result.document_chunks;
+const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultProps) => {
+  try {
+    // Safety check for searchResults
+    if (!searchResults || !searchResults.result) {
+      return (
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+          <Typography variant="h6" color="error">
+            No search results available
+          </Typography>
+        </Box>
+      );
+    }
+
+    const documents = getDocumentsFromResponse(searchResults);
+    const hasDocuments = !!searchResults.result.documents && searchResults.result.documents.length > 0;
+    const hasDocumentChunks = !!searchResults.result.document_chunks && searchResults.result.document_chunks.length > 0;
+    
+    // Separate full documents from chunks for better organization
+    const fullDocuments = searchResults.result.documents || [];
+    const documentChunks = searchResults.result.document_chunks || [];
   
   // Similar search state
   const [similarResults, setSimilarResults] = useState<{
@@ -160,13 +176,13 @@ const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: Sea
             gap: 1,
           }}
         >
-          {!aiMode && (
+          {searchMode === 'rag' && (
             <>
               <CategoryTwoTone color="primary" /> 
-              {hasDocumentChunks ? "Semantic Search Results" : "Document Search Results"}
+              Search Results {hasDocumentChunks && hasDocuments ? "(Documents & Chunks)" : hasDocumentChunks ? "(Document Chunks)" : "(Documents)"}
             </>
           )}
-          {aiMode && (
+          {searchMode !== 'rag' && (
             <Box
               sx={{
                 ml: 1,
@@ -189,160 +205,179 @@ const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: Sea
         </Typography>
       </Box>
 
-      {/* Group documents by project_id, then by document_id for chunks */}
-      {hasDocumentChunks ? (
-        // For document chunks: Project -> Document -> Chunks
-        Object.entries(
-          documents.reduce(
-            (projectGroups: Record<string, { 
-              projectName: string; 
-              documentGroups: Record<string, { 
-                document: Document; 
-                chunks: Document[] 
-              }> 
-            }>, document) => {
-              const projectId = document.project_id;
-              const documentId = document.document_id;
-              
-              if (!projectGroups[projectId]) {
-                projectGroups[projectId] = {
-                  projectName: document.project_name,
-                  documentGroups: {},
-                };
-              }
-              
-              if (!projectGroups[projectId].documentGroups[documentId]) {
-                projectGroups[projectId].documentGroups[documentId] = {
-                  document: document,
-                  chunks: [],
-                };
-              }
-              
-              projectGroups[projectId].documentGroups[documentId].chunks.push(document);
-              return projectGroups;
-            },
-            {}
-          )
-        ).map(([projectId, projectGroup], projectIndex) => (
-          <Box
-            key={projectIndex}
-            sx={{
-              width: "100%",
-              mb: 3,
-              pb: 2,
-              borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
-            }}
-          >
-            <Typography
-              variant="h4"
-              sx={{
-                pb: 1,
-                color: BCDesignTokens.themeBlue80,
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-              }}
-              aria-label={`Project ${projectId}`}
-            >
-              <CategoryTwoTone />
-              {projectGroup.projectName}
-            </Typography>
-            
-            {/* Document groups within this project */}
-            {Object.entries(projectGroup.documentGroups).map(([, documentGroup], documentIndex) => (
-              <Box key={documentIndex} sx={{ mb: 3 }}>
-                {/* Document header */}
-                <SearchDocumentGroupHeader 
-                  document={documentGroup.document} 
-                  onSimilarSearch={handleSimilarSearch}
-                />
+      {/* Render Document Chunks if they exist */}
+      {hasDocumentChunks && (
+        <Box sx={{ width: "100%" }}>
+          {/* Group document chunks by project_id, then by document_id */}
+          {Object.entries(
+            documentChunks.reduce(
+              (projectGroups: Record<string, { 
+                projectName: string; 
+                documentGroups: Record<string, { 
+                  document: Document; 
+                  chunks: Document[] 
+                }> 
+              }>, document) => {
+                const projectId = document.project_id;
+                const documentId = document.document_id;
                 
-                {/* Chunks for this document */}
-                <Grid container spacing={2} alignItems="stretch">
-                  {documentGroup.chunks.map((chunk, chunkIndex) => (
-                    <Grid
-                      item
-                      xs={12}
-                      md={6}
-                      lg={4}
-                      key={chunkIndex}
-                      sx={{ display: "flex" }}
-                    >
-                      <SearchDocumentCard
-                        document={chunk}
-                        searchText={searchText}
-                        isChunk={true}
-                        showSimilarButtons={false}
-                      />
-                    </Grid>
-                  ))}
-                </Grid>
-              </Box>
-            ))}
-          </Box>
-        ))
-      ) : (
-        // For full documents: Project -> Documents (existing logic)
-        Object.entries(
-          documents.reduce(
-            (groups: Record<string, { projectName: string; documents: typeof documents }>, document) => {
-              const projectId = document.project_id;
-              if (!groups[projectId]) {
-                groups[projectId] = {
-                  projectName: document.project_name,
-                  documents: [],
-                };
-              }
-              groups[projectId].documents.push(document);
-              return groups;
-            },
-            {}
-          )
-        ).map(([projectId, group], index) => (
-          <Box
-            key={index}
-            sx={{
-              width: "100%",
-              mb: 3,
-              pb: 2,
-              borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
-            }}
-          >
-            <Typography
-              variant="h4"
+                if (!projectGroups[projectId]) {
+                  projectGroups[projectId] = {
+                    projectName: document.project_name,
+                    documentGroups: {},
+                  };
+                }
+                
+                if (!projectGroups[projectId].documentGroups[documentId]) {
+                  projectGroups[projectId].documentGroups[documentId] = {
+                    document: document,
+                    chunks: [],
+                  };
+                }
+                
+                projectGroups[projectId].documentGroups[documentId].chunks.push(document);
+                return projectGroups;
+              },
+              {}
+            )
+          ).map(([projectId, projectGroup], projectIndex) => (
+            <Box
+              key={`chunks-${projectIndex}`}
               sx={{
-                pb: 1,
-                color: BCDesignTokens.themeBlue80,
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
+                width: "100%",
+                mb: 3,
+                pb: 2,
+                borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
               }}
-              aria-label={`Project ${projectId}`}
             >
-              <CategoryTwoTone />
-              {group.projectName}
-            </Typography>
-            <Grid container spacing={2} alignItems="stretch">
-              {group.documents.map((document, docIndex) => (
-                <Grid
-                  item
-                  xs={12}
-                  md={6}
-                  lg={4}
-                  key={docIndex}
-                  sx={{ display: "flex" }}
-                >
-                  <SearchDocumentCard
-                    document={document}
-                    searchText={searchText}
-                    isChunk={false}
+              <Typography
+                variant="h4"
+                sx={{
+                  pb: 1,
+                  color: BCDesignTokens.themeBlue80,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+                aria-label={`Project ${projectId}`}
+              >
+                <CategoryTwoTone />
+                {projectGroup.projectName}
+              </Typography>
+              
+              {/* Document groups within this project */}
+              {Object.entries(projectGroup.documentGroups).map(([, documentGroup], documentIndex) => (
+                <Box key={`chunk-doc-${documentIndex}`} sx={{ mb: 3 }}>
+                  {/* Document header */}
+                  <SearchDocumentGroupHeader 
+                    document={documentGroup.document} 
                     onSimilarSearch={handleSimilarSearch}
                   />
-                </Grid>
+                  
+                  {/* Chunks for this document */}
+                  <Grid container spacing={2} alignItems="stretch">
+                    {documentGroup.chunks.map((chunk, chunkIndex) => (
+                      <Grid
+                        item
+                        xs={12}
+                        md={6}
+                        lg={4}
+                        key={`chunk-${chunkIndex}`}
+                        sx={{ display: "flex" }}
+                      >
+                        <SearchDocumentCard
+                          document={chunk}
+                          searchText={searchText}
+                          isChunk={true}
+                          showSimilarButtons={false}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
               ))}
-            </Grid>
-          </Box>
-        ))
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Divider between sections if both exist */}
+      {hasDocumentChunks && hasDocuments && (
+        <Box sx={{ 
+          width: "100%", 
+          height: "2px", 
+          backgroundColor: BCDesignTokens.themeBlue80, 
+          my: 4,
+          borderRadius: "1px"
+        }} />
+      )}
+
+      {/* Render Full Documents if they exist */}
+      {hasDocuments && (
+        <Box sx={{ width: "100%" }}>
+          {/* Group full documents by project */}
+          {Object.entries(
+            fullDocuments.reduce(
+              (groups: Record<string, { projectName: string; documents: Document[] }>, document) => {
+                const projectId = document.project_id;
+                if (!groups[projectId]) {
+                  groups[projectId] = {
+                    projectName: document.project_name,
+                    documents: [],
+                  };
+                }
+                groups[projectId].documents.push(document);
+                return groups;
+              },
+              {}
+            )
+          ).map(([projectId, group], index) => (
+            <Box
+              key={`docs-${index}`}
+              sx={{
+                width: "100%",
+                mb: 3,
+                pb: 2,
+                borderBottom: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
+              }}
+            >
+              <Typography
+                variant="h4"
+                sx={{
+                  pb: 1,
+                  color: BCDesignTokens.themeBlue80,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+                aria-label={`Project ${projectId}`}
+              >
+                <CategoryTwoTone />
+                {group.projectName}
+              </Typography>
+              <Grid container spacing={2} alignItems="stretch">
+                {group.documents.map((document, docIndex) => (
+                  <Grid
+                    item
+                    xs={12}
+                    md={6}
+                    lg={4}
+                    key={`doc-${docIndex}`}
+                    sx={{ display: "flex" }}
+                  >
+                    <SearchDocumentCard
+                      document={document}
+                      searchText={searchText}
+                      isChunk={false}
+                      onSimilarSearch={handleSimilarSearch}
+                      showSimilarButtons={true}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          ))}
+        </Box>
       )}
       
       {/* Floating Action Button for Raw Response */}
@@ -367,6 +402,16 @@ const SearchResult = ({ searchResults, searchText, searchStrategy, aiMode }: Sea
       </Tooltip>
     </>
   );
+} catch (error) {
+  console.error('Error rendering search results:', error);
+  return (
+    <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+      <Typography variant="h6" color="error">
+        Error displaying search results. Please try again.
+      </Typography>
+    </Box>
+  );
+}
 };
 
 export default SearchResult;

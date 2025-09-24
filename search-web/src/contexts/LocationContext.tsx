@@ -26,7 +26,7 @@ const LocationContext = createContext<LocationContextType | null>(null);
 // Cache keys
 const LOCATION_CACHE_KEY = 'epic_search_user_location';
 const LOCATION_ENABLED_KEY = 'epic_search_location_enabled';
-const LOCATION_PERMISSION_KEY = 'epic_search_location_permission';
+// const LOCATION_PERMISSION_KEY = 'epic_search_location_permission';
 
 // Cache duration: 30 minutes
 const CACHE_DURATION_MS = 30 * 60 * 1000;
@@ -229,6 +229,13 @@ export const LocationProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setIsLoading(false);
     }
   }, []);
+
+  // Auto-request location if enabled and permission granted but no data
+  useEffect(() => {
+    if (isLocationEnabled && hasPermission === true && !locationData && !isLoading && !error) {
+      requestLocation();
+    }
+  }, [isLocationEnabled, hasPermission, locationData, isLoading, error, requestLocation]);
 
   const refreshLocation = useCallback(async () => {
     if (isLocationEnabled && (hasPermission || hasPermission === null)) {

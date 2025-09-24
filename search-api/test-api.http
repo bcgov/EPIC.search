@@ -205,6 +205,82 @@ Accept: application/json
 
 ###
 # =============================================================================
+# MODE PARAMETER TESTING
+# =============================================================================
+
+###
+# Mode: RAG (Default) - Basic document retrieval without AI processing
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What is the environmental impact of the project?",
+  "mode": "rag"
+}
+
+###
+# Mode: SUMMARY - RAG with AI summarization only
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What are the main environmental concerns?",
+  "mode": "summary",
+  "ranking": {
+    "topN": 10
+  }
+}
+
+###
+# Mode: AI - Full AI processing with parameter extraction
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "Show me environmental reports for the northeast region",
+  "mode": "ai",
+  "ranking": {
+    "topN": 15
+  }
+}
+
+###
+# Mode: AGENT - Full agentic processing for complex queries
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What are the cumulative environmental impacts across all project phases and how do they compare to regulatory thresholds?",
+  "mode": "agent",
+  "ranking": {
+    "topN": 20
+  }
+}
+
+###
+# Mode: AGENT - Complex temporal query that benefits from consolidation
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "Compare project timelines before 2020 with recent projects from 2023-2024 in British Columbia",
+  "mode": "agent",
+  "ranking": {
+    "topN": 25
+  }
+}
+
+###
+# Mode: Default (should fallback to RAG)
+POST {{baseUrl}}/search/query
+Content-Type: {{contentType}}
+
+{
+  "question": "What permits are required for construction?"
+}
+
+###
+# =============================================================================
 # TEST SCENARIOS
 # =============================================================================
 
@@ -359,27 +435,33 @@ Content-Type: {{contentType}}
 #    - doc-type-1, doc-type-2 -> actual document type IDs
 #    - document-id-from-search-results -> actual document ID
 #
-# 2. Search Strategy Options:
+# 3. Mode Options:
+#    - rag: Basic retrieval without AI processing (default)
+#    - summary: RAG search with AI summarization only
+#    - ai: Full AI processing with intelligent parameter extraction
+#    - agent: Advanced agentic processing for complex multi-step queries
+#
+# 4. Search Strategy Options:
 #    - HYBRID_PARALLEL (default)
 #    - HYBRID_KEYWORD_FALLBACK
 #    - SEMANTIC_ONLY
 #    - KEYWORD_ONLY
 #
-# 3. Inference Options:
+# 5. Inference Options:
 #    - PROJECT: Auto-infer relevant projects
 #    - DOCUMENTTYPE: Auto-infer relevant document types
 #
-# 4. Ranking Parameters:
+# 6. Ranking Parameters:
 #    - minScore: 0.0-1.0 (minimum relevance score)
 #    - topN: 1-1000 (maximum results)
 #
-# 5. Expected Response Times:
+# 7. Expected Response Times:
 #    - Simple queries: 200-800ms
 #    - Complex queries: 1-3s
 #    - Discovery endpoints: 50-200ms (cached)
 #    - Statistics: 100-500ms
 #
-# 6. Test with different base URLs:
+# 8. Test with different base URLs:
 #    - Local: http://localhost:8081/api
 #    - Development: https://dev-search-api.example.com/api
 #    - Production: https://search-api.example.com/api

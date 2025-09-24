@@ -14,10 +14,8 @@ class OpenAIParameterExtractor(BaseParameterExtractor):
     
     def _make_llm_call(self, messages: List[Dict], temperature: float = 0.1) -> Dict[str, Any]:
         """Make OpenAI chat completion call."""
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
+        return self.client.chat_completion(
             messages=messages,
             temperature=temperature,
             max_tokens=1000
         )
-        return response.model_dump()

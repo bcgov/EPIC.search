@@ -49,7 +49,10 @@ class VectorSearchClient:
         try:
             base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
             vector_search_url = f"{base_url}/vector-search"
-            payload = {"query": query}
+            
+            # Use semantic_query as the primary query if provided, otherwise use the original query
+            primary_query = semantic_query if semantic_query else query
+            payload = {"query": primary_query}
             
             # Add optional parameters if provided - maintains backward compatibility
             if project_ids:
@@ -66,15 +69,12 @@ class VectorSearchClient:
                 payload["ranking"] = ranking
             if search_strategy:
                 payload["searchStrategy"] = search_strategy
-            if semantic_query:
-                payload["semanticQuery"] = semantic_query  # Cleaned query for better semantic search
+            # Note: We don't send semanticQuery separately since we're using it as the primary query
                 
             current_app.logger.info(f"Calling vector search API at address: {vector_search_url}")
-            current_app.logger.info(f"🔍 VECTOR API CALL - Project IDs: {payload.get('projectIds', [])}")
-            current_app.logger.info(f"🔍 VECTOR API CALL - Document Type IDs: {payload.get('documentTypeIds', [])}")
-            current_app.logger.info(f"🔍 VECTOR API CALL - Search Strategy: {payload.get('searchStrategy', 'None')}")
-            current_app.logger.info(f"🔍 VECTOR API CALL - Semantic Query: {payload.get('semanticQuery', 'None')}")
             current_app.logger.info(f"Search payload: {payload}")
+            if semantic_query:
+                current_app.logger.info(f"Using semantic query as primary query: '{semantic_query}' (original: '{query}')")
             response = requests.post(vector_search_url, json=payload, timeout=300)
             response.raise_for_status()
 
@@ -176,7 +176,7 @@ class VectorSearchClient:
         Endpoint: GET /tools/document-types
         
         Returns:
-            dict: Document types with metadata and aliases
+            list: Array of document type objects with document_type_id and document_type_name for consistency with get_projects_list
         """
         try:
             base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
@@ -186,12 +186,31 @@ class VectorSearchClient:
             response = requests.get(vector_search_url, timeout=300)
             response.raise_for_status()
             
-            return response.json()
+            data = response.json()
+            
+            # Normalize the response format to be consistent with get_projects_list
+            # Convert from {id: {name: "Letter", aliases: [...]}} to [{document_type_id: "id", document_type_name: "Letter", aliases: [...]}]
+            document_types_dict = data.get('document_types', {})
+            normalized_document_types = []
+            
+            for doc_type_id, doc_type_data in document_types_dict.items():
+                if isinstance(doc_type_data, dict) and 'name' in doc_type_data:
+                    normalized_doc_type = {
+                        'document_type_id': doc_type_id,
+                        'document_type_name': doc_type_data['name'],
+                        'aliases': doc_type_data.get('aliases', []),
+                        'act': doc_type_data.get('act', '')
+                    }
+                    normalized_document_types.append(normalized_doc_type)
+            
+            current_app.logger.info(f"Normalized {len(normalized_document_types)} document types from API response")
+            return normalized_document_types
         except Exception as e:
             current_app.logger.error(f"Error calling vector search document types API: {str(e)}")
-            return {}
+            return []
 
     @staticmethod
+    @cache_with_ttl(ttl_seconds=86400)  # Cache for 24 hours (86400 seconds)
     def get_document_type_details(type_id):
         """Get detailed information for a specific document type.
         
@@ -246,14 +265,14 @@ class VectorSearchClient:
         """Get available ML inference services and options.
         
         
-        Endpoint: GET /inference-options
+        Endpoint: GET /tools/inference-options
         
         Returns:
             dict: Available inference services with capabilities
         """
         try:
             base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
-            vector_search_url = f"{base_url}/inference-options"
+            vector_search_url = f"{base_url}/tools/inference-options"
             
             current_app.logger.info(f"Calling vector search inference options API at: {vector_search_url}")
             response = requests.get(vector_search_url, timeout=300)
@@ -269,14 +288,14 @@ class VectorSearchClient:
         """Complete API metadata discovery for adaptive clients.
         
         
-        Endpoint: GET /capabilities
+        Endpoint: GET /tools/api-capabilities
         
         Returns:
             dict: Complete API metadata and endpoint discovery
         """
         try:
             base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
-            vector_search_url = f"{base_url}/capabilities"
+            vector_search_url = f"{base_url}/tools/api-capabilities"
             
             current_app.logger.info(f"Calling vector search capabilities API at: {vector_search_url}")
             response = requests.get(vector_search_url, timeout=300)

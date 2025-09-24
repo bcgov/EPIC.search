@@ -866,29 +866,38 @@ The Search API now serves as a **complete proxy and intelligent wrapper** around
 - `/api/agentic/orchestrated-search` - Full agentic orchestration
 - `/api/agentic/health` - Agentic health check
 
-### **3-Tier Query Complexity System**
+### **Query Complexity Analysis System**
 
-The Search API now features an intelligent **3-tier query complexity analysis** system that automatically routes queries to the most appropriate processing method for optimal performance and accuracy.
+The Search API features an intelligent **query complexity analysis** system that works within the AI and Agent processing modes to optimize query routing and processing efficiency.
 
-#### **Complexity Tiers**
+**🔧 How Complexity Analysis Works:**
 
-##### 🟢 SIMPLE Queries → Basic RAG Search
+- **RAG Mode**: No complexity analysis - direct vector search
+- **Summary Mode**: No complexity analysis - direct vector search + AI summarization  
+- **AI Mode**: Uses complexity analysis to optimize parameter extraction
+- **Agent Mode**: Uses complexity analysis to determine if agent stub processing is needed
 
-- **Direct RAG Processing**: Queries that can be handled by the RAG engine alone
+#### **Complexity Tiers (Used in AI and Agent Modes)**
+
+##### 🟢 SIMPLE Queries → Streamlined Processing
+
+- **In AI Mode**: Simplified parameter extraction with focused LLM calls
+- **In Agent Mode**: Uses AI processing without triggering agent stub
 - **UI Context Provided**: Project IDs or document type IDs selected in the UI
-- **Basic Content Searches**: Simple entity mentions that don't require parameter extraction
+- **Basic Content Searches**: Simple entity mentions that don't require complex parameter extraction
 - Examples:
   - `"Letters that mention the 'Nooaitch Indian Band'"` + project IDs provided
   - `"Documents about First Nations consultation"` + document type IDs provided  
-  - `"Environmental reports"` (basic content search, handled by RAG)
+  - `"Environmental reports"` (basic content search)
   - `"Correspondence from Anderson Mountain project"` (if project in available list)
 
-- **Processing**: Direct to RAG with minimal processing
-- **Speed**: Fastest (no complex LLM parameter extraction needed)
+- **Processing**: Streamlined LLM parameter extraction
+- **Speed**: Fast (optimized LLM usage)
 
-##### 🟡 COMPLEX Queries → NLP Parameter Extraction Required
+##### 🟡 COMPLEX Queries → Full Parameter Extraction
 
-- **NLP Extraction Needed**: Queries requiring natural language processing to fill in parameters
+- **In AI Mode**: Complete NLP parameter extraction and optimization
+- **In Agent Mode**: Full parameter extraction without agent stub activation
 - **Ambiguous References**: Need to resolve vague terms to specific system parameters
 - **Parameter Mapping**: Extract and map natural language to structured search parameters
 - Examples:
@@ -897,11 +906,13 @@ The Search API now features an intelligent **3-tier query complexity analysis** 
   - `"Reports for that mountain project we discussed"` (need entity resolution)
   - `"All environmental assessments"` (need to map to specific document types)
 
-- **Processing**: NLP-powered parameter extraction and entity resolution
-- **Speed**: Standard (focused LLM extraction for parameter mapping)
+- **Processing**: Full NLP-powered parameter extraction and entity resolution
+- **Speed**: Standard (comprehensive LLM extraction for parameter mapping)
 
-##### 🔴 AGENT REQUIRED Queries → ✅ **IMPLEMENTED** Agent Processing
+##### 🔴 AGENT REQUIRED Queries → ✅ Full Agent Processing
 
+- **In AI Mode**: Full parameter extraction without agent stub (same as COMPLEX processing)
+- **In Agent Mode**: **Activates agent stub** with advanced processing capabilities
 - **Advanced Operations**: Temporal, comparative, analytical, or location-based queries
 - **Complex Logic**: Broad searches requiring context understanding and reasoning
 - **Multi-step Processing**: Queries needing sophisticated query enhancement
@@ -915,16 +926,16 @@ The Search API now features an intelligent **3-tier query complexity analysis** 
 
 - **Processing**: **✅ Agent Stub with dual planning** (LLM + rule-based fallback)
 - **Features**: Query enhancement, tool execution, location awareness, keyword stuffing
-- **Speed**: Optimized with intelligent enhancement and caching
+- **Speed**: Comprehensive (optimized with intelligent enhancement and caching)
 
 #### **Intelligent Routing Benefits**
 
-- **⚡ Performance Optimization**: SIMPLE queries go directly to RAG without parameter extraction overhead
-- **🎯 Focused Processing**: COMPLEX queries get targeted NLP extraction only when needed
-- **🤖 Advanced Processing**: AGENT_REQUIRED queries trigger sophisticated enhancement and reasoning
+- **🎯 Mode-Based Control**: Users choose processing level (RAG → Summary → AI → Agent)
+- **⚡ Performance Optimization**: Complexity analysis optimizes processing within AI/Agent modes
+- **�️ Right-Sized Processing**: Each query gets exactly the level of processing requested
+- **🤖 Smart Agent Activation**: Agent stub only triggers for AGENT_REQUIRED queries in Agent mode
 - **🛡️ Robust Fallbacks**: System gracefully degrades on analysis failures
-- **📊 Transparency**: Full logging and metrics for each complexity tier
-- **🎚️ Right-Sized Processing**: Each query gets exactly the level of processing it needs
+- **📊 Transparency**: Full logging and metrics for each processing mode and complexity tier
 
 #### **Implementation Details**
 
@@ -955,21 +966,152 @@ The complexity analyzer fetches real-time data to improve classification accurac
 - **🔄 Dynamic Updates**: Context automatically updates as projects and document types change
 - **🛡️ Fallback Logic**: Uses general patterns when API context unavailable
 
-### **How Agentic Functionality Works Now**
+### **How the 4-Tier Processing System Works**
 
-The agentic functionality is **internalized** and only available through:
+The Search API now provides five distinct processing modes through the `mode` parameter:
 
 ```json
 POST /api/search/query
 {
-  "query": "For the South Anderson Mountain Resort project I want all letters that mention the 'Nooaitch Indian Band'",
-  "agentic": true
+  "query": "Your search query here",
+  "mode": "rag|summary|ai|agent|auto",  // defaults to "rag"
+  "projectIds": [1, 2, 3],
+  "documentTypeIds": [4, 5, 6]
 }
 ```
 
-**Agentic Mode Processing Flow:**
+### **Processing Mode Details:**
 
-1. **🛡️ Query Relevance Validation** (NEW)
+#### **🤖 Auto Mode** (`mode: "auto"` - Recommended)
+
+```json
+{
+  "query": "For projects near my address, show me documents about environmental impacts",
+  "mode": "auto"
+}
+```
+
+- **Intelligent mode selection** based on query complexity analysis
+- **Automatically chooses** the optimal processing tier:
+  - Simple queries → **Summary Mode** (RAG + AI summarization)
+  - Complex queries → **AI Mode** (parameter extraction + processing)
+  - Agent-required queries → **Agent Mode** (multi-step reasoning)
+- **User-provided parameters always take precedence**
+- **Best user experience** with optimal performance for each query type
+- **Use case**: When you want the API to automatically select the best processing approach
+
+#### **🟢 RAG Mode** (`mode: "rag"` - Default)
+
+```json
+{
+  "query": "Environmental reports",
+  "mode": "rag",
+  "projectIds": [1, 2, 3]
+}
+```
+
+- **Direct vector search** with provided parameters
+- **No LLM processing** - fastest performance
+- **Use case**: When UI provides all necessary context
+
+#### **🟦 Summary Mode** (`mode: "summary"`)
+
+```json
+{
+  "query": "What are the main environmental concerns?",
+  "mode": "summary",
+  "projectIds": [1, 2, 3]
+}
+```
+
+- **Direct vector search** with provided parameters
+- **AI summarization only** - No parameter extraction
+- **Use case**: When you want RAG results with LLM-generated summary
+- **Performance**: Fast search + moderate LLM processing
+
+#### **🟡 AI Mode** (`mode: "ai"`)
+
+```json
+{
+  "query": "Show me environmental docs for the pipeline project",
+  "mode": "ai"
+}
+```
+
+- **Query validation** (relevance check)
+- **Complexity analysis**
+- **Parameter extraction** (maps "environmental docs" → specific doc types)
+- **LLM summarization**
+- **No agent stub** (no tool executions)
+
+#### **🔴 Agent Mode** (`mode: "agent"`)
+
+```json
+{
+  "query": "Compare environmental impacts across projects from before 2020",
+  "mode": "agent"
+}
+```
+
+- **Full AI processing** (validation, analysis, extraction, summarization)
+- **Agent stub execution** for AGENT_REQUIRED queries
+- **Advanced features**: Tool executions, dual planning, keyword stuffing
+- **🔗 Result consolidation**: Automatically merges and deduplicates results from multiple agent searches with main search
+- **Use case**: Complex temporal, comparative, or analytical queries
+
+### **📊 Mode Comparison Table**
+
+| Feature | RAG | Summary | AI | Agent | Auto |
+|---------|-----|---------|-----|--------|------|
+| **Vector Search** | ✅ Direct | ✅ Direct | ✅ Enhanced | ✅ Enhanced | 🤖 Adaptive |
+| **Query Validation** | ❌ None | ❌ None | ✅ LLM | ✅ LLM | 🤖 Adaptive |
+| **Parameter Extraction** | ❌ None | ❌ None | ✅ LLM | ✅ LLM | 🤖 Adaptive |
+| **AI Summarization** | ❌ None | ✅ LLM | ✅ LLM | ✅ LLM | 🤖 Adaptive |
+| **Agent Processing** | ❌ None | ❌ None | ❌ None | ✅ Full | 🤖 When needed |
+| **Result Consolidation** | ❌ None | ❌ None | ❌ None | ✅ Multi-search merge | 🤖 When needed |
+| **Mode Selection** | 🎯 Fixed | 🎯 Fixed | 🎯 Fixed | 🎯 Fixed | 🧠 Intelligent |
+| **Performance** | 🚀 Fastest | ⚡ Fast | 🔄 Moderate | 🐌 Comprehensive | ⚖️ Optimal |
+| **Use Case** | UI has context | Want summaries | Need extraction | Complex analysis | Best experience |
+| **Processing Time** | ~200ms | ~800ms | ~1-2s | ~2-4s | Variable |
+| **LLM Calls** | 0 | 1 (summary) | 3-4 (extract+summary) | 5-8 (full pipeline) | 1-8 (adaptive) |
+
+### **🎯 Quick Mode Selection Guide**
+
+**Choose Auto when:** ⭐ **RECOMMENDED**
+
+- You want the best user experience with optimal performance
+- Let the API automatically select the most appropriate processing tier
+- User-provided parameters are still respected and take precedence
+- Ideal for most applications and general-purpose usage
+
+**Choose RAG when:**
+
+- UI already provides project IDs and document types
+- You need fastest possible response times
+- Simple content retrieval without AI enhancement
+
+**Choose Summary when:**
+
+- You have the right search parameters but want AI-generated summaries
+- Need more intelligent responses than raw document chunks
+- Want moderate AI enhancement without parameter extraction overhead
+
+**Choose AI when:**
+
+- Query contains vague terms like "environmental docs for pipeline project"
+- Need intelligent parameter extraction and mapping
+- Want full LLM summarization with optimized search parameters
+
+**Choose Agent when:**
+
+- Complex analytical queries: "Compare impacts across projects from before 2020"
+- Temporal analysis: "Show recent changes in environmental policies"
+- Location-based analysis: "Projects near indigenous communities"
+- Multi-step reasoning required
+
+### **AI Processing Flow (Summary, AI and Agent Modes):**
+
+1. **🛡️ Query Relevance Validation** (AI and Agent modes only)
    - Uses LLM-powered query validation service
    - Validates if query is EAO/environmental assessment related
    - For non-relevant queries (e.g., "Who won the soccer world cup?"):
@@ -977,24 +1119,29 @@ POST /api/search/query
      - Prevents unnecessary processing
      - Includes confidence score and reasoning
 
-2. **🔍 Multi-Step Parameter Extraction**
+2. **🔍 Multi-Step Parameter Extraction** (AI and Agent modes only)
    - Uses direct LLM integration for AI-powered analysis
    - Step 1: Extracts project IDs with fuzzy matching
    - Step 2: Extracts document types via comprehensive alias search
    - Step 3: Optimizes search strategy and generates semantic query
 
-3. **⚡ Search Strategy Optimization**
+3. **⚡ Search Strategy Optimization** (AI and Agent modes only)
    - Uses direct LLM service integration
    - Recommends optimal search approach based on query type
    - Provides confidence scores and explanations
 
-4. **🎯 Agent-Required Query Processing** (NEW)
+4. **📝 LLM Summarization** (Summary, AI and Agent modes)
+   - Uses LLM to generate coherent summaries of search results
+   - Provides contextually relevant responses based on retrieved documents
+   - Available in all modes except pure RAG
+
+5. **🎯 Agent-Required Query Processing** (Agent mode only)
    - **Complexity Analysis**: Advanced queries trigger agent-mode processing
    - **Dual Planning**: LLM-based planning (preferred) with rule-based fallback
    - **Tool Execution**: Multi-step execution with comprehensive tool support
    - **Location-Aware Processing**: Supports userLocation in request body to avoid CORS
 
-5. **🔍 Intelligent Query Enhancement** (NEW)
+6. **🔍 Intelligent Query Enhancement** (Agent mode only)
    - **Temporal Keyword Stuffing**: Automatically enhances time-related queries
      - "before 2020" → adds "2019 2018 2017 before 2020"
      - "recent projects" → adds "2023 2024 2025 recent latest"
@@ -1004,7 +1151,14 @@ POST /api/search/query
    - **Universal Enhancement**: Works across both LLM and rule-based planning
    - **Transparent Logging**: All query enhancements logged for debugging
 
-6. **🌍 Location Context Support** (NEW)
+7. **🔗 Agent Result Consolidation** (Agent mode only)
+   - **Multi-Search Results**: Automatically merges document chunks from multiple agent tool executions
+   - **Intelligent Deduplication**: Removes duplicate chunks using document_id + page_number + content hash
+   - **Result Sorting**: Sorts consolidated results by relevance score for optimal ranking
+   - **Comprehensive Coverage**: Combines agent reconnaissance results with main search results
+   - **Transparency**: Provides consolidation metrics including chunks added/updated
+
+8. **🌍 Location Context Support** (Agent mode only)
    - **Request Body Location**: Accepts userLocation in POST body (avoids CORS)
    - **Geographic Enhancement**: Intelligently adds regional context
    - **BC Default Context**: Falls back to British Columbia scope when no location provided
@@ -1039,6 +1193,51 @@ POST /api/search/query
 ```json
 // Input query: "recent local environmental assessments"
 // Enhanced to: "recent local environmental assessments 2023 2024 2025 recent latest British Columbia BC"
+```
+
+#### **Agent Result Consolidation Benefits**
+
+**📊 Example Consolidation Process:**
+
+```json
+// Agent execution plan with 3 searches:
+{
+  "execution_plan": [
+    {"tool": "search", "query": "project timeline 2023 2024 recent", "results": [chunk1, chunk2]},
+    {"tool": "search", "query": "project timeline 2022 planned future", "results": [chunk2, chunk3]},
+    {"tool": "search", "query": "environmental assessment Langford", "results": [chunk4, chunk5]}
+  ]
+}
+
+// Main search result: [chunk6, chunk7]
+
+// Final consolidated result:
+// [chunk1, chunk2, chunk3, chunk4, chunk5, chunk6, chunk7] - deduplicated and sorted by relevance
+```
+
+**✅ Consolidation Advantages:**
+
+- **🎯 Comprehensive Coverage**: Users get document chunks from all agent searches, not just main search
+- **🔍 Enhanced Discovery**: Agent's targeted searches often find unique document chunks
+- **⚡ Smart Deduplication**: Removes duplicate chunks while preserving best relevance scores  
+- **📈 Higher Value**: Agent mode processing time is justified by significantly more results
+- **🔬 Targeted Searches**: Each agent search can use specialized queries for different aspects
+
+**📊 Consolidation Metrics:**
+
+```json
+{
+  "consolidation": {
+    "consolidation_performed": true,
+    "agent_search_executions": 3,
+    "agent_documents_found": 8,
+    "main_search_documents": 5,
+    "agent_documents_added": 6,
+    "agent_documents_updated": 2,
+    "total_unique_documents": 13,
+    "documents_key_used": "document_chunks"
+  }
+}
 ```
 
 **Response includes:**

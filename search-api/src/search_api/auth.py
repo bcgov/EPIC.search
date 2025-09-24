@@ -14,8 +14,9 @@
 """Bring in the common JWT Manager."""
 import logging
 from functools import wraps
+from http import HTTPStatus
 
-from flask import g, request
+from flask import g, request, jsonify
 from flask_jwt_oidc import JwtManager
 from flask_jwt_oidc.exceptions import AuthError
 
@@ -51,9 +52,13 @@ class Auth:  # pylint: disable=too-few-public-methods
                 
                 return jwt_decorated(*args, **kwargs)
             except AuthError as e:
-                logging.error(f"JWT Authentication failed: {e}")
-                logging.error(f"AuthError details: {e.error}")
-                raise
+                logging.warning(f"JWT Authentication failed: {e.error}")
+                # Return proper 401 response as raw dict (Flask-RESTX will serialize it)
+                return {
+                    "error": "Unauthorized",
+                    "message": "Authentication required",
+                    "code": e.error.get('code', 'authorization_required')
+                }, HTTPStatus.UNAUTHORIZED
             except Exception as e:
                 logging.error(f"Unexpected auth error: {e}")
                 raise

@@ -32,22 +32,34 @@ const SearchDocumentChunkCard = ({
 
   // Function to highlight search text in content
   const highlightSearchText = (text: string, searchTerm: string) => {
-    if (!searchTerm.trim()) return text;
+    // Safety checks
+    if (!text || typeof text !== 'string') {
+      return text || '';
+    }
+    
+    if (!searchTerm || typeof searchTerm !== 'string' || !searchTerm.trim()) {
+      return text;
+    }
 
-    const parts = text.split(new RegExp(`(${searchTerm})`, "gi"));
+    try {
+      const parts = text.split(new RegExp(`(${searchTerm})`, "gi"));
 
-    return parts.map((part, index) =>
-      part.toLowerCase() === searchTerm.toLowerCase() ? (
-        <span
-          key={index}
-          style={{ backgroundColor: BCDesignTokens.themeGold40 }}
-        >
-          {part}
-        </span>
-      ) : (
-        part
-      )
-    );
+      return parts.map((part, index) =>
+        part.toLowerCase() === searchTerm.toLowerCase() ? (
+          <span
+            key={index}
+            style={{ backgroundColor: BCDesignTokens.themeGold40 }}
+          >
+            {part}
+          </span>
+        ) : (
+          part
+        )
+      );
+    } catch (error) {
+      console.warn('Error highlighting text:', error);
+      return text;
+    }
   };
 
   return (

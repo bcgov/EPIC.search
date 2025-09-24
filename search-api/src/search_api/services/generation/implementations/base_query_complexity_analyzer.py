@@ -37,11 +37,19 @@ class BaseQueryComplexityAnalyzer(QueryComplexityAnalyzer):
             # No fallback - work without project context
         
         try:
-            # Get available document types from vector search API
-            document_types_data = VectorSearchClient.get_document_types()
+            # Get available document types from vector search API (now returns array directly)
+            document_types_array = VectorSearchClient.get_document_types()
             
-            if isinstance(document_types_data, dict) and document_types_data:
-                available_document_types = document_types_data.get('document_types', {})
+            # Convert array to dictionary format for compatibility with existing logic
+            if isinstance(document_types_array, list):
+                for doc_type in document_types_array:
+                    if isinstance(doc_type, dict) and 'document_type_id' in doc_type:
+                        doc_type_id = doc_type['document_type_id']
+                        available_document_types[doc_type_id] = {
+                            'name': doc_type.get('document_type_name', ''),
+                            'aliases': doc_type.get('aliases', []),
+                            'act': doc_type.get('act', '')
+                        }
                 logger.info(f"🧠 COMPLEXITY: Found {len(available_document_types)} available document types")
                 
         except Exception as e:
@@ -144,11 +152,13 @@ CLASSIFICATION RULES:
 - Comparison words: "compare", "versus", "similar projects"
 - Trend analysis: "trends", "evolution", "patterns over time"
 - Conditional logic: "if project had", "when conditions"
-- Location analysis: "looking for project near me", "within 10 miles of", "nearby projects"
+- Location analysis: "looking for project near me", "within 10 miles of", "nearby projects", "near my address", "local projects"
+- Impact analysis: "impact on traffic", "effect on populations", "environmental impacts"
 - Complex logic with AND/OR/NOT/BUT NOT operations
 - Multiple projects mentioned OR vague project names like "mountain projects"
 - Cross-references between projects requiring analysis
 - Broad searches like "anything related to" requiring context understanding
+- Multi-faceted queries combining location + entities + impacts
 
 CRITICAL ANALYSIS:
 Look for these keywords in "{query}":
@@ -174,6 +184,7 @@ EXAMPLES:
 - "Documents from before 2020" → AGENT_REQUIRED (temporal)
 - "LNG Canada project environmental reports" → SIMPLE (if project + doc type both in lists)
 - "anything related to First Nations" → AGENT_REQUIRED (broad search requiring context understanding)
+- "projects near my address that mention beaver populations impact on traffic" → AGENT_REQUIRED (location + multi-faceted impact analysis)
 
 JSON response only:
 {{
@@ -258,7 +269,10 @@ JSON response only:
                     r'\bevolved\b', r'\bpattern\b', r'\bpatterns\b', 
                     r'similar projects', r'across projects', r'\bbut not\b', 
                     r'\band not\b', r'mountain projects', r'all projects', 
-                    r'any projects', r'anything related', r'\bmultiple projects\b'
+                    r'any projects', r'anything related', r'\bmultiple projects\b',
+                    r'near my', r'near me', r'nearby', r'local', r'in my area',
+                    r'impact on', r'effect on', r'influence on', r'affect.*traffic',
+                    r'traffic.*impact', r'population.*impact', r'environmental.*impact'
                 ]
                 
                 agent_detected = any(re.search(pattern, query_lower) for pattern in agent_patterns)
@@ -288,22 +302,9 @@ JSON response only:
                 
                 # Add function suggestions if agent mode required
                 if tier == "agent_required":
-                    logger.info("💡 COMPLEXITY: Agent mode required - generating function suggestions...")
-                    function_suggestions = self._generate_function_suggestions(query, final_result)
-                    final_result["function_suggestions"] = function_suggestions
-                    
-                    if function_suggestions:
-                        logger.info(f"💡 COMPLEXITY: Generated {len(function_suggestions)} function suggestions")
-                        for i, suggestion in enumerate(function_suggestions, 1):
-                            logger.info(f"💡 SUGGESTION {i} ({suggestion.get('priority', 'UNKNOWN')} priority):")
-                            logger.info(f"   Function: {suggestion.get('function_name', 'unnamed')}")
-                            logger.info(f"   Purpose: {suggestion.get('description', 'No description')}")
-                            logger.info(f"   Endpoint: {suggestion.get('endpoint', 'Unknown')}")
-                            logger.info(f"   Why needed: {suggestion.get('justification', 'No justification')}")
-                    else:
-                        logger.info("💡 COMPLEXITY: No function suggestions generated")
+                    logger.info("💡 COMPLEXITY: Agent mode required - tool suggestions will be generated by agent")
                 else:
-                    final_result["function_suggestions"] = []
+                    pass  # No function suggestions needed for non-agent tiers
                 
                 logger.info(f"Final complexity classification: {tier}")
                 logger.info("=== END COMPLEXITY ANALYSIS RESULT VALIDATION ===")
@@ -320,120 +321,6 @@ JSON response only:
             logger.warning(f"Query complexity analysis failed: {e}")
             logger.info("=== QUERY COMPLEXITY ANALYSIS END ===")
             return {"complexity_tier": "complex", "reason": "Analysis failed", "confidence": 0.0}
-    
-    def _generate_function_suggestions(self, query: str, complexity_result: Dict[str, Any]) -> List[Dict[str, str]]:
-        """Generate function suggestions for complex queries requiring agent capabilities."""
-        try:
-            logger.info("💡 FUNCTION SUGGESTIONS: Starting generation...")
-            logger.info(f"💡 FUNCTION SUGGESTIONS: Query: '{query}'")
-            logger.info(f"💡 FUNCTION SUGGESTIONS: Complexity tier: {complexity_result.get('complexity_tier')}")
-            
-            # Build the prompt for function suggestions
-            function_suggestions_prompt = f"""You are an expert API designer analyzing a complex search query that requires agent-level capabilities.
-
-QUERY: "{query}"
-
-COMPLEXITY ANALYSIS:
-- Tier: {complexity_result.get('complexity_tier', 'unknown')}
-- Reason: {complexity_result.get('reason', 'No reason provided')}
-- Confidence: {complexity_result.get('confidence', 0.0)}
-
-CURRENT VECTOR SEARCH CLIENT CAPABILITIES:
-The VectorSearchClient currently has these methods:
-- search(): Basic vector similarity search
-- get_document_similarity(): Document-to-document similarity 
-- get_projects(): List available projects
-- get_document_types(): List document types for a project
-- get_project_statistics(): Get project stats
-- health_check(): API health status
-- get_analytics(): Basic analytics
-
-TASK: Suggest up to 3 NEW functions that should be added to VectorSearchClient to better handle this type of query.
-
-For each suggestion, provide:
-1. function_name: The method name (snake_case)
-2. description: What the function does (1 sentence)
-3. endpoint: The likely API endpoint path
-4. justification: Why this function is needed for this query (1 sentence)
-5. priority: HIGH, MEDIUM, or LOW
-
-Focus on metadata queries, advanced filtering, temporal analysis, project management, or specialized search capabilities that would make this query easier to handle.
-
-Respond with valid JSON only:
-{{
-  "suggestions": [
-    {{
-      "function_name": "method_name",
-      "description": "What it does",
-      "endpoint": "/api/path",
-      "justification": "Why needed for this query",
-      "priority": "HIGH|MEDIUM|LOW"
-    }}
-  ]
-}}"""
-
-            messages = [
-                {"role": "system", "content": "You are an expert API designer. Respond with valid JSON only."},
-                {"role": "user", "content": function_suggestions_prompt}
-            ]
-            
-            logger.info("💡 FUNCTION SUGGESTIONS: Making LLM call...")
-            # Make the LLM call with higher token limit for detailed suggestions
-            llm_response = self._make_llm_call(messages, temperature=0.2, max_tokens=800)
-            logger.info(f"💡 FUNCTION SUGGESTIONS: LLM response received: {type(llm_response)}")
-            
-            if not llm_response or "choices" not in llm_response or not llm_response["choices"]:
-                logger.warning(f"💡 FUNCTION SUGGESTIONS: No valid LLM response - response: {llm_response}")
-                return []
-            
-            content = llm_response["choices"][0]["message"]["content"].strip()
-            logger.info(f"💡 FUNCTION SUGGESTIONS: Raw LLM content (first 200 chars): '{content[:200]}...'")
-            
-            # Clean and parse the JSON response
-            content_clean = content.replace("```json", "").replace("```", "").strip()
-            logger.info(f"💡 FUNCTION SUGGESTIONS: Cleaned content (first 200 chars): '{content_clean[:200]}...'")
-            
-            try:
-                suggestions_data = json.loads(content_clean)
-                logger.info(f"💡 FUNCTION SUGGESTIONS: JSON parsed successfully: {type(suggestions_data)}")
-                suggestions = suggestions_data.get("suggestions", [])
-                logger.info(f"💡 FUNCTION SUGGESTIONS: Found {len(suggestions)} raw suggestions")
-                
-                # Validate and limit to 3 suggestions
-                valid_suggestions = []
-                for i, suggestion in enumerate(suggestions[:3]):  # Limit to 3
-                    logger.info(f"💡 FUNCTION SUGGESTIONS: Validating suggestion {i+1}: {suggestion}")
-                    required_fields = ["function_name", "description", "endpoint", "justification", "priority"]
-                    missing_fields = [field for field in required_fields if field not in suggestion]
-                    
-                    if missing_fields:
-                        logger.warning(f"💡 FUNCTION SUGGESTIONS: Missing required fields {missing_fields} in suggestion {i+1}: {suggestion}")
-                        continue
-                    
-                    # Validate priority
-                    if suggestion["priority"] not in ["HIGH", "MEDIUM", "LOW"]:
-                        logger.warning(f"💡 FUNCTION SUGGESTIONS: Invalid priority '{suggestion['priority']}' in suggestion {i+1}, skipping")
-                        continue
-                        
-                    valid_suggestions.append(suggestion)
-                    logger.info(f"💡 FUNCTION SUGGESTIONS: Suggestion {i+1} validated successfully")
-                
-                logger.info(f"💡 FUNCTION SUGGESTIONS: Generated {len(valid_suggestions)} valid suggestions out of {len(suggestions)} total")
-                return valid_suggestions
-                
-            except json.JSONDecodeError as e:
-                logger.warning(f"💡 FUNCTION SUGGESTIONS: Failed to parse JSON response.")
-                logger.warning(f"💡 FUNCTION SUGGESTIONS: Raw content: '{content}'")
-                logger.warning(f"💡 FUNCTION SUGGESTIONS: Cleaned content: '{content_clean}'")
-                logger.warning(f"💡 FUNCTION SUGGESTIONS: JSON Error: {e}")
-                return []
-                
-        except Exception as e:
-            logger.error(f"💡 FUNCTION SUGGESTIONS: Generation failed with exception: {e}")
-            logger.error(f"💡 FUNCTION SUGGESTIONS: Exception type: {type(e)}")
-            import traceback
-            logger.error(f"💡 FUNCTION SUGGESTIONS: Traceback: {traceback.format_exc()}")
-            return []
 
     def _make_llm_call(self, messages: List[Dict[str, str]], temperature: float = 0.1, max_tokens: int = 200) -> Dict[str, Any]:
         """Make LLM call. To be implemented by concrete classes."""

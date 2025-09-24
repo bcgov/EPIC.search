@@ -9,21 +9,19 @@ export interface SearchStrategyOption {
   enabled?: boolean;
 }
 
+export interface SearchStrategyDetail {
+  name: string;
+  description: string;
+  use_cases: string[];
+  steps: string[];
+  performance: string;
+  accuracy: string;
+}
+
 export interface SearchStrategiesResponse {
-  result: {
-    strategies: {
-      [key: string]: {
-        name: string;
-        description: string;
-        enabled: boolean;
-      };
-    };
-    default_strategy: string;
-    metrics: {
-      start_time: string;
-      total_time_ms: number;
-    };
-  };
+  search_strategies: SearchStrategyDetail[];
+  default_strategy: string;
+  total_strategies: number;
 }
 
 const STRATEGIES_CACHE_KEY = "epic_search_strategies";
@@ -48,30 +46,36 @@ const fetchSearchStrategies = async (): Promise<SearchStrategyOption[]> => {
   // Fetch from API with better error handling
   try {
     const response = await request({ url: "/tools/search-strategies", method: "GET" });
-    const data = response.data;
+    const data: SearchStrategiesResponse = response.data;
     
     // Transform API response to match our SearchStrategyOption interface
     const strategies: SearchStrategyOption[] = [
       {
         value: undefined,
         label: "Default",
-        description: `Use the default search strategy (${data.result?.default_strategy || 'HYBRID_SEMANTIC_FALLBACK'})`,
+        description: `Use the default search strategy (${data.default_strategy || 'HYBRID_SEMANTIC_FALLBACK'})`,
         enabled: true
       }
     ];
     
     // Check if we have the expected structure
-    if (data.result?.strategies) {
+    if (data.search_strategies && Array.isArray(data.search_strategies)) {
       // Add each strategy from the API
-      Object.entries(data.result.strategies).forEach(([key, strategy]: [string, any]) => {
-        if (strategy.enabled !== false) { // Default to enabled if not specified
-          strategies.push({
-            value: strategy.name as SearchStrategy, // Use the name as the value, not the key
-            label: strategy.name || key,
-            description: strategy.description || `${strategy.name || key} search strategy`,
-            enabled: strategy.enabled !== false
-          });
-        }
+      data.search_strategies.forEach((strategy: SearchStrategyDetail) => {
+        // Format the strategy name to be more user-friendly
+        const formattedLabel = strategy.name
+          .replace(/_/g, ' ')
+          .toLowerCase()
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+          
+        strategies.push({
+          value: strategy.name as SearchStrategy,
+          label: formattedLabel,
+          description: strategy.description,
+          enabled: true // All strategies from API are enabled
+        });
       });
     } else {
       console.warn('API response does not have expected structure:', data);
