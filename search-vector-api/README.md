@@ -515,6 +515,9 @@ Performs the two-stage search pipeline with document-level filtering followed by
   "projectIds": ["project-123", "project-456"],        // Optional project filtering
   "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
   "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
+  "location": "Langford British Columbia",             // Optional location context
+  "projectStatus": "recent",                           // Optional project status context
+  "years": [2023, 2024, 2025],                        // Optional years context
   "ranking": {                                         // Optional ranking configuration
     "minScore": -6.0,
     "topN": 15
@@ -655,6 +658,38 @@ When explicit IDs are provided, inference is automatically skipped:
   }
 }
 ```
+
+### Query Enhancement Parameters
+
+The search API supports optional parameters that enhance the search query with additional context for improved semantic matching:
+
+**Request with Query Enhancement:**
+
+``` json
+{
+  "query": "environmental assessment report",
+  "location": "Langford British Columbia",
+  "projectStatus": "recent", 
+  "years": [2023, 2024, 2025]
+}
+```
+
+**Enhanced Query Processing:**
+
+The system automatically appends these parameters to the search query:
+- **Original query:** `"environmental assessment report"`
+- **Enhanced query:** `"environmental assessment report (location: Langford British Columbia | project status: recent | years: 2023, 2024, 2025)"`
+
+**Parameters:**
+
+- **`location`** *(string, optional)*: Geographic context to improve location-specific searches
+  - Example: `"Langford British Columbia"`, `"Northern BC"`, `"Vancouver Island"`
+- **`projectStatus`** *(string, optional)*: Project status context to filter by project phase
+  - Example: `"recent"`, `"active"`, `"completed"`, `"proposed"`
+- **`years`** *(array of integers, optional)*: Relevant years to focus the search timeframe  
+  - Example: `[2023, 2024, 2025]`, `[2020]`
+
+These parameters are currently integrated into the search query text for semantic processing. Future versions may use them for more sophisticated filtering and ranking.
 
 ### Document Similarity Search
 

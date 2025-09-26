@@ -26,6 +26,10 @@ class BaseParameterExtractor(ParameterExtractor):
         supplied_project_ids: Optional[List[str]] = None,
         supplied_document_type_ids: Optional[List[str]] = None,
         supplied_search_strategy: Optional[str] = None,
+        user_location: Optional[Dict] = None,
+        supplied_location: Optional[Dict] = None,
+        supplied_project_status: Optional[str] = None,
+        supplied_years: Optional[list] = None,
         use_parallel: bool = True
     ) -> Dict[str, Any]:
         """Extract search parameters using parallel or sequential approach.
@@ -38,10 +42,14 @@ class BaseParameterExtractor(ParameterExtractor):
             supplied_project_ids: Already provided project IDs (skip LLM extraction if provided).
             supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided).
             supplied_search_strategy: Already provided search strategy (skip LLM extraction if provided).
+            user_location: User's location data for location-aware queries.
+            supplied_location: Already provided location parameter (skip LLM extraction if provided).
+            supplied_project_status: Already provided project status (skip LLM extraction if provided).
+            supplied_years: Already provided years list (skip LLM extraction if provided).
             use_parallel: Whether to use parallel execution (default: True).
             
         Returns:
-            Dict containing extracted parameters.
+            Dict containing extracted parameters including temporal parameters.
         """
         logger.info("=== PARAMETER EXTRACTION START ===")
         logger.info(f"Query to extract from: '{query}'")
@@ -77,23 +85,30 @@ class BaseParameterExtractor(ParameterExtractor):
         logger.info(f"Supplied Project IDs: {supplied_project_ids}")
         logger.info(f"Supplied Document Type IDs: {supplied_document_type_ids}")
         logger.info(f"Supplied Search Strategy: {supplied_search_strategy}")
+        logger.info(f"User Location: {user_location}")
+        logger.info(f"Supplied Location: {supplied_location}")
+        logger.info(f"Supplied Project Status: {supplied_project_status}")
+        logger.info(f"Supplied Years: {supplied_years}")
         logger.info("=== END CONTEXT DATA ===")
         if use_parallel:
             try:
                 return self._extract_parameters_parallel(
                     query, available_projects, available_document_types, available_strategies,
-                    supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+                    supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
+                    user_location, supplied_location, supplied_project_status, supplied_years
                 )
             except Exception as e:
                 logger.warning(f"Parallel extraction failed, falling back to sequential: {e}")
                 return self._extract_parameters_sequential(
                     query, available_projects, available_document_types, available_strategies,
-                    supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+                    supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
+                    user_location, supplied_location, supplied_project_status, supplied_years
                 )
         else:
             return self._extract_parameters_sequential(
                 query, available_projects, available_document_types, available_strategies,
-                supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
+                supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
+                user_location, supplied_location, supplied_project_status, supplied_years
             )
     
     def _extract_parameters_sequential(
@@ -104,7 +119,11 @@ class BaseParameterExtractor(ParameterExtractor):
         available_strategies: Optional[Dict] = None,
         supplied_project_ids: Optional[List[str]] = None,
         supplied_document_type_ids: Optional[List[str]] = None,
-        supplied_search_strategy: Optional[str] = None
+        supplied_search_strategy: Optional[str] = None,
+        user_location: Optional[Dict] = None,
+        supplied_location: Optional[Dict] = None,
+        supplied_project_status: Optional[str] = None,
+        supplied_years: Optional[list] = None
     ) -> Dict[str, Any]:
         """Extract search parameters using focused, sequential calls.
         
@@ -151,18 +170,47 @@ class BaseParameterExtractor(ParameterExtractor):
             semantic_query = self._extract_semantic_query(query)
             logger.info(f"Step 4 - Optimized semantic query: {semantic_query}")
             
+            # Step 5: Extract temporal parameters (location, project_status, years) using LLM
+            if supplied_location is not None or supplied_project_status is not None or supplied_years is not None:
+                # Use supplied temporal parameters
+                location = supplied_location
+                project_status = supplied_project_status
+                years = supplied_years
+                logger.info(f"Step 5 - Using supplied temporal parameters: location={location}, status={project_status}, years={years}")
+                temporal_sources = {
+                    "location": "supplied" if supplied_location is not None else "fallback",
+                    "project_status": "supplied" if supplied_project_status is not None else "fallback", 
+                    "years": "supplied" if supplied_years is not None else "fallback"
+                }
+            else:
+                # Extract temporal parameters using LLM
+                temporal_result = self._extract_temporal_parameters(query, user_location)
+                location = temporal_result.get("location")
+                project_status = temporal_result.get("project_status")
+                years = temporal_result.get("years", [])
+                logger.info(f"Step 5 - Extracted temporal parameters: location={location}, status={project_status}, years={years}")
+                temporal_sources = {
+                    "location": "llm_extracted" if location is not None else "fallback",
+                    "project_status": "llm_extracted" if project_status is not None else "fallback",
+                    "years": "llm_extracted" if years else "fallback"
+                }
+            
             # Combine results
             return {
                 "project_ids": project_ids,
                 "document_type_ids": document_type_ids,
                 "search_strategy": search_strategy,
                 "semantic_query": semantic_query,
+                "location": location,
+                "project_status": project_status,
+                "years": years,
                 "confidence": 0.8,
                 "extraction_sources": {
                     "project_ids": "supplied" if supplied_project_ids else "llm_sequential",
                     "document_type_ids": "supplied" if supplied_document_type_ids else "llm_sequential",
                     "search_strategy": "supplied" if supplied_search_strategy else "llm_sequential",
-                    "semantic_query": "llm_sequential"
+                    "semantic_query": "llm_sequential",
+                    **temporal_sources
                 }
             }
             
@@ -183,6 +231,10 @@ class BaseParameterExtractor(ParameterExtractor):
         supplied_project_ids: Optional[List[str]] = None,
         supplied_document_type_ids: Optional[List[str]] = None,
         supplied_search_strategy: Optional[str] = None,
+        user_location: Optional[Dict] = None,
+        supplied_location: Optional[Dict] = None,
+        supplied_project_status: Optional[str] = None,
+        supplied_years: Optional[list] = None,
         timeout: float = 30.0
     ) -> Dict[str, Any]:
         """Extract search parameters using parallel LLM calls for maximum speed.
@@ -226,6 +278,11 @@ class BaseParameterExtractor(ParameterExtractor):
             tasks.append(lambda: self._extract_semantic_query(query))
             task_names.append("semantic_query")
             
+            # Task 5: Extract temporal parameters (if not supplied)
+            if supplied_location is None or supplied_project_status is None or supplied_years is None:
+                tasks.append(lambda: self._extract_temporal_parameters(query, user_location))
+                task_names.append("temporal_parameters")
+            
             # Execute tasks in parallel using ThreadPoolExecutor
             results = {}
             
@@ -252,18 +309,30 @@ class BaseParameterExtractor(ParameterExtractor):
                                 available_document_types, available_strategies
                             )
             
+            # Extract temporal parameters from results or use supplied values
+            temporal_result = results.get("temporal_parameters", {})
+            location = supplied_location if supplied_location is not None else temporal_result.get("location")
+            project_status = supplied_project_status if supplied_project_status is not None else temporal_result.get("project_status")
+            years = supplied_years if supplied_years is not None else temporal_result.get("years", [])
+            
             # Combine results with supplied values
             return {
                 "project_ids": supplied_project_ids or results.get("project_ids", []),
                 "document_type_ids": supplied_document_type_ids or results.get("document_type_ids", []),
                 "search_strategy": supplied_search_strategy or results.get("search_strategy", "HYBRID_PARALLEL"),
                 "semantic_query": results.get("semantic_query", query),
+                "location": location,
+                "project_status": project_status,
+                "years": years,
                 "confidence": 0.8,
                 "extraction_sources": {
                     "project_ids": "supplied" if supplied_project_ids else "llm_parallel",
                     "document_type_ids": "supplied" if supplied_document_type_ids else "llm_parallel",
                     "search_strategy": "supplied" if supplied_search_strategy else "llm_parallel",
-                    "semantic_query": "llm_parallel"
+                    "semantic_query": "llm_parallel",
+                    "location": "supplied" if supplied_location is not None else ("llm_parallel" if location is not None else "fallback"),
+                    "project_status": "supplied" if supplied_project_status is not None else ("llm_parallel" if project_status is not None else "fallback"),
+                    "years": "supplied" if supplied_years is not None else ("llm_parallel" if years else "fallback")
                 }
             }
             
@@ -757,6 +826,100 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
             }
         }
     
+    def _extract_temporal_parameters(self, query: str, user_location: Optional[Dict] = None) -> Dict[str, Any]:
+        """Extract temporal parameters (location, project_status, years) using LLM reasoning.
+        
+        Args:
+            query: The search query to analyze
+            user_location: User's location data for location-aware queries
+            
+        Returns:
+            Dict containing temporal parameters: location, project_status, years
+        """
+        try:
+            from datetime import datetime
+            current_year = datetime.now().year
+            
+            prompt = f"""You are a temporal and geographic parameter extraction specialist. Analyze the following search query to extract:
+
+1. LOCATION PARAMETERS: 
+   - Look for geographic references, location names, or phrases like "near me", "local", "my area"
+   - If user has provided location data and query contains location references, use the user location
+   - Otherwise extract specific location names mentioned
+
+2. PROJECT STATUS:
+   - Look for project lifecycle indicators: "active", "completed", "recent", "ongoing", "historical", "current", "past", "future"
+   - Map temporal words to appropriate status (e.g., "recently" -> "recent", "ongoing projects" -> "active")
+
+3. TEMPORAL/YEARS:
+   - Extract specific years, year ranges, or relative time expressions
+   - Current year is {current_year}
+   - Map relative terms to concrete years:
+     * "recently", "lately" -> last 2-3 years including current [{current_year-2}, {current_year-1}, {current_year}]
+     * "last N years" -> calculate range from current year
+     * "this year", "current year" -> [{current_year}]
+     * "past year" -> [{current_year-1}, {current_year}]
+     * "since YYYY" -> range from specified year to current
+     * Specific years or ranges -> extract as provided
+
+USER LOCATION CONTEXT: {user_location if user_location else "No user location provided"}
+
+QUERY TO ANALYZE: "{query}"
+
+Respond with ONLY a JSON object in this exact format:
+{{
+    "location": null_or_location_object_or_string,
+    "project_status": null_or_status_string,
+    "years": [],
+    "reasoning": "explanation of extraction logic",
+    "confidence": 0.0_to_1.0
+}}
+
+EXAMPLES:
+Query: "Show me recent projects near me"
+User Location: {{"city": "Vancouver", "region": "BC"}}
+Response: {{"location": {{"city": "Vancouver", "region": "BC"}}, "project_status": "recent", "years": [{current_year-2}, {current_year-1}, {current_year}], "reasoning": "User wants recent projects in their location", "confidence": 0.9}}
+
+Query: "Environmental reports from 2020-2022 in Peace River region"
+Response: {{"location": "Peace River region", "project_status": null, "years": [2020, 2021, 2022], "reasoning": "Specific location and year range provided", "confidence": 0.95}}"""
+
+            logger.info("=== TEMPORAL EXTRACTION PROMPT ===")
+            logger.info(f"Prompt: {prompt}")
+            logger.info("=== END TEMPORAL EXTRACTION PROMPT ===")
+
+            response = self._make_llm_call(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+            
+            content = response["choices"][0]["message"]["content"].strip()
+            logger.info(f"Raw temporal extraction response: {content}")
+            
+            # Parse JSON response
+            result = json.loads(content)
+            
+            # Validate and clean the response
+            temporal_params = {
+                "location": result.get("location"),
+                "project_status": result.get("project_status"), 
+                "years": result.get("years", []),
+                "reasoning": result.get("reasoning", ""),
+                "confidence": float(result.get("confidence", 0.0))
+            }
+            
+            logger.info(f"Extracted temporal parameters: {temporal_params}")
+            return temporal_params
+            
+        except Exception as e:
+            logger.error(f"Error extracting temporal parameters: {e}")
+            return {
+                "location": None,
+                "project_status": None,
+                "years": [],
+                "reasoning": f"LLM extraction failed: {e}",
+                "confidence": 0.0
+            }
+
     def _make_llm_call(self, messages: List[Dict], temperature: float = 0.1) -> Dict[str, Any]:
         """Make LLM call - must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement _make_llm_call method")

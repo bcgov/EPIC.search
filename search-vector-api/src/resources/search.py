@@ -64,6 +64,7 @@ class RankingConfigSchema(Schema):
                      metadata={"description": "Maximum number of results to return after ranking (1-100). If not provided, uses TOP_RECORD_COUNT environment variable setting (default: 10)."})
 
 
+
 class DocumentSimilarityRequestSchema(Schema):
     """Schema for validating document similarity search requests.
     
@@ -124,6 +125,12 @@ class SearchRequestSchema(Schema):
                                metadata={"description": "Optional search strategy to use. Valid values: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL', 'DOCUMENT_ONLY'. If not provided, uses DEFAULT_SEARCH_STRATEGY environment variable setting."})
     ranking = fields.Nested(RankingConfigSchema, data_key="ranking", required=False,
                            metadata={"description": "Optional ranking configuration including minimum score threshold and maximum result count. If not provided, uses environment variable settings."})
+    location = fields.Str(data_key="location", required=False,
+                         metadata={"description": "Optional location context to enhance search relevance (e.g., 'Langford British Columbia'). Currently appended to search query for improved semantic matching."})
+    projectStatus = fields.Str(data_key="projectStatus", required=False,
+                              metadata={"description": "Optional project status context to enhance search relevance (e.g., 'recent', 'active', 'completed'). Currently appended to search query for improved semantic matching."})
+    years = fields.List(fields.Int(), data_key="years", required=False,
+                       metadata={"description": "Optional list of years to focus search on (e.g., [2023, 2024, 2025]). Currently appended to search query for improved semantic matching."})
 
 
 API = Namespace("vector-search", description="Endpoints for semantic and keyword vector search operations")
@@ -211,6 +218,13 @@ class Search(Resource):
         - Cross-encoder models can produce negative scores for relevant documents
         - Lower minScore values are more inclusive, higher values are more restrictive
         
+        Query Enhancement Parameters:
+        The following optional parameters enhance the search query for improved semantic matching:
+        - location: Geographic context (e.g., "Langford British Columbia") - appended to query
+        - projectStatus: Project status context (e.g., "recent", "active", "completed") - appended to query  
+        - years: List of relevant years (e.g., [2023, 2024, 2025]) - appended to query
+        These parameters are currently integrated into the search query text for semantic processing.
+        
         Returns:
             Response: JSON containing matched documents and detailed search metrics
                      for each stage of the search pipeline, including project inference
@@ -224,12 +238,33 @@ class Search(Resource):
         inference = request_data.get("inference", None)  # Optional parameter
         search_strategy = request_data.get("searchStrategy", None)  # Optional parameter
         ranking_config = request_data.get("ranking", {})  # Optional parameter
+        location = request_data.get("location", None)  # Optional parameter
+        project_status = request_data.get("projectStatus", None)  # Optional parameter
+        years = request_data.get("years", None)  # Optional parameter
         
         # Extract ranking parameters with fallback to None (will use env defaults)
         min_relevance_score = ranking_config.get("minScore") if ranking_config else None
         top_n = ranking_config.get("topN") if ranking_config else None
         
-        documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, min_relevance_score, top_n, search_strategy, semantic_query)
+        # Enhance the query with additional context parameters
+        enhanced_query = query
+        query_enhancements = []
+        
+        if location:
+            query_enhancements.append(f"location: {location}")
+        
+        if project_status:
+            query_enhancements.append(f"project status: {project_status}")
+        
+        if years:
+            years_str = ", ".join(str(year) for year in years)
+            query_enhancements.append(f"years: {years_str}")
+        
+        # Append enhancements to the query if any exist
+        if query_enhancements:
+            enhanced_query = f"{query} ({' | '.join(query_enhancements)})"
+        
+        documents = SearchService.get_documents_by_query(enhanced_query, project_ids, document_type_ids, inference, min_relevance_score, top_n, search_strategy, semantic_query)
         return Response(
             json.dumps(documents), status=HTTPStatus.OK, mimetype="application/json"
         )

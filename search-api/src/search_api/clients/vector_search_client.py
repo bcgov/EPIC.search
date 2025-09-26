@@ -21,7 +21,7 @@ class VectorSearchClient:
     # =============================================================================
 
     @staticmethod
-    def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None):
+    def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None, location=None, project_status=None, years=None):
         """Advanced two-stage hybrid search with comprehensive parameters.
         
         Endpoint: POST /vector-search
@@ -42,6 +42,9 @@ class VectorSearchClient:
                 - "HYBRID_PARALLEL"
             semantic_query (str, optional): Cleaned semantic query with project/document type info removed
                 for more focused vector search (used by agentic mode)
+            location (dict, optional): Location parameter for geographic filtering
+            project_status (str, optional): Project status parameter for status filtering  
+            years (list, optional): Years parameter for temporal filtering
             
         Returns:
             dict: Complete search results with metadata for better agentic integration
@@ -69,6 +72,45 @@ class VectorSearchClient:
                 payload["ranking"] = ranking
             if search_strategy:
                 payload["searchStrategy"] = search_strategy
+            if location:
+                # Handle different location formats  
+                if isinstance(location, dict):
+                    # Convert location object to string format that vector API expects
+                    current_app.logger.info(f"Converting location object to string format for vector API")
+                    
+                    # Build location string from available fields
+                    location_parts = []
+                    if location.get('city'):
+                        location_parts.append(location['city'])
+                    if location.get('region'):
+                        location_parts.append(location['region'])
+                    if location.get('country'):
+                        location_parts.append(location['country'])
+                    
+                    if location_parts:
+                        location_string = ', '.join(location_parts)
+                        current_app.logger.info(f"Converted location object to string: '{location_string}'")
+                        payload["location"] = location_string
+                    else:
+                        # Fallback - use coordinates as string
+                        lat = location.get('latitude')
+                        lng = location.get('longitude') 
+                        if lat is not None and lng is not None:
+                            location_string = f"{lat},{lng}"
+                            current_app.logger.info(f"Using coordinates as location string: '{location_string}'")
+                            payload["location"] = location_string
+                        else:
+                            current_app.logger.warning(f"Location object has no usable fields: {location}")
+                elif isinstance(location, str):
+                    # If it's already a string, use as-is
+                    payload["location"] = location
+                else:
+                    current_app.logger.warning(f"Unexpected location format: {type(location)} - {location}")
+                    payload["location"] = str(location)
+            if project_status:
+                payload["projectStatus"] = project_status
+            if years:
+                payload["years"] = years
             # Note: We don't send semanticQuery separately since we're using it as the primary query
                 
             current_app.logger.info(f"Calling vector search API at address: {vector_search_url}")
@@ -80,27 +122,59 @@ class VectorSearchClient:
 
             api_response = response.json()
             
-            # Extract documents from the response - check both documents and document_chunks
+            # Extract both documents and document_chunks from the response separately
             vector_search_data = api_response.get("vector_search", {})
             documents = vector_search_data.get("documents", [])
+            document_chunks = vector_search_data.get("document_chunks", [])
             
-            # If no documents, try document_chunks
-            if not documents:
-                documents = vector_search_data.get("document_chunks", [])
+            current_app.logger.info(f"Vector API returned {len(documents)} documents and {len(document_chunks)} document chunks")
             
-            current_app.logger.info(f"Vector API returned {len(documents)} documents/chunks")
-            
-            # Return tuple format expected by search service
-            return documents, api_response
-        except Exception as e:
-            current_app.logger.error(f"Error calling vector search API: {str(e)}")
-            # Return tuple format with empty documents and error response
-            return [], {
+            # Return tuple format (documents, document_chunks, api_response) for proper separation
+            return documents, document_chunks, api_response
+        except requests.exceptions.ConnectionError as e:
+            current_app.logger.error(f"Vector search API connection failed: {str(e)}")
+            current_app.logger.error(f"Check if vector search service is running on: {vector_search_url}")
+            # Return tuple format with empty documents, chunks and error response
+            return [], [], {
                 "vector_search": {
-                    "documents": []
+                    "documents": [],
+                    "document_chunks": []
                 },
                 "status": "error",
-                "error": str(e)
+                "error": f"Vector API connection failed: {str(e)}",
+                "error_type": "connection_error"
+            }
+        except requests.exceptions.HTTPError as e:
+            # Log specific HTTP errors like 500
+            current_app.logger.error(f"Vector search API HTTP error: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                current_app.logger.error(f"HTTP Status: {e.response.status_code}")
+                try:
+                    error_details = e.response.json()
+                    current_app.logger.error(f"API Error Details: {error_details}")
+                except:
+                    current_app.logger.error(f"API Error Text: {e.response.text}")
+            # Return tuple format with empty documents, chunks and error response
+            return [], [], {
+                "vector_search": {
+                    "documents": [],
+                    "document_chunks": []
+                },
+                "status": "error", 
+                "error": f"Vector API HTTP error: {str(e)}",
+                "error_type": "http_error"
+            }
+        except Exception as e:
+            current_app.logger.error(f"Error calling vector search API: {str(e)}")
+            # Return tuple format with empty documents, chunks and error response
+            return [], [], {
+                "vector_search": {
+                    "documents": [],
+                    "document_chunks": []
+                },
+                "status": "error",
+                "error": str(e),
+                "error_type": "unknown_error"
             }
 
     @staticmethod

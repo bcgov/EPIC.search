@@ -71,9 +71,17 @@ class Search(Resource):
             mode = request_data.get("mode", "rag")
             user_location = request_data.get("userLocation", None)
             
+            # Extract new filtering parameters
+            location = request_data.get("location", None)
+            project_status = request_data.get("projectStatus", None)
+            years = request_data.get("years", None)
+            
             current_app.logger.info(f"Search parameters - Query: {query[:100] if query else None}{'...' if query and len(query) > 100 else ''}")
             current_app.logger.info(f"Search parameters - Project IDs: {project_ids}")
             current_app.logger.info(f"Search parameters - Document Type IDs: {document_type_ids}")
+            current_app.logger.info(f"Search parameters - Location: {location}")
+            current_app.logger.info(f"Search parameters - Project Status: {project_status}")
+            current_app.logger.info(f"Search parameters - Years: {years}")
             current_app.logger.info(f"Search parameters - Inference: {inference}")
             current_app.logger.info(f"Search parameters - Ranking: {ranking}")
             current_app.logger.info(f"Search parameters - Search Strategy: {search_strategy}")
@@ -82,7 +90,7 @@ class Search(Resource):
             
             current_app.logger.info("Calling SearchService.get_documents_by_query")
             start_time = time.time()
-            documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, ranking, search_strategy, mode, user_location)
+            documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, ranking, search_strategy, mode, user_location, location, project_status, years)
             end_time = time.time()
             
             current_app.logger.info(f"SearchService completed in {(end_time - start_time):.2f} seconds")

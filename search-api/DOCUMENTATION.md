@@ -161,31 +161,62 @@ The Search API supports both traditional and agentic workflow modes:
    - **Azure Production**: Azure OpenAI processes the prompt through private endpoint
 6. Search Service formats the response and returns it to the client with document information and performance metrics
 
-### Agentic Workflow (agentic=true)
+### Enhanced Agentic Workflow (agentic=true)
 
-1. Client sends a search query with agentic flag through REST API
-2. **Query Relevance Validation**: LLM-powered validation service validates if query is EAO-related
-   - **Local**: Ollama analyzes query scope and relevance
-   - **Azure**: Azure OpenAI analyzes query scope and relevance
-   - If non-EAO query detected, returns helpful scope guidance
-3. **Multi-Step Parameter Extraction**: LLM extraction service intelligently extracts search parameters
-   - **Step 1**: LLM extracts project IDs using fuzzy matching
-   - **Step 2**: LLM extracts document types via comprehensive alias search
-   - **Step 3**: LLM determines optimal search strategy and creates semantic query
-   - Caches project/document type mappings for efficient processing
-4. **Search Strategy Optimization**: LLM service recommends optimal search approach
-   - **Local**: Ollama analyzes query characteristics for strategy selection
-   - **Azure**: Azure OpenAI analyzes query characteristics for strategy selection
-5. Search Service executes optimized search with extracted parameters on Vector Search service
-6. Vector Search service returns targeted, relevant document information
-7. **Response Synthesis**: LLM generates final response summary
-   - **Local**: Ollama synthesizes response from search results
-   - **Azure**: Azure OpenAI synthesizes response through private endpoint
-8. Search Service returns enhanced results with:
-   - Original search results
-   - Agentic insights (relevance, extracted parameters, strategy recommendations)
-   - Confidence scores and reasoning
-   - Performance metrics for both LLM processing and search execution
+The agentic workflow now includes intelligent execution planning with parallel processing and LLM-based result validation:
+
+#### **Phase 1: Query Processing & Planning**
+
+1. **Query Relevance Validation**: LLM validates if query is EAO-related and provides scope guidance
+2. **Execution Plan Generation**: LLM creates intelligent multi-step execution plan with:
+   - Dynamic step generation based on query complexity
+   - Parallel search optimization for multiple document types/projects
+   - Intelligent tool selection (validate_query_relevance, get_projects_list, get_document_types, search, validate_chunks_relevance, verify_reduce, consolidate_results, summarize_results)
+
+#### **Phase 2: Parameter Discovery & Enhancement**
+
+1. **Project Discovery**: LLM extracts and validates project IDs using fuzzy matching
+2. **Document Type Discovery**: LLM identifies relevant document types via comprehensive alias search
+3. **Search Strategy Optimization**: LLM determines optimal search approach and creates semantic queries
+
+#### **Phase 3: Parallel Search Execution**
+
+1. **Multi-Vector Search**: Executes multiple targeted searches simultaneously:
+   - Parallel search execution for different document types
+   - Parallel search execution for different query aspects
+   - Context-aware parameter enhancement for each search
+
+#### **Phase 4: LLM-Powered Result Validation** ⭐ **NEW**
+
+1. **Chunk Relevance Validation**: LLM validates each search result for relevance:
+   - **Tool**: `validate_chunks_relevance`
+   - **Process**: Sends structured chunks to LLM for relevance scoring
+   - **Output**: Filtered results with validation metrics and reasoning
+   - **Logging**: Shows only structured content sent to LLM (first 100 chars per chunk)
+
+#### **Phase 5: Verification & Consolidation** ⭐ **NEW**
+
+1. **Verified Chunk Collection**: `verify_reduce` tool collects validated chunks:
+   - **Clean Logging**: Shows only essential filter steps, not massive execution context
+   - **Chunk Tracking**: Reports chunks kept/removed by document name
+   - **Format**: `🔗 CHUNKS KEPT (N): doc1.pdf, doc2.pdf...` and `🔗 CHUNKS REMOVED (N): doc3.pdf...`
+2. **Result Consolidation**: Merges and deduplicates verified chunks
+3. **Response Synthesis**: LLM generates comprehensive summary from validated results
+
+#### **Enhanced Features**
+
+- **Parallel Execution**: Search and validation steps run in parallel groups for optimal performance
+- **Context Management**: Clean parameter passing prevents execution context pollution in logs
+- **Intelligent Filtering**: LLM removes irrelevant chunks before final consolidation
+- **Transparent Logging**: Clear visibility into validation decisions and chunk filtering
+- **Robust Error Handling**: JSON repair and salvage for malformed LLM responses
+- **Token Optimization**: Increased limits (1200-3500 tokens) to handle complex execution plans
+
+#### **Environment Integration**
+
+- **Local Development**: All LLM operations (planning + validation + synthesis) use Ollama
+- **Azure Production**: All LLM operations use Azure OpenAI for enterprise performance
+- **Automatic Detection**: Environment-aware LLM provider selection
 
 ### Environment-Aware LLM Integration
 
@@ -602,6 +633,52 @@ Returns available search strategies for query configuration. Used by UI for stra
 #### GET /api/tools/inference-options
 
 Returns ML inference capabilities and options. Used by UI for inference configuration.
+
+### 🤖 Agent Tools (Internal Agentic Processing)
+
+The following tools are used internally by the agentic workflow for intelligent query processing:
+
+#### validate_query_relevance
+
+- **Purpose**: LLM-powered validation of query relevance to EAO scope
+- **Input**: User query string
+- **Output**: Relevance assessment with confidence score and reasoning
+- **Usage**: First step in agentic workflow to filter non-EAO queries
+
+#### validate_chunks_relevance ⭐ **NEW**
+
+- **Purpose**: LLM-powered filtering of search results for relevance
+- **Input**: Search results and original query context
+- **Output**: Filtered chunks with validation metrics and removed chunk tracking
+- **Features**:
+  - Sends structured chunks (ID + content) to LLM for relevance scoring
+  - Returns both kept and removed chunks for transparency
+  - Logs only essential content sent to LLM (first 100 chars per chunk)
+
+#### verify_reduce ⭐ **NEW**
+
+- **Purpose**: Collect and combine all validated chunks from multiple filter steps
+- **Input**: List of filter step names to collect from
+- **Output**: Combined verified chunks with metadata and chunk tracking
+- **Features**:
+  - Clean parameter logging (no execution context pollution)
+  - Flexible step name matching for robustness
+  - Reports chunks kept/removed by document name
+  - Format: `🔗 CHUNKS KEPT (N): doc1.pdf, doc2.pdf...`
+
+#### consolidate_results
+
+- **Purpose**: Merge and deduplicate results from multiple searches
+- **Input**: Merge strategy (deduplicate, preserve_all, highest_score)
+- **Output**: Consolidated results without duplicates
+- **Usage**: Combines verified chunks before final summarization
+
+#### summarize_results
+
+- **Purpose**: Generate comprehensive summary from consolidated results
+- **Input**: Consolidated search results and metadata options
+- **Output**: Intelligent summary with document insights and findings
+- **Usage**: Final step to synthesize verified results into coherent response
 
 ### 📊 Statistics Endpoints
 

@@ -458,7 +458,7 @@ def limit_chunks_per_document(results, max_chunks_per_doc):
     
     # Track chunks per document
     document_counts = {}
-    filtered_indices = []
+    filtered_rows = []
     
     for idx, row in results.iterrows():
         # Extract document_id from metadata
@@ -467,16 +467,20 @@ def limit_chunks_per_document(results, max_chunks_per_doc):
         
         if doc_id is None:
             # If no document_id, include the chunk
-            filtered_indices.append(idx)
+            filtered_rows.append(row)
         else:
             # Check if we've reached the limit for this document
             current_count = document_counts.get(doc_id, 0)
             if current_count < max_chunks_per_doc:
-                filtered_indices.append(idx)
+                filtered_rows.append(row)
                 document_counts[doc_id] = current_count + 1
     
-    # Return filtered results maintaining original order
-    return results.iloc[filtered_indices].reset_index(drop=True)
+    # Return filtered results as a new DataFrame
+    if filtered_rows:
+        import pandas as pd
+        return pd.DataFrame(filtered_rows).reset_index(drop=True)
+    else:
+        return pd.DataFrame(columns=results.columns)
 
 
 def perform_reranking(query, combined_results, top_n, min_relevance_score=None):

@@ -772,7 +772,14 @@ Performs the two-stage search pipeline with document-level filtering followed by
   "semanticQuery": "climate change wildlife impact",    // Optional pre-optimized semantic query
   "projectIds": ["project-123", "project-456"],        // Optional project filtering
   "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
-  "inference": ["PROJECT", "DOCUMENTTYPE"]             // Optional inference control
+  "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
+  "location": "Langford British Columbia",             // Optional location context
+  "projectStatus": "recent",                           // Optional project status context
+  "years": [2023, 2024, 2025],                        // Optional years context
+  "ranking": {                                         // Optional ranking configuration
+    "minScore": -6.0,
+    "topN": 15
+  }
 }
 ```
 
@@ -870,6 +877,63 @@ Finds documents similar to a specified document using document-level embeddings.
   }
 }
 ```
+
+### Query Enhancement Parameters
+
+The search API supports optional parameters that enhance search queries with additional context for improved semantic matching. These parameters are automatically integrated into the search query text to provide better contextual relevance.
+
+#### Available Enhancement Parameters
+
+**location** *(string, optional)*
+* **Purpose**: Provides geographic context to improve location-specific searches
+* **Usage**: Appended to the search query as "location: {value}"  
+* **Examples**: 
+  * `"Langford British Columbia"`
+  * `"Northern BC"`
+  * `"Vancouver Island"`
+  * `"Lower Mainland"`
+
+**projectStatus** *(string, optional)*
+* **Purpose**: Adds project status context to filter by project phase or state
+* **Usage**: Appended to the search query as "project status: {value}"
+* **Examples**:
+  * `"recent"` - Focus on recently active projects
+  * `"active"` - Currently ongoing projects  
+  * `"completed"` - Finished projects
+  * `"proposed"` - Projects in planning phase
+
+**years** *(array of integers, optional)*
+* **Purpose**: Focuses search on specific years or timeframes
+* **Usage**: Appended to the search query as "years: {comma-separated values}"
+* **Examples**:
+  * `[2023, 2024, 2025]` - Recent years
+  * `[2020]` - Specific year
+  * `[2018, 2019, 2020, 2021]` - Multi-year range
+
+#### Query Enhancement Processing
+
+When enhancement parameters are provided, they are automatically appended to the original query:
+
+**Example Transformation:**
+```
+Original Query: "environmental impact assessment" 
+Parameters: {
+  "location": "Langford British Columbia",
+  "projectStatus": "recent", 
+  "years": [2023, 2024, 2025]
+}
+Enhanced Query: "environmental impact assessment (location: Langford British Columbia | project status: recent | years: 2023, 2024, 2025)"
+```
+
+The enhanced query is then processed through the normal search pipeline, allowing the semantic and keyword search components to utilize the additional context for improved relevance matching.
+
+#### Future Enhancements
+
+These parameters are currently integrated as text enhancements. Future versions may implement:
+* Direct database filtering on temporal fields
+* Geographic metadata filtering  
+* Project status-based result ranking
+* Advanced temporal query processing
 
 ### Intelligent Project Inference
 

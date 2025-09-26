@@ -208,6 +208,25 @@ class SearchRequestSchema(Schema):
         allow_none=True,
         metadata={"description": "Optional user location information to enhance search results with geographic context for location-based queries (e.g., 'near me', 'projects in my area')"}
     )
+    location = fields.Str(
+        data_key="location",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Location filter - city, region, or area name (e.g., 'Vancouver', 'Peace River region', 'British Columbia'). Provides database-level location filtering."}
+    )
+    projectStatus = fields.Str(
+        data_key="projectStatus",
+        required=False,
+        allow_none=True,
+        metadata={"description": "Project status filter - 'recent', 'active', 'completed', 'historical'. Provides database-level status filtering."}
+    )
+    years = fields.List(
+        fields.Int(),
+        data_key="years",
+        required=False,
+        allow_none=True,
+        metadata={"description": "List of years to filter by - [2023, 2024, 2025] for recent documents, [2015, 2016, 2017] for historical. Provides database-level temporal filtering."}
+    )
 
 
 class SimilaritySearchRequestSchema(Schema):
