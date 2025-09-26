@@ -151,6 +151,33 @@ class SearchSettings:
         return self._config.get("MAX_CHUNKS_PER_DOCUMENT")
     
     @property
+    def parallel_search_timeout(self) -> int:
+        """Get the timeout in seconds for parallel search threads.
+        
+        Returns:
+            int: The maximum time in seconds to wait for parallel search threads to complete
+        """
+        return self._config.get("PARALLEL_SEARCH_TIMEOUT")
+    
+    @property
+    def parallel_result_collection_timeout(self) -> int:
+        """Get the timeout in seconds for collecting results from parallel search threads.
+        
+        Returns:
+            int: The maximum time in seconds to wait for collecting results from the queue
+        """
+        return self._config.get("PARALLEL_RESULT_COLLECTION_TIMEOUT")
+    
+    @property
+    def enable_parallel_fallback(self) -> bool:
+        """Get whether to enable fallback to sequential execution when parallel search fails.
+        
+        Returns:
+            bool: True if fallback to sequential execution is enabled, False otherwise
+        """
+        return self._config.get("ENABLE_PARALLEL_FALLBACK")
+    
+    @property
     def top_record_count(self) -> int:
         """Get the number of top records to return after re-ranking.
         
@@ -325,6 +352,9 @@ class _Config:  # pylint: disable=too-few-public-methods
     KEYWORD_FETCH_COUNT = int(os.getenv("KEYWORD_FETCH_COUNT", "100"))
     SEMANTIC_FETCH_COUNT = int(os.getenv("SEMANTIC_FETCH_COUNT", "100"))
     MAX_CHUNKS_PER_DOCUMENT = int(os.getenv("MAX_CHUNKS_PER_DOCUMENT", "10"))
+    PARALLEL_SEARCH_TIMEOUT = int(os.getenv("PARALLEL_SEARCH_TIMEOUT", "60"))
+    PARALLEL_RESULT_COLLECTION_TIMEOUT = int(os.getenv("PARALLEL_RESULT_COLLECTION_TIMEOUT", "5"))
+    ENABLE_PARALLEL_FALLBACK = os.getenv("ENABLE_PARALLEL_FALLBACK", "true").lower() == "true"
     TOP_RECORD_COUNT = int(os.getenv("TOP_RECORD_COUNT", "10"))
     RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", "8"))
     USE_DEFAULT_INFERENCE = os.getenv("USE_DEFAULT_INFERENCE", "true")

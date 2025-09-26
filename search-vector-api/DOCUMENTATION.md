@@ -87,13 +87,22 @@ Pure keyword search without semantic components:
 
 #### HYBRID_PARALLEL
 
-Comprehensive search running both semantic and keyword approaches simultaneously:
+Comprehensive search running both semantic and keyword approaches simultaneously with robust error handling:
 
-1. **Parallel Execution**: Runs both semantic and keyword searches across all chunks in parallel threads
-2. **Result Merging**: Combines results from both searches, removing duplicates
-3. **Cross-Encoder Re-ranking**: Re-ranks the merged result set
+1. **Parallel Execution**: Runs both semantic and keyword searches across all chunks in parallel threads with configurable timeouts
+2. **Timeout Management**: Individual thread timeouts prevent indefinite hanging, with configurable timeout values
+3. **Fallback Mechanism**: Falls back to sequential execution if parallel execution fails or times out
+4. **Result Merging**: Combines results from both searches, removing duplicates based on chunk ID
+5. **Cross-Encoder Re-ranking**: Re-ranks the merged result set for optimal relevance
+6. **Enhanced Monitoring**: Detailed logging and metrics for thread completion, timeouts, and fallback usage
 
-**Best for**: Maximum recall, when computational cost is not a concern
+**Configuration Options**:
+
+* `PARALLEL_SEARCH_TIMEOUT`: Maximum wait time for each search thread (default: 60 seconds)
+* `PARALLEL_RESULT_COLLECTION_TIMEOUT`: Maximum wait time for collecting results from threads (default: 5 seconds)
+* `ENABLE_PARALLEL_FALLBACK`: Enable fallback to sequential execution on parallel failure (default: true)
+
+**Best for**: Maximum recall with robust handling of resource contention and timeout scenarios
 
 #### Strategy Configuration
 
