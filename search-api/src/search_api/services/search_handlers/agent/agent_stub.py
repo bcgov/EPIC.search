@@ -195,9 +195,19 @@ class VectorSearchAgent:
         
         logger.info(f"🤖 CONFIG: Using search execution range: {min_searches}-{max_searches} searches + validations ({min_total_steps}-{max_total_steps} total steps)")
         
+        # Try to get available projects and document types from previous runs (if available)
+        available_projects_context = ""
+        available_document_types_context = ""
+        
+        # TODO: This would be populated from execution context in a re-planning scenario
+        # For now, the LLM works with placeholders and context is resolved during parameter enhancement
+        
         planning_prompt = f"""Create an execution plan for: "{query}"
 
 Available tools: validate_query_relevance, get_projects_list, get_document_types, search, validate_chunks_relevance, verify_reduce, consolidate_results, summarize_results
+
+{available_projects_context}
+{available_document_types_context}
 
 ALWAYS create {min_total_steps}-{max_total_steps} steps:
 1. validate_query_relevance (always first)
@@ -224,11 +234,10 @@ QUERY DECOMPOSITION GUIDELINES:
 - For temporal queries: Use different time ranges or temporal perspectives
 
 IMPORTANT RULES:
-- Use specific project IDs ONLY when specific project names are mentioned (e.g., "South Anderson project")
-- For broad queries about "projects" in general, DO NOT include project_ids - search all projects
-- Use specific document type IDs ONLY when specific document types are requested (e.g., "letters", "reports")
-- For broad queries, DO NOT include document_type_ids - search all document types
-- NOTE: User-provided parameters will automatically override your suggestions, so focus on creating good execution logic
+- Focus on creating diverse, comprehensive search strategies with {min_searches}-{max_searches} semantic variations
+- Break complex queries into multiple focused searches that cover different aspects
+- Use the new structured parameters (location, project_status, years) instead of keyword stuffing
+- NOTE: Project IDs and document type IDs are automatically selected by the parameter extractor based on query intent
 
 NEW SEARCH PARAMETERS AVAILABLE:
 - location: Use for "near me", "local", geographic terms (e.g., "Vancouver", "Peace River region")
@@ -238,23 +247,35 @@ NEW SEARCH PARAMETERS AVAILABLE:
 
 MULTI-SEARCH STRATEGY EXAMPLES:
 
-Example 1 - "South Anderson letters about Nooaitch" (needs {min_searches}-{max_searches} searches + validations):
+Example 1 - "Project letters about First Nations consultation" (needs {min_searches}-{max_searches} searches + validations):
 [
   {{"step_name": "validate_query", "tool": "validate_query_relevance", "parameters": {{}}, "reasoning": "Check query relevance"}},
-  {{"step_name": "get_projects", "tool": "get_projects_list", "parameters": {{}}, "reasoning": "Find South Anderson project ID"}},
-  {{"step_name": "get_types", "tool": "get_document_types", "parameters": {{}}, "reasoning": "Find letter document type IDs"}},
-  {{"step_name": "search_nooaitch_letters", "tool": "search", "parameters": {{"query": "Nooaitch Indian Band correspondence", "project_ids": ["project_id_obtained_from_get_projects_step"], "document_type_ids": ["document_type_id_obtained_from_get_types_step"]}}, "reasoning": "Search for Nooaitch correspondence"}},
-  {{"step_name": "search_nooaitch_consultation", "tool": "search", "parameters": {{"query": "Nooaitch consultation engagement meetings", "project_ids": ["project_id_obtained_from_get_projects_step"]}}, "reasoning": "Search for Nooaitch consultation activities"}},
-  {{"step_name": "search_nooaitch_impacts", "tool": "search", "parameters": {{"query": "Nooaitch impacts concerns issues", "project_ids": ["project_id_obtained_from_get_projects_step"]}}, "reasoning": "Search for Nooaitch-related impacts and concerns"}},
-  {{"step_name": "filter_search_nooaitch_letters", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_nooaitch_letters", "step_name": "search_nooaitch_letters"}}, "reasoning": "Filter search_nooaitch_letters results for relevance"}},
-  {{"step_name": "filter_search_nooaitch_consultation", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_nooaitch_consultation", "step_name": "search_nooaitch_consultation"}}, "reasoning": "Filter search_nooaitch_consultation results for relevance"}},
-  {{"step_name": "filter_search_nooaitch_impacts", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_nooaitch_impacts", "step_name": "search_nooaitch_impacts"}}, "reasoning": "Filter search_nooaitch_impacts results for relevance"}},
-  {{"step_name": "verify_reduce", "tool": "verify_reduce", "parameters": {{"filter_steps": ["filter_search_nooaitch_letters", "filter_search_nooaitch_consultation", "filter_search_nooaitch_impacts"]}}, "reasoning": "Collect all validated chunks from filter steps"}},
+  {{"step_name": "search_consultation_letters", "tool": "search", "parameters": {{"query": "First Nations consultation correspondence letters"}}, "reasoning": "Search for consultation correspondence"}},
+  {{"step_name": "search_consultation_meetings", "tool": "search", "parameters": {{"query": "First Nations consultation engagement meetings"}}, "reasoning": "Search for consultation activities"}},
+  {{"step_name": "search_consultation_impacts", "tool": "search", "parameters": {{"query": "First Nations impacts concerns issues"}}, "reasoning": "Search for consultation-related impacts and concerns"}},
+  {{"step_name": "filter_search_consultation_letters", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_consultation_letters", "step_name": "search_consultation_letters"}}, "reasoning": "Filter search_consultation_letters results for relevance"}},
+  {{"step_name": "filter_search_consultation_meetings", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_consultation_meetings", "step_name": "search_consultation_meetings"}}, "reasoning": "Filter search_consultation_meetings results for relevance"}},
+  {{"step_name": "filter_search_consultation_impacts", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_consultation_impacts", "step_name": "search_consultation_impacts"}}, "reasoning": "Filter search_consultation_impacts results for relevance"}},
+  {{"step_name": "verify_reduce", "tool": "verify_reduce", "parameters": {{"filter_steps": ["filter_search_consultation_letters", "filter_search_consultation_meetings", "filter_search_consultation_impacts"]}}, "reasoning": "Collect all validated chunks from filter steps"}},
   {{"step_name": "consolidate_results", "tool": "consolidate_results", "parameters": {{"merge_strategy": "deduplicate"}}, "reasoning": "Merge and deduplicate all verified results"}},
   {{"step_name": "summarize_results", "tool": "summarize_results", "parameters": {{"include_metadata": true}}, "reasoning": "Generate comprehensive summary of all findings"}}
 ]
 
-Example 2 - "water quality impacts from mining projects" (needs {min_searches}-{max_searches} searches + validations):
+Example 2 - "who is the main proponent for the Air Liquide project?" (needs {min_searches}-{max_searches} searches + validations):
+[
+  {{"step_name": "validate_query", "tool": "validate_query_relevance", "parameters": {{}}, "reasoning": "Check query relevance"}},
+  {{"step_name": "search_proponent_info", "tool": "search", "parameters": {{"query": "Air Liquide proponent applicant company organization"}}, "reasoning": "Search for proponent information"}},
+  {{"step_name": "search_project_details", "tool": "search", "parameters": {{"query": "Air Liquide project description application details"}}, "reasoning": "Search for project details and applicant info"}},
+  {{"step_name": "search_application_info", "tool": "search", "parameters": {{"query": "Air Liquide application submitted by company proponent"}}, "reasoning": "Search for application and submission information"}},
+  {{"step_name": "filter_search_proponent_info", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_proponent_info", "step_name": "search_proponent_info"}}, "reasoning": "Filter search_proponent_info results for relevance"}},
+  {{"step_name": "filter_search_project_details", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_project_details", "step_name": "search_project_details"}}, "reasoning": "Filter search_project_details results for relevance"}},
+  {{"step_name": "filter_search_application_info", "tool": "validate_chunks_relevance", "parameters": {{"search_results": "results_from_search_application_info", "step_name": "search_application_info"}}, "reasoning": "Filter search_application_info results for relevance"}},
+  {{"step_name": "verify_reduce", "tool": "verify_reduce", "parameters": {{"filter_steps": ["filter_search_proponent_info", "filter_search_project_details", "filter_search_application_info"]}}, "reasoning": "Collect all validated chunks from filter steps"}},
+  {{"step_name": "consolidate_results", "tool": "consolidate_results", "parameters": {{"merge_strategy": "deduplicate"}}, "reasoning": "Merge and deduplicate all verified results"}},
+  {{"step_name": "summarize_results", "tool": "summarize_results", "parameters": {{"include_metadata": true}}, "reasoning": "Generate comprehensive summary of all findings"}}
+]
+
+Example 3 - "water quality impacts from mining projects" (needs {min_searches}-{max_searches} searches + validations):
 [
   {{"step_name": "validate_query", "tool": "validate_query_relevance", "parameters": {{}}, "reasoning": "Check query relevance"}},
   {{"step_name": "search_water_quality_mining", "tool": "search", "parameters": {{"query": "water quality mining contamination pollution", "project_status": "active"}}, "reasoning": "Search for water quality impacts from mining"}},
@@ -268,10 +289,10 @@ Example 2 - "water quality impacts from mining projects" (needs {min_searches}-{
   {{"step_name": "summarize_results", "tool": "summarize_results", "parameters": {{"include_metadata": true}}, "reasoning": "Generate comprehensive summary of all findings"}}
 ]
 
-CRITICAL: When you reference project_ids or document_type_ids in search steps:
-- Use placeholder values like "project_id_obtained_from_get_projects_step" or "document_type_id_obtained_from_get_types_step"  
-- DO NOT use literal names like "letter" or "south anderson" - these will be automatically converted to actual IDs
-- The system will replace these placeholders with real IDs discovered from previous steps
+CRITICAL: Focus on execution strategy, not parameter selection:
+- Project IDs and document type IDs are automatically selected by the parameter extractor
+- Create diverse search queries that cover different semantic aspects of the user's question
+- Use structured parameters (location, project_status, years) when relevant to the query context
 
 SEARCH VARIATION STRATEGIES:
 - Semantic variations: Use synonyms and related terms across searches
@@ -1328,6 +1349,84 @@ LOCATION QUERY STRATEGY:
         
         return parameters
     
+    def _generate_search_variations(self, base_query: str, num_variations: int = 3) -> List[str]:
+        """Generate semantic variations of the base query for comprehensive search coverage.
+        
+        Args:
+            base_query: The optimized semantic query from parameter extraction
+            num_variations: Number of variations to generate (default: 3)
+            
+        Returns:
+            List of search query variations
+        """
+        variations = [base_query]  # Always include the base query
+        
+        # Generate additional variations based on the base query
+        try:
+            if self.llm_client:
+                prompt = f"""Generate {num_variations - 1} semantic variations of this search query for comprehensive document retrieval.
+
+Original Query: "{base_query}"
+
+Instructions:
+- Create variations that use different terminology and phrasing
+- Maintain the same search intent and core concepts
+- Use synonyms and alternative expressions
+- Keep variations concise (2-8 words each)
+- Focus on different aspects or angles of the same topic
+
+Return only the variations as a JSON array of strings (no explanations):"""
+
+                messages = [{"role": "user", "content": prompt}]
+                response = self.llm_client.chat_completion(messages, temperature=0.3, max_tokens=300)
+                
+                if response and "choices" in response:
+                    content = response["choices"][0]["message"]["content"].strip()
+                    
+                    # Clean up potential markdown formatting
+                    if '```json' in content:
+                        start = content.find('[')
+                        end = content.rfind(']') + 1
+                        if start != -1 and end != 0:
+                            content = content[start:end]
+                    
+                    try:
+                        import json
+                        llm_variations = json.loads(content)
+                        if isinstance(llm_variations, list):
+                            variations.extend(llm_variations[:num_variations-1])
+                            logger.info(f"🔍 Generated {len(llm_variations)} LLM search variations")
+                    except json.JSONDecodeError:
+                        logger.warning("🔍 Failed to parse LLM variations, using fallback")
+        except Exception as e:
+            logger.warning(f"🔍 LLM variation generation failed: {e}")
+        
+        # Fallback: create simple variations if LLM failed
+        if len(variations) < num_variations:
+            # Add basic keyword rearrangements
+            words = base_query.split()
+            if len(words) > 2:
+                # Reverse word order
+                variations.append(" ".join(reversed(words)))
+            if len(words) > 3:
+                # Use middle words only
+                middle = words[1:-1] if len(words) > 3 else words[1:]
+                if middle:
+                    variations.append(" ".join(middle))
+        
+        # Ensure we don't exceed the requested number and remove duplicates
+        unique_variations = []
+        seen = set()
+        for var in variations:
+            if var.lower() not in seen:
+                unique_variations.append(var)
+                seen.add(var.lower())
+                if len(unique_variations) >= num_variations:
+                    break
+        
+        logger.info(f"🔍 Final search variations: {unique_variations}")
+        return unique_variations
+    
     def execute_tool(self, tool_name: str, parameters: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Execute a specific tool with given parameters.
         
@@ -1557,20 +1656,51 @@ LOCATION QUERY STRATEGY:
                         }
                     }
             elif tool_name == "summarize_results":
-                # This tool needs access to consolidated results from execution context
-                # We'll implement the actual summarization logic after consolidation
+                # Perform actual summarization
                 query = parameters.get("query", "")
                 include_metadata = parameters.get("include_metadata", True)
                 
                 if not query:
                     raise ValueError("Query parameter is required for summarization")
                 
-                result = {
-                    "message": "Summarization will be handled after consolidation",
-                    "query": query,
-                    "include_metadata": include_metadata,
-                    "summarization_pending": True
-                }
+                # Get consolidated results from context
+                if not context or "consolidated_results" not in context:
+                    result = "No consolidated results available for summarization"
+                    logger.warning("📝 AGENT SUMMARY: No consolidated results in context")
+                else:
+                    logger.info("📝 AGENT SUMMARY: Starting summarization of consolidated results...")
+                    
+                    try:
+                        from search_api.services.generation.factories import SummarizerFactory
+                        
+                        summarizer = SummarizerFactory.create_summarizer()
+                        
+                        # Combine documents and chunks for summarization
+                        consolidated_results = context["consolidated_results"]
+                        all_results = consolidated_results.get("documents", []) + consolidated_results.get("document_chunks", [])
+                        
+                        if all_results:
+                            summary_result = summarizer.summarize_search_results(
+                                query=query,
+                                documents_or_chunks=all_results,
+                                search_context={
+                                    "context": "Agent consolidation summary",
+                                    "search_strategy": "agent_multi_search", 
+                                    "total_documents": len(consolidated_results.get("documents", [])),
+                                    "total_chunks": len(consolidated_results.get("document_chunks", [])),
+                                    "search_executions": getattr(self, 'search_count', 1)
+                                }
+                            )
+                            
+                            result = summary_result.get("summary", "Summary generation failed")
+                            logger.info(f"📝 AGENT SUMMARY: Generated summary using {summary_result.get('provider', 'unknown')} with confidence {summary_result.get('confidence', 0)}")
+                        else:
+                            result = "No relevant documents were found for the given query."
+                            logger.warning("📝 AGENT SUMMARY: No results to summarize")
+                            
+                    except Exception as e:
+                        logger.error(f"📝 AGENT SUMMARY: Summarization failed: {e}")
+                        result = "Summary generation failed due to an error."
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
@@ -1718,6 +1848,227 @@ JSON Response:"""
             logger.error(f"🤖 TOOL SUGGESTIONS: Error in LLM tool suggestion: {e}")
             return []
 
+    def _llm_select_parameters(self, parameters: Dict[str, Any], context: Dict[str, Any], selection_type: str) -> Dict[str, Any]:
+        """Use LLM to intelligently select project_ids or document_type_ids from available options.
+        
+        Args:
+            parameters: Current search parameters
+            context: Execution context with available options
+            selection_type: "projects" or "document_types"
+            
+        Returns:
+            Parameters with LLM-selected IDs
+        """
+        if not self.llm_client:
+            logger.warning(f"🤖 LLM SELECTION: No LLM client available for {selection_type} selection")
+            return parameters
+        
+        query = parameters.get("query", "")
+        original_query = context.get("original_query", query)
+        
+        if selection_type == "projects":
+            available_context = context.get("available_projects_context", "")
+            param_name = "project_ids"
+        else:  # document_types
+            available_context = context.get("available_document_types_context", "")
+            param_name = "document_type_ids"
+        
+        if not available_context:
+            logger.info(f"🤖 LLM SELECTION: No {selection_type} context available")
+            return parameters
+        
+        if selection_type == "document_types":
+            selection_prompt = f"""You are selecting relevant document types for a search query.
+
+ORIGINAL USER QUERY: "{original_query}"
+SEARCH QUERY: "{query}"
+
+{available_context}
+
+Based on the queries above, select the most relevant document_type_ids from the available options.
+Return ONLY a JSON array of the selected IDs, or an empty array if none are specifically relevant.
+
+WHEN TO SELECT DOCUMENT TYPES:
+✓ Query explicitly mentions document types: "show me letters", "find reports", "get presentations"
+✓ Query asks for specific document format: "correspondence about X", "memos regarding Y"
+
+WHEN TO RETURN EMPTY ARRAY [] (search all document types):
+✗ General information queries: "who is the proponent?", "what is the project status?"
+✗ Factual questions about projects: "when was X approved?", "where is Y located?"
+✗ Broad queries: "tell me about project X", "information on Y"
+✗ Process questions: "what are the impacts?", "what consultation occurred?"
+
+DOCUMENT TYPE GROUPING RULES (when document types ARE relevant):
+- If query mentions a document type but NO specific act: include ALL variations across acts
+- If query mentions BOTH document type AND specific act: only include that specific combination
+- Examples: "letters" → all letter types; "Environmental Assessment Act letters" → only EA letters
+
+Response format: ["id1", "id2", "id3"] or []
+
+JSON Response:"""
+        else:  # projects
+            selection_prompt = f"""You are selecting relevant projects for a search query.
+
+ORIGINAL USER QUERY: "{original_query}"
+SEARCH QUERY: "{query}"
+
+{available_context}
+
+Based on the queries above, select the most relevant project_ids from the available options.
+Return ONLY a JSON array of the selected IDs, or an empty array if none are specifically relevant.
+
+WHEN TO SELECT SPECIFIC PROJECTS:
+✓ Query mentions specific project names: "Air Liquide Liquid Nitrogen Plant Project"
+✓ Query asks about a particular project: "for Project X, who is the proponent?"
+
+WHEN TO RETURN EMPTY ARRAY [] (search all projects):
+✗ General queries about multiple projects: "what projects are in BC?", "show me mining projects"
+✗ Comparative queries: "which projects have the most impacts?"
+✗ Broad topic searches: "projects with water concerns", "mining project impacts"
+✗ When no specific project is mentioned by name
+
+SELECTION RULES:
+- Be very specific - only select projects explicitly mentioned in the query
+- If unsure whether a project name matches, include it (better to include than miss)
+- For broad queries about project categories or topics, return empty array to search all
+
+Response format: ["id1", "id2"] or []
+
+JSON Response:"""
+
+        try:
+            messages = [
+                {"role": "system", "content": f"You are an expert at selecting relevant {selection_type} for search queries. Return only a JSON array of IDs."},
+                {"role": "user", "content": selection_prompt}
+            ]
+            
+            response = self.llm_client.chat_completion(messages, temperature=0.1, max_tokens=200)
+            
+            if response and "choices" in response and response["choices"]:
+                content = response["choices"][0]["message"]["content"].strip()
+                content_clean = content.replace("```json", "").replace("```", "").strip()
+                
+                try:
+                    selected_ids = json.loads(content_clean)
+                    if isinstance(selected_ids, list):
+                        if selected_ids:
+                            # For document types, apply smart grouping to ensure we get all related types
+                            if selection_type == "document_types":
+                                selected_ids = self._expand_document_type_groups(selected_ids, context, original_query)
+                            
+                            parameters[param_name] = selected_ids
+                            logger.info(f"🤖 LLM SELECTION: Selected {len(selected_ids)} {selection_type} IDs: {selected_ids}")
+                        else:
+                            logger.info(f"🤖 LLM SELECTION: No specific {selection_type} selected - searching all")
+                            # Remove parameter to search all
+                            parameters.pop(param_name, None)
+                    else:
+                        logger.warning(f"🤖 LLM SELECTION: Invalid response format for {selection_type}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"🤖 LLM SELECTION: JSON parsing failed for {selection_type}: {e}")
+            
+        except Exception as e:
+            logger.error(f"🤖 LLM SELECTION: Error selecting {selection_type}: {e}")
+        
+        return parameters
+
+    def _expand_document_type_groups(self, selected_ids: List[str], context: Dict[str, Any], query: str) -> List[str]:
+        """Expand document type selections to include all related types under different acts.
+        
+        Args:
+            selected_ids: Initially selected document type IDs
+            context: Execution context with available document types
+            query: Original query to check for specific act mentions
+            
+        Returns:
+            Expanded list of document type IDs including related types
+        """
+        available_document_types = context.get("available_document_types", [])
+        if not available_document_types:
+            return selected_ids
+        
+        # Check if query mentions specific acts - if so, don't expand
+        act_keywords = [
+            "environmental assessment act", "water act", "mines act", "forest act", 
+            "wildlife act", "fisheries act", "species at risk act", "impact assessment act"
+        ]
+        query_lower = query.lower()
+        has_specific_act = any(act in query_lower for act in act_keywords)
+        
+        if has_specific_act:
+            logger.info("🔍 DOC TYPE EXPANSION: Specific act mentioned - not expanding document types")
+            return selected_ids
+        
+        # Build mappings for document type expansion
+        id_to_doc_type = {}
+        semantic_groups = {}  # Group document types by semantic similarity (aliases, base names)
+        
+        for doc_type in available_document_types:
+            if isinstance(doc_type, dict) and "document_type_id" in doc_type and "document_type_name" in doc_type:
+                doc_id = doc_type["document_type_id"]
+                doc_name = doc_type["document_type_name"].lower()
+                aliases = [alias.lower() for alias in doc_type.get("aliases", [])]
+                act = doc_type.get("act", "")
+                
+                id_to_doc_type[doc_id] = doc_type
+                
+                # Create semantic keys for this document type (name + aliases)
+                semantic_keys = [doc_name] + aliases
+                
+                # Also extract base name (remove act suffixes if present)
+                base_name = doc_name
+                if " - " in base_name:
+                    base_name = base_name.split(" - ")[0].strip()
+                elif " (" in base_name:
+                    base_name = base_name.split(" (")[0].strip()
+                
+                semantic_keys.append(base_name)
+                
+                # Group by each semantic key
+                for key in semantic_keys:
+                    if key not in semantic_groups:
+                        semantic_groups[key] = []
+                    if doc_id not in semantic_groups[key]:
+                        semantic_groups[key].append(doc_id)
+        
+        # Expand selected IDs to include all semantically related types
+        expanded_ids = set(selected_ids)
+        
+        for selected_id in selected_ids:
+            if selected_id in id_to_doc_type:
+                selected_doc_type = id_to_doc_type[selected_id]
+                selected_name = selected_doc_type["document_type_name"]
+                selected_aliases = selected_doc_type.get("aliases", [])
+                
+                # Find all semantic keys for this selected document type
+                semantic_keys = [selected_name.lower()] + [alias.lower() for alias in selected_aliases]
+                
+                # Extract base name
+                base_name = selected_name.lower()
+                if " - " in base_name:
+                    base_name = base_name.split(" - ")[0].strip()
+                elif " (" in base_name:
+                    base_name = base_name.split(" (")[0].strip()
+                semantic_keys.append(base_name)
+                
+                # Find all related document types by semantic similarity
+                related_count = 0
+                for key in semantic_keys:
+                    if key in semantic_groups:
+                        for related_id in semantic_groups[key]:
+                            if related_id not in expanded_ids:
+                                expanded_ids.add(related_id)
+                                related_count += 1
+                
+                if related_count > 0:
+                    logger.info(f"🔍 DOC TYPE EXPANSION: Expanded '{selected_name}' to include {related_count} related types")
+        
+        expanded_list = list(expanded_ids)
+        if len(expanded_list) > len(selected_ids):
+            logger.info(f"🔍 DOC TYPE EXPANSION: Expanded from {len(selected_ids)} to {len(expanded_list)} document types")
+        
+        return expanded_list
+
     def _enhance_step_parameters(self, original_parameters: Dict[str, Any], context: Dict[str, Any], tool_name: str) -> Dict[str, Any]:
         """Enhance step parameters based on execution context and discovered data.
         
@@ -1732,14 +2083,28 @@ JSON Response:"""
         enhanced = original_parameters.copy()
         
         if tool_name == "search":
-            # Automatically add discovered project IDs if the search query suggests it needs them
+            # LLM-driven parameter selection when context is available
             query = enhanced.get("query", "").lower()
+            original_query = context.get("original_query", query)
             
-            # If query mentions specific project names we have mappings for, add the project IDs
-            for project_name, project_id in context["project_name_to_id_mapping"].items():
-                if project_name in query and not enhanced.get("project_ids"):
-                    enhanced["project_ids"] = [project_id]
-                    logger.info(f"🤖 CONTEXT: Auto-added project_id {project_id} for query mentioning '{project_name}'")
+            # If we have available projects/document types and the LLM used placeholders,
+            # let the LLM make intelligent selections from the available options
+            # Only trigger LLM selection if the original planning included placeholders
+            # Don't trigger if the parameter wasn't included at all (means LLM didn't think it was needed)
+            
+            if (context.get("available_projects_context") and 
+                "project_ids" in enhanced and
+                any(isinstance(pid, str) and "obtained" in str(pid).lower() for pid in enhanced.get("project_ids", []))):
+                
+                enhanced = self._llm_select_parameters(enhanced, context, "projects")
+            
+            if (context.get("available_document_types_context") and 
+                "document_type_ids" in enhanced and
+                any(isinstance(dtid, str) and "obtained" in str(dtid).lower() for dtid in enhanced.get("document_type_ids", []))):
+                
+                enhanced = self._llm_select_parameters(enhanced, context, "document_types")
+            
+            # Project IDs are now handled via LLM selection or placeholder replacement
             
             # Automatically add discovered document type IDs if query mentions document types we have mappings for
             for doc_type_name, doc_type_id in context["document_type_name_to_id_mapping"].items():
@@ -1757,15 +2122,8 @@ JSON Response:"""
                 else:
                     logger.info(f"🤖 CONTEXT: Skipping auto-document type IDs - query seems to be asking for broad search across document types")
             
-            # If we have discovered project IDs and the query mentions a SPECIFIC project name, use them
-            if context["discovered_project_ids"] and not enhanced.get("project_ids"):
-                # Only add project IDs for SPECIFIC project mentions, not general "project" or "projects"
-                specific_project_terms = ["south anderson", "site c", "trans mountain", "coastal gaslink", "lng canada"]
-                if any(term in query for term in specific_project_terms):
-                    enhanced["project_ids"] = context["discovered_project_ids"]
-                    logger.info(f"🤖 CONTEXT: Auto-added discovered project_ids for specific project: {enhanced['project_ids']}")
-                else:
-                    logger.info(f"🤖 CONTEXT: Skipping auto-project IDs - query seems to be asking for broad search across projects")
+            # Project selection is now handled entirely by LLM via placeholder replacement
+            # All available projects are provided in discovered_project_ids for LLM to choose from
                     
         elif tool_name == "validate_chunks_relevance":
             # Provide original query if not specified
@@ -1840,7 +2198,7 @@ JSON Response:"""
                 logger.info(f"🤖 CONTEXT: Added original query to validation step: {enhanced['query']}")
             
         if tool_name == "search":
-            # Replace placeholder project_ids with discovered ones
+            # Replace placeholder project_ids with discovered ones or resolve from original query
             if "project_ids" in enhanced and isinstance(enhanced["project_ids"], list):
                 placeholder_patterns = ["obtained", "project_id_for_", "_id", "previous_step", "discovered", "from_"]
                 has_placeholders = any(
@@ -1850,6 +2208,8 @@ JSON Response:"""
                 if has_placeholders and context["discovered_project_ids"]:
                     enhanced["project_ids"] = context["discovered_project_ids"]
                     logger.info(f"🤖 CONTEXT: Replaced placeholder project_ids with discovered: {enhanced['project_ids']}")
+                elif has_placeholders:
+                    logger.warning(f"🤖 CONTEXT: Found placeholders but no discovered project IDs available")
             
             # Convert project names to IDs if LLM provided names instead of IDs
             if "project_ids" in enhanced and isinstance(enhanced["project_ids"], list):
@@ -1889,20 +2249,15 @@ JSON Response:"""
                     enhanced["project_ids"] = converted_ids
                     logger.info(f"🤖 CONTEXT: Final project_ids after conversion: {enhanced['project_ids']}")
             
-            # Replace placeholder document_type_ids with discovered ones  
+            # Replace placeholder document_type_ids with resolved ones from original query
             if "document_type_ids" in enhanced and isinstance(enhanced["document_type_ids"], list):
-                logger.info(f"🤖 CONTEXT: Checking document_type_ids for placeholders: {enhanced['document_type_ids']}")
-                placeholder_patterns = ["obtained", "type_id", "_id", "previous_step", "discovered", "from_", "letter_type", "letter", "report", "memo", "correspondence", "assessment"]
+                placeholder_patterns = ["obtained", "type_id", "_id", "previous_step", "discovered", "from_"]
                 has_placeholders = any(
                     any(pattern in str(dtid).lower() for pattern in placeholder_patterns)
                     for dtid in enhanced["document_type_ids"]
                 )
-                logger.info(f"🤖 CONTEXT: Has placeholders: {has_placeholders}, Available discovered IDs: {context['discovered_document_type_ids']}")
-                if has_placeholders and context["discovered_document_type_ids"]:
-                    enhanced["document_type_ids"] = context["discovered_document_type_ids"]
-                    logger.info(f"🤖 CONTEXT: Replaced placeholder document_type_ids with discovered: {enhanced['document_type_ids']}")
-                elif has_placeholders:
-                    logger.warning(f"🤖 CONTEXT: Found placeholders but no discovered document type IDs available")
+                if has_placeholders:
+                    logger.warning(f"🤖 CONTEXT: Found placeholders in document_type_ids but no auto-discovery - LLM should select from available document types")
             
             # Convert document type names to IDs if LLM provided names instead of IDs
             if "document_type_ids" in enhanced and isinstance(enhanced["document_type_ids"], list):
@@ -2054,41 +2409,73 @@ JSON Response:"""
         result_data = tool_result.get("result")
         
         if tool_name == "get_projects_list" and isinstance(result_data, list):
-            # Extract project mappings
+            # Extract project mappings for LLM to reference and select from
             for project in result_data:
                 if isinstance(project, dict) and "project_id" in project and "project_name" in project:
                     project_id = project["project_id"]
                     project_name = project["project_name"]
                     context["project_name_to_id_mapping"][project_name.lower()] = project_id
-                    
-                    # Check if this matches what we're looking for
-                    if "south anderson" in project_name.lower():
-                        context["discovered_project_ids"].append(project_id)
-                        logger.info(f"🤖 CONTEXT: Discovered South Anderson project_id: {project_id}")
+                    logger.info(f"🤖 CONTEXT: Added project mapping: {project_name} -> {project_id}")
+            
+            # Store the full project list for LLM context
+            context["available_projects"] = result_data
+            
+            # Format projects context for LLM visibility - SHOW ALL projects
+            projects_context_lines = []
+            for project in result_data:  # Show ALL projects
+                if isinstance(project, dict) and "project_id" in project and "project_name" in project:
+                    projects_context_lines.append(f"  - {project['project_name']}: {project['project_id']}")
+            
+            context["available_projects_context"] = f"""
+AVAILABLE PROJECTS (select relevant project_ids):
+{chr(10).join(projects_context_lines)}
+
+Example usage: "project_ids": ["{result_data[0]['project_id'] if result_data else 'project_id_here'}"]
+"""
+            logger.info(f"🤖 CONTEXT: {len(result_data)} projects available for LLM selection")
         
         elif tool_name == "get_document_types" and isinstance(result_data, list):
-            # get_document_types now returns a normalized list like get_projects_list
-            logger.info(f"🤖 CONTEXT: Processing get_document_types response with {len(result_data)} items")
-            
+            # Extract document type mappings for LLM to reference and select from
             for doc_type in result_data:
                 if isinstance(doc_type, dict) and "document_type_id" in doc_type and "document_type_name" in doc_type:
                     doc_type_id = doc_type["document_type_id"]
                     doc_type_name = doc_type["document_type_name"]
                     context["document_type_name_to_id_mapping"][doc_type_name.lower()] = doc_type_id
-                    logger.info(f"🤖 CONTEXT: Added mapping: '{doc_type_name.lower()}' -> {doc_type_id}")
-                    
-                    # Check if this is a letter/correspondence type
-                    if any(term in doc_type_name.lower() for term in ["letter", "correspondence", "memo", "communication"]):
-                        context["discovered_document_type_ids"].append(doc_type_id)
-                        logger.info(f"🤖 CONTEXT: Discovered letter/correspondence document_type_id: {doc_type_id} ({doc_type_name})")
-                    
-                    # Also look for other common document types that might be mentioned in queries
-                    for doc_keyword in ["report", "assessment", "study", "plan", "notice", "application", "decision"]:
-                        if doc_keyword in doc_type_name.lower():
-                            # Don't add to discovered list automatically, but log for context
-                            logger.info(f"🤖 CONTEXT: Found {doc_keyword} document type: {doc_type_id} ({doc_type_name})")
+                    logger.info(f"🤖 CONTEXT: Added document type mapping: {doc_type_name} -> {doc_type_id}")
             
-            logger.info(f"🤖 CONTEXT: Final discovered_document_type_ids: {context['discovered_document_type_ids']}")
+            # Store the full document type list for LLM context
+            context["available_document_types"] = result_data
+            
+            # Format document types context for LLM visibility - SHOW ALL types
+            doc_types_context_lines = []
+            for doc_type in result_data:  # Show ALL document types
+                if isinstance(doc_type, dict) and "document_type_id" in doc_type and "document_type_name" in doc_type:
+                    doc_name = doc_type['document_type_name']
+                    doc_id = doc_type['document_type_id']
+                    
+                    # Include aliases if available
+                    aliases = doc_type.get('aliases', [])
+                    if aliases:
+                        aliases_str = f" (aliases: {', '.join(aliases)})"
+                    else:
+                        aliases_str = ""
+                    
+                    # Include act if available for context
+                    act = doc_type.get('act', '')
+                    if act and act != '2018_act_terms':  # Don't show generic act
+                        act_str = f" [{act}]"
+                    else:
+                        act_str = ""
+                    
+                    doc_types_context_lines.append(f"  - {doc_name}{aliases_str}{act_str}: {doc_id}")
+            
+            context["available_document_types_context"] = f"""
+AVAILABLE DOCUMENT TYPES (select relevant document_type_ids):
+{chr(10).join(doc_types_context_lines)}
+
+Example usage: "document_type_ids": ["{result_data[0]['document_type_id'] if result_data else 'document_type_id_here'}"]
+"""
+            logger.info(f"🤖 CONTEXT: {len(result_data)} document types available for LLM selection")
         
         elif tool_name == "search" and isinstance(result_data, tuple) and len(result_data) >= 2:
             # Track search results for consolidation
@@ -2335,27 +2722,29 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                       search_strategy: Optional[str] = None, ranking: Optional[Dict[str, Any]] = None,
                       location: Optional[Dict[str, Any]] = None, project_status: Optional[str] = None, 
                       years: Optional[List[int]] = None) -> dict:
-    """Handle agent-required queries with tool execution.
+    """Handle agent-required queries with simplified parameter extraction flow.
     
     Args:
         query: The complex query that requires agent processing
         reason: Why the query was classified as agent-required
         llm_client: Optional LLM client for intelligent planning
         user_location: Optional user location data from request body
-        project_ids: Optional user-provided project IDs to respect in agent search calls
-        document_type_ids: Optional user-provided document type IDs to respect in agent search calls
-        search_strategy: Optional user-provided search strategy to use in agent search calls
-        ranking: Optional user-provided ranking configuration to use in agent search calls
-        location: Optional location parameter (user-provided takes precedence)
-        project_status: Optional project status parameter (user-provided takes precedence)
-        years: Optional years parameter (user-provided takes precedence)
+        project_ids: Optional user-provided project IDs 
+        document_type_ids: Optional user-provided document type IDs
+        search_strategy: Optional user-provided search strategy
+        ranking: Optional user-provided ranking configuration
+        location: Optional location parameter
+        project_status: Optional project status parameter
+        years: Optional years parameter
         
     Returns:
-        Dict with agent processing results and any tool executions
+        Dict with agent processing results
     """
+    import time
+    start_time = time.time()
     
     logger.info("=" * 60)
-    logger.info("🤖 AGENT MODE ACTIVATED")
+    logger.info("🤖 AGENT MODE ACTIVATED - SIMPLIFIED FLOW")
     logger.info(f"Query: {query}")
     logger.info(f"Reason: {reason}")
     
@@ -2371,415 +2760,397 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
             "consolidated_summary": "Error: LLM client not provided for agent mode"
         }
     
-    logger.info("LLM Planning: Enabled")
-    if project_ids:
-        logger.info(f"User-provided project IDs: {project_ids}")
-    if document_type_ids:
-        logger.info(f"User-provided document type IDs: {document_type_ids}")
-    if search_strategy:
-        logger.info(f"User-provided search strategy: {search_strategy}")
-    if ranking:
-        logger.info(f"User-provided ranking: {ranking}")
     logger.info("=" * 60)
     
     try:
-        # Get parallel search configuration (inside try block for proper scoping)
+        # STEP 1: Validate Query Relevance
+        logger.info("🔍 STEP 1: Validating query relevance...")
+        from search_api.services.generation.factories import QueryValidatorFactory
+        relevance_checker = QueryValidatorFactory.create_validator()
+        relevance_result = relevance_checker.validate_query_relevance(query)
+        
+        if not relevance_result.get("is_relevant", True):
+            logger.info("🔍 AGENT: Query not relevant to EAO - returning early")
+            return {
+                "agent_results": [],
+                "planning_method": "Early exit - not relevant",
+                "execution_time": round((time.time() - start_time) * 1000, 2),
+                "steps_executed": 1,
+                "consolidated_summary": relevance_result.get("response", "This query appears to be outside the scope of EAO's mandate."),
+                "early_exit": True,
+                "exit_reason": "query_not_relevant"
+            }
+        
+        logger.info(f"🔍 STEP 1: Query is relevant - continuing")
+        
+        # STEP 2: Extract Parameters using Base Parameter Extractor  
+        logger.info("🤖 STEP 2: Extracting parameters...")
+        from search_api.services.generation.factories import ParameterExtractorFactory
+        from search_api.clients.vector_search_client import VectorSearchClient
+        
+        # Get available data for parameter extraction
+        try:
+            # Get data arrays directly from VectorSearchClient (no conversion needed)
+            available_projects = VectorSearchClient.get_projects_list()
+            available_document_types = VectorSearchClient.get_document_types()
+            available_strategies = VectorSearchClient.get_search_strategies()
+            
+            # Debug: Check if we got project data
+            logger.info(f"🤖 STEP 2: Raw projects list length: {len(available_projects) if available_projects else 0}")
+            if available_projects:
+                project_names = [proj.get('project_name', 'Unknown') for proj in available_projects if isinstance(proj, dict)]
+                logger.info(f"🤖 STEP 2: Available project names: {project_names[:5]}...")  # Show first 5
+                # Check specifically for Air Liquide project
+                air_liquide_projects = [f"{proj.get('project_id')}: {proj.get('project_name', 'Unknown')}" 
+                                      for proj in available_projects 
+                                      if isinstance(proj, dict) and 'air liquide' in proj.get('project_name', '').lower()]
+                if air_liquide_projects:
+                    logger.info(f"🤖 STEP 2: Found Air Liquide projects: {air_liquide_projects}")
+            else:
+                logger.warning(f"🤖 STEP 2: No projects available for parameter extraction")
+            
+            logger.info(f"🤖 STEP 2: Got {len(available_projects) if available_projects else 0} projects, {len(available_document_types) if available_document_types else 0} document types")
+        except Exception as e:
+            logger.warning(f"🤖 STEP 2: Could not fetch available data: {e}")
+            available_projects = {}
+            available_document_types = {}
+            available_strategies = {}
+        
+        # Use parameter extractor to get optimized parameters
+        parameter_extractor = ParameterExtractorFactory.create_extractor()
+        
+        extraction_result = parameter_extractor.extract_parameters(
+            query=query,
+            available_projects=available_projects,  # Now passing arrays directly
+            available_document_types=available_document_types,  # Now passing arrays directly
+            available_strategies=available_strategies,
+            supplied_project_ids=project_ids,
+            supplied_document_type_ids=document_type_ids,
+            supplied_search_strategy=search_strategy,
+            user_location=user_location,
+            supplied_location=location,
+            supplied_project_status=project_status,
+            supplied_years=years
+        )
+        
+        # Extract the optimized parameters
+        optimized_project_ids = extraction_result.get('project_ids', [])
+        optimized_document_type_ids = extraction_result.get('document_type_ids', [])
+        optimized_search_strategy = extraction_result.get('search_strategy', 'HYBRID_PARALLEL')
+        optimized_semantic_query = extraction_result.get('semantic_query', query)
+        optimized_location = extraction_result.get('location')
+        optimized_project_status = extraction_result.get('project_status')
+        optimized_years = extraction_result.get('years', [])
+        
+        logger.info(f"🤖 STEP 2: Parameter extraction complete:")
+        logger.info(f"  - Project IDs: {optimized_project_ids}")
+        logger.info(f"  - Document Type IDs: {optimized_document_type_ids}")
+        logger.info(f"  - Search Strategy: {optimized_search_strategy}")
+        logger.info(f"  - Semantic Query: '{optimized_semantic_query}'")
+        logger.info(f"  - Location: {optimized_location}")
+        logger.info(f"  - Project Status: {optimized_project_status}")
+        logger.info(f"  - Years: {optimized_years}")
+        
+        # STEP 3: Initialize Agent and Execute Search Plan
+        logger.info("🤖 STEP 3: Initializing agent with optimized parameters...")
+        
+        # Get parallel search configuration
         parallel_searches_enabled = os.getenv("AGENT_PARALLEL_SEARCHES", "true").lower() == "true"
         max_parallel_workers = int(os.getenv("AGENT_MAX_PARALLEL_WORKERS", "4"))
         
-        # Initialize agent with user location and provided parameters
+        # Initialize agent with optimized parameters
         agent = VectorSearchAgent(
             llm_client=llm_client, 
             user_location=user_location,
-            project_ids=project_ids,
-            document_type_ids=document_type_ids,
-            search_strategy=search_strategy,
+            project_ids=optimized_project_ids,  # Use extracted project IDs
+            document_type_ids=optimized_document_type_ids,  # Use extracted document type IDs
+            search_strategy=optimized_search_strategy,  # Use extracted strategy
             ranking=ranking,
-            location=location,
-            project_status=project_status,
-            years=years,
+            location=optimized_location,  # Use extracted location
+            project_status=optimized_project_status,  # Use extracted project status
+            years=optimized_years,  # Use extracted years
             parallel_searches_enabled=parallel_searches_enabled,
             max_parallel_workers=max_parallel_workers
         )
         
-        # Generate tool suggestions first (LLM-based analysis)
-        logger.info("🤖 AGENT: Generating LLM-based tool suggestions...")
-        tool_suggestions = agent.generate_tool_suggestions(query)
-        logger.info(f"🤖 AGENT: Generated {len(tool_suggestions)} tool suggestions")
+        # Generate tool suggestions (for debugging/analysis)
+        logger.info("🤖 STEP 3: Generating tool suggestions...")
+        tool_suggestions = agent.generate_tool_suggestions(optimized_semantic_query)
+        logger.info(f"🤖 STEP 3: Generated {len(tool_suggestions)} tool suggestions")
         
-        # Create execution plan using LLM
-        execution_plan = agent.create_execution_plan(query, reason)
+        # STEP 3: Execute Searches with Optimized Parameters
+        logger.info("🤖 STEP 3: Executing searches with optimized parameters...")
         
-        logger.info(f"🤖 AGENT: Execution plan created with {len(execution_plan)} steps")
+        # Use the optimized semantic query and parameters for searches
+        search_results = []
         
-        # Execute the plan with context passing between steps
-        results = []
-        all_documents = []
-        all_document_chunks = []
-        execution_context = {
-            "original_query": query,  # Store original query for parameter extraction
-            "discovered_project_ids": [],
-            "discovered_document_type_ids": [],
-            "project_name_to_id_mapping": {},
-            "document_type_name_to_id_mapping": {},
-            "search_results": {  # Track all search results for consolidation
-                "documents": [],
-                "document_chunks": [],
-                "search_executions": 0
-            },
-            "filtered_results": {  # Track filtered results from validation steps
-                "documents": [],
-                "document_chunks": []
-            },
-            "step_results": {},  # Store results by step name for reference resolution
-            "consolidated_results": None,  # Will hold consolidated results after consolidation step
-            "summary_result": None  # Will hold summary after summarization step
-        }
+        # Determine number of search variations (2-4 based on complexity)
+        num_searches = 3  # Default for agent mode
         
-        # Group execution steps for parallel processing of search steps
-        step_groups = agent._group_execution_steps(execution_plan)
-        logger.info(f"🤖 AGENT: Grouped {len(execution_plan)} steps into {len(step_groups)} execution groups")
+        # Execute multiple search variations with the optimized parameters
+        search_queries = agent._generate_search_variations(optimized_semantic_query, num_searches)
+        logger.info(f"🤖 STEP 3: Generated {len(search_queries)} search variations")
         
-        # Process each group (parallel for search groups, sequential between groups)
-        for group_index, step_indices in enumerate(step_groups):
-            group_steps = [execution_plan[i] for i in step_indices]
-            
-            # Check if this is a parallelizable group (search or validation steps)
-            is_search_group = all(step.get("tool") == "search" for step in group_steps)
-            is_validation_group = all(step.get("tool") == "validate_chunks_relevance" for step in group_steps)
-            is_parallelizable_group = is_search_group or is_validation_group
-            
-            if is_parallelizable_group and len(step_indices) > 1 and agent.parallel_searches_enabled:
-                # Parallel execution for multiple parallelizable steps
-                group_type = "search" if is_search_group else "validation" if is_validation_group else "parallel"
-                logger.info(f"🔍 PARALLEL: Executing {len(step_indices)} {group_type} steps in parallel (max workers: {agent.max_parallel_workers})...")
+        # Determine execution mode (disable parallel for now due to Flask context issues)
+        use_parallel = False  # Temporarily disabled due to Flask app context issues in worker threads
+        execution_mode = "parallel" if agent.parallel_searches_enabled and len(search_queries) > 1 else "sequential"
+        
+        logger.info(f"🤖 STEP 3: Executing searches in {execution_mode} mode")
+        
+        if use_parallel:
+            # Parallel execution using ThreadPoolExecutor with Flask app context
+            def execute_single_search(search_data):
+                i, search_query = search_data
                 
-                # Capture Flask app instance while we still have context
+                # Set up Flask application context for the worker thread
                 try:
-                    app_instance = current_app._get_current_object()
-                except RuntimeError:
-                    # If we can't get Flask context, fall back to sequential execution
-                    logger.warning("🔍 PARALLEL: No Flask context available, falling back to sequential execution")
-                    app_instance = None
-                
-                if app_instance:
-                    # Use ThreadPoolExecutor for parallel step execution
-                    with ThreadPoolExecutor(max_workers=min(len(step_indices), agent.max_parallel_workers)) as executor:
-                        # Submit all parallelizable tasks with Flask context preservation
-                        future_to_step = {
-                            executor.submit(agent._execute_search_step_with_context, execution_plan[step_idx], step_idx, execution_context, app_instance): step_idx 
-                            for step_idx in step_indices
+                    with current_app.app_context():
+                        logger.info(f"🔍 Search {i+1}/{len(search_queries)}: '{search_query}'")
+                        
+                        # Execute search with optimized parameters
+                        search_params = {
+                            "query": search_query,
+                            "project_ids": optimized_project_ids if optimized_project_ids else None,
+                            "document_type_ids": optimized_document_type_ids if optimized_document_type_ids else None,
+                            "search_strategy": optimized_search_strategy,
+                            "location": optimized_location,
+                            "project_status": optimized_project_status,
+                            "years": optimized_years if optimized_years else None,
+                            "ranking": ranking
                         }
                         
-                        # Collect results in original order
-                        group_results = {}
-                        for future in as_completed(future_to_step):
-                            step_result = future.result()
-                            group_results[step_result["step_index"]] = step_result
-                else:
-                    # Fall back to sequential execution if no Flask context
-                    group_results = {}
-                    for step_idx in step_indices:
-                        step_result = agent._execute_search_step(execution_plan[step_idx], step_idx, execution_context)
-                        step_result["step_index"] = step_idx  # Add step_index for consistency
-                        group_results[step_idx] = step_result
-                
-                # Process results in original order and update context
-                for step_idx in step_indices:
-                    step_result = group_results[step_idx]
-                    step = execution_plan[step_idx]
-                    
-                    # Update execution context with results (same as sequential processing)
-                    agent._update_execution_context(execution_context, step["tool"], step_result["result"])
-                    
-                    # Store result by step name for reference resolution (critical for validation steps)
-                    step_name = step["step_name"]
-                    execution_context["step_results"][f"results_from_{step_name}"] = step_result["result"]
-                    
-                    # Extract and clean results (same processing as sequential)
-                    clean_tool_result = step_result["result"].copy()
-                    
-                    if step_result["result"].get("success", False) and "result" in step_result["result"]:
-                        tool_data = step_result["result"]["result"]
+                        # Remove None values
+                        search_params = {k: v for k, v in search_params.items() if v is not None}
                         
-                        # Handle search results (same as sequential processing)
-                        if step["tool"] == "search" and isinstance(tool_data, tuple) and len(tool_data) >= 2:
-                            documents = tool_data[0]
-                            document_chunks = tool_data[1]
-                            
-                            combined_results = []
-                            if isinstance(documents, list):
-                                combined_results.extend(documents)
-                                all_documents.extend(documents)
-                            if isinstance(document_chunks, list):
-                                combined_results.extend(document_chunks)
-                                all_document_chunks.extend(document_chunks)
-                            
-                            clean_tool_result["result"] = combined_results
-                        else:
-                            clean_tool_result["result"] = tool_data
-                    
-                    # Store result in results list
-                    results.append({
-                        "step": step_result["step"],
-                        "tool": step_result["tool"],
-                        "parameters": step_result["parameters"],
-                        "original_parameters": step_result["original_parameters"],
-                        "reasoning": step_result["reasoning"],
-                        "result": clean_tool_result,
-                        "execution_mode": "parallel" if app_instance else "sequential_fallback"
-                    })
-                
-                execution_mode = "parallel" if app_instance else "sequential (Flask context fallback)"
-                logger.info(f"🔍 COMPLETED: {len(step_indices)} {group_type} steps executed in {execution_mode} mode")
-                
-            elif is_parallelizable_group and len(step_indices) > 1 and not agent.parallel_searches_enabled:
-                # Sequential execution for multiple parallelizable steps when parallel is disabled
-                group_type = "search" if is_search_group else "validation" if is_validation_group else "parallel"
-                logger.info(f"🔍 SEQUENTIAL: Executing {len(step_indices)} {group_type} steps sequentially (parallel disabled)...")
-                for step_idx in step_indices:
-                    step = execution_plan[step_idx]
-                    
-                    # Check if this step is redundant based on current context
-                    if agent._should_skip_step(step, execution_context):
-                        logger.info(f"🤖 AGENT: Skipping redundant step {step_idx+1}: {step['step_name']}")
-                        results.append({
-                            "step": step["step_name"],
-                            "tool": step["tool"],
-                            "parameters": step["parameters"],
-                            "original_parameters": step["parameters"],
-                            "reasoning": step.get("reasoning", ""),
-                            "result": {"success": True, "result": "Skipped - information already available", "skipped": True}
-                        })
-                        continue
-                    
-                    # Enhance parameters based on previous step results
-                    enhanced_parameters = agent._enhance_step_parameters(step["parameters"], execution_context, step["tool"])
-                    
-                    # Execute with enhanced parameters
-                    tool_result = agent.execute_tool(step["tool"], enhanced_parameters)
-                    
-                    # Update execution context with results
-                    agent._update_execution_context(execution_context, step["tool"], tool_result)
-                    
-                    # Store result by step name for reference resolution (e.g., for validation steps)
-                    step_name = step["step_name"]
-                    execution_context["step_results"][f"results_from_{step_name}"] = tool_result
-                    
-                    # Extract documents and chunks from tool results and prepare clean result for storage
-                    clean_tool_result = tool_result.copy()
-                    
-                    if tool_result.get("success", False) and "result" in tool_result:
-                        tool_data = tool_result["result"]
-                        
-                        # Handle search results (same as parallel processing)
-                        if step["tool"] == "search" and isinstance(tool_data, tuple) and len(tool_data) >= 2:
-                            documents = tool_data[0]
-                            document_chunks = tool_data[1]
-                            
-                            combined_results = []
-                            if isinstance(documents, list):
-                                combined_results.extend(documents)
-                                all_documents.extend(documents)
-                            if isinstance(document_chunks, list):
-                                combined_results.extend(document_chunks)
-                                all_document_chunks.extend(document_chunks)
-                            
-                            clean_tool_result["result"] = combined_results
-                        else:
-                            clean_tool_result["result"] = tool_data
-                    
-                    # For validation steps, replace search_results parameters with LLM input chunks if available
-                    display_parameters = enhanced_parameters.copy()
-                    if step["tool"] == "validate_chunks_relevance" and isinstance(clean_tool_result, dict) and clean_tool_result.get("success"):
-                        result_data = clean_tool_result.get("result", {})
-                        if "llm_input_chunks" in result_data:
-                            display_parameters["search_results"] = result_data["llm_input_chunks"]
-                            # Remove the full search results from display to avoid confusion
-                            display_parameters.pop("_resolved_search_results", None)
-                            display_parameters["_validation_note"] = "search_results shows structured chunks sent to LLM"
-                    
-                    # Store the result
-                    results.append({
-                        "step": step["step_name"],
-                        "tool": step["tool"],
-                        "parameters": display_parameters,
-                        "original_parameters": step["parameters"],
-                        "reasoning": step.get("reasoning", ""),
-                        "result": clean_tool_result,
-                        "execution_mode": "sequential"
-                    })
-                
-                logger.info(f"🔍 SEQUENTIAL: Completed {len(step_indices)} {group_type} steps sequentially (parallel disabled)")
-                
-            else:
-                # Sequential execution for non-search steps or single search steps
-                for step_idx in step_indices:
-                    step = execution_plan[step_idx]
-                    
-                    # Check if this step is redundant based on current context
-                    if agent._should_skip_step(step, execution_context):
-                        logger.info(f"🤖 AGENT: Skipping redundant step {step_idx+1}: {step['step_name']}")
-                        results.append({
-                            "step": step["step_name"],
-                            "tool": step["tool"],
-                            "parameters": step["parameters"],
-                            "original_parameters": step["parameters"],
-                            "reasoning": step.get("reasoning", ""),
-                            "result": {"success": True, "result": "Skipped - information already available", "skipped": True},
-                            "execution_mode": "skipped"
-                        })
-                        continue
-                    
-                    # Enhance parameters based on previous step results
-                    enhanced_parameters = agent._enhance_step_parameters(step["parameters"], execution_context, step["tool"])
-                    
-                    # Execute with enhanced parameters
-                    tool_result = agent.execute_tool(step["tool"], enhanced_parameters)
-                    
-                    # Special handling for validation step - stop execution if query is not relevant
-                    if step["tool"] == "validate_query_relevance":
-                        if tool_result.get("success", False) and "result" in tool_result:
-                            validation_result = tool_result["result"]
-                            if not validation_result.get("is_relevant", True):
-                                logger.info("🔍 AGENT: Query validation failed - stopping execution")
-                                
-                                # Return early with validation failure response
+                        try:
+                            search_result = agent.execute_tool("search", search_params)
+                            if search_result.get("success"):
+                                logger.info(f"✅ Search {i+1} completed successfully")
                                 return {
-                                    "agent_attempted": True,
-                                    "agent_implemented": True,
-                                    "query": query,
-                                    "reason": reason,
-                                    "validation_failed": True,
-                                    "validation_result": validation_result,
-                                    "suggested_response": validation_result.get("suggested_response", 
-                                        "This query appears to be outside the scope of EAO's mandate. Please ask about environmental assessments, projects, or regulatory processes in British Columbia."),
-                                    "execution_plan": execution_plan[:step_idx+1],  # Include up to validation step
-                                    "tool_executions": [{
-                                        "step": step["step_name"],
-                                        "tool": step["tool"],
-                                        "parameters": enhanced_parameters,
-                                        "original_parameters": step["parameters"],
-                                        "reasoning": step.get("reasoning", ""),
-                                        "result": tool_result,
-                                        "execution_mode": "validation_failed"
-                                    }],
-                                    "consolidated_results": {
-                                        "documents": [],
-                                        "document_chunks": [],
-                                        "total_documents": 0,
-                                        "total_chunks": 0
-                                    },
-                                    "execution_summary": {
-                                        "total_steps": 1,
-                                        "successful_steps": 1 if tool_result.get("success", False) else 0,
-                                        "failed_steps": 0 if tool_result.get("success", False) else 1,
-                                        "stopped_due_to_validation": True
-                                    }
+                                    "index": i,
+                                    "query": search_query,
+                                    "result": search_result,
+                                    "step_name": f"search_{i+1}",
+                                    "success": True
                                 }
-                    
-                    # Update execution context with results
-                    agent._update_execution_context(execution_context, step["tool"], tool_result)
-                    
-                    # Store result by step name for reference resolution (e.g., for validation steps)
-                    step_name = step["step_name"]
-                    execution_context["step_results"][f"results_from_{step_name}"] = tool_result
-                    
-                    # Extract documents and chunks from tool results and prepare clean result for storage
-                    clean_tool_result = tool_result.copy()
-                    
-                    if tool_result.get("success", False) and "result" in tool_result:
-                        tool_data = tool_result["result"]
-                        
-                        # The VectorSearchClient.search now returns (documents, document_chunks, api_response) tuple
-                        # For search tools, store both documents and chunks separately  
-                        if step["tool"] == "search" and isinstance(tool_data, tuple) and len(tool_data) >= 2:
-                            documents = tool_data[0]  # First element is documents list
-                            document_chunks = tool_data[1]  # Second element is document_chunks list
+                            else:
+                                logger.warning(f"❌ Search {i+1} failed: {search_result.get('error', 'Unknown error')}")
+                                return {"index": i, "success": False, "error": search_result.get('error', 'Unknown error')}
+                        except Exception as e:
+                            logger.error(f"❌ Search {i+1} exception: {e}")
+                            return {"index": i, "success": False, "error": str(e)}
                             
-                            # Store the combined results for clean result (for backwards compatibility)
-                            combined_results = []
-                            if isinstance(documents, list):
-                                combined_results.extend(documents)
-                                all_documents.extend(documents)
-                            if isinstance(document_chunks, list):
-                                combined_results.extend(document_chunks)
-                                all_document_chunks.extend(document_chunks)
-                            
-                            clean_tool_result["result"] = combined_results
-                        
-                        # For non-search tools, keep the result as-is
-                        else:
-                            clean_tool_result["result"] = tool_data
-                    
-                    # For validation steps, replace search_results parameters with LLM input chunks if available
-                    display_parameters = enhanced_parameters.copy()
-                    if step["tool"] == "validate_chunks_relevance" and isinstance(clean_tool_result, dict) and clean_tool_result.get("success"):
-                        result_data = clean_tool_result.get("result", {})
-                        if "llm_input_chunks" in result_data:
-                            display_parameters["search_results"] = result_data["llm_input_chunks"]
-                            # Remove the full search results from display to avoid confusion
-                            display_parameters.pop("_resolved_search_results", None)
-                            display_parameters["_validation_note"] = "search_results shows structured chunks sent to LLM"
-                    
-                    # Store the result with enhanced parameters for tracking (using clean result for search tools)
-                    execution_mode = "single_step" if len(step_indices) == 1 else "sequential"
-                    results.append({
-                        "step": step["step_name"],
-                        "tool": step["tool"],
-                        "parameters": display_parameters,  # Use cleaned parameters for validation steps
-                        "original_parameters": step["parameters"],  # Keep original for comparison
-                        "reasoning": step.get("reasoning", ""),
-                        "result": clean_tool_result,  # Use clean result (no tuple duplication for search)
-                        "execution_mode": execution_mode
-                    })
+                except RuntimeError as e:
+                    # Flask app context issue - fallback to sequential for this search
+                    logger.warning(f"❌ Search {i+1} app context error, falling back to sequential: {e}")
+                    return {"index": i, "success": False, "error": f"App context error: {str(e)}"}
+            
+            # Execute searches in parallel
+            with ThreadPoolExecutor(max_workers=agent.max_parallel_workers) as executor:
+                # Submit all search tasks
+                future_to_search = {
+                    executor.submit(execute_single_search, (i, query)): i 
+                    for i, query in enumerate(search_queries)
+                }
+                
+                # Collect results as they complete
+                parallel_results = [None] * len(search_queries)
+                for future in as_completed(future_to_search):
+                    try:
+                        result = future.result()
+                        if result["success"]:
+                            parallel_results[result["index"]] = result
+                    except Exception as e:
+                        logger.error(f"❌ Parallel search execution error: {e}")
+                
+                # Add successful results in original order
+                search_results = [r for r in parallel_results if r is not None]
+        else:
+            # Sequential execution (fallback)
+            for i, search_query in enumerate(search_queries):
+                logger.info(f"🔍 Search {i+1}/{len(search_queries)}: '{search_query}'")
+                
+                # Execute search with optimized parameters
+                search_params = {
+                    "query": search_query,
+                    "project_ids": optimized_project_ids if optimized_project_ids else None,
+                    "document_type_ids": optimized_document_type_ids if optimized_document_type_ids else None,
+                    "search_strategy": optimized_search_strategy,
+                    "location": optimized_location,
+                    "project_status": optimized_project_status,
+                    "years": optimized_years if optimized_years else None,
+                    "ranking": ranking
+                }
+                
+                # Remove None values
+                search_params = {k: v for k, v in search_params.items() if v is not None}
+                
+                try:
+                    search_result = agent.execute_tool("search", search_params)
+                    if search_result.get("success"):
+                        search_results.append({
+                            "query": search_query,
+                            "result": search_result,
+                            "step_name": f"search_{i+1}"
+                        })
+                        logger.info(f"✅ Search {i+1} completed successfully")
+                    else:
+                        logger.warning(f"❌ Search {i+1} failed: {search_result.get('error', 'Unknown error')}")
+                except Exception as e:
+                    logger.error(f"❌ Search {i+1} exception: {e}")
         
-        logger.info(f"🤖 AGENT: Completed {len(results)} tool executions")
-        logger.info(f"🤖 AGENT: Consolidated {len(all_documents)} documents and {len(all_document_chunks)} chunks")
+        logger.info(f"🤖 STEP 3: Completed {len(search_results)} successful searches")
         
-        # Analyze results for summary
-        successful_executions = [r for r in results if r["result"].get("success", False)]
-        failed_executions = [r for r in results if not r["result"].get("success", False)]
+        # STEP 4: Consolidate Results 
+        logger.info("🤖 STEP 4: Consolidating search results...")
         
-        logger.info(f"🤖 AGENT: {len(successful_executions)} successful, {len(failed_executions)} failed executions")
+        all_documents = []
+        all_document_chunks = []
         
+        for search_result in search_results:
+            result_data = search_result["result"]["result"]
+            if isinstance(result_data, tuple) and len(result_data) >= 2:
+                documents, chunks = result_data[0], result_data[1]
+                if documents:
+                    all_documents.extend(documents)
+                if chunks:
+                    all_document_chunks.extend(chunks)
+        
+        logger.info(f"🤖 STEP 4: Collected {len(all_documents)} documents, {len(all_document_chunks)} chunks")
+        
+        # Remove duplicates - use content-based deduplication as fallback
+        unique_documents = []
+        unique_chunks = []
+        seen_doc_ids = set()
+        seen_chunk_content = set()
+        
+
+        
+        for doc in all_documents:
+            doc_id = doc.get('id') or doc.get('document_id')
+            if doc_id and doc_id not in seen_doc_ids:
+                unique_documents.append(doc)
+                seen_doc_ids.add(doc_id)
+        
+        for chunk in all_document_chunks:
+            # Try multiple possible ID field names, including document_id + page_number combo
+            chunk_id = (chunk.get('id') or 
+                       chunk.get('chunk_id') or 
+                       chunk.get('document_chunk_id') or
+                       chunk.get('_id'))
+            
+            # If no standard ID, create composite key from document_id + page_number
+            if not chunk_id and isinstance(chunk, dict):
+                doc_id = chunk.get('document_id')
+                page_num = chunk.get('page_number')
+                if doc_id and page_num is not None:
+                    chunk_id = f"{doc_id}_{page_num}"
+            
+            # If we have an ID, use it for deduplication
+            if chunk_id:
+                if chunk_id not in seen_doc_ids:  # Reuse seen_doc_ids for chunk IDs too
+                    unique_chunks.append(chunk)
+                    seen_doc_ids.add(chunk_id)
+
+            else:
+                # Fallback: Use content-based deduplication
+                chunk_content = ""
+                if isinstance(chunk, dict):
+                    chunk_content = (chunk.get('content') or 
+                                   chunk.get('text') or 
+                                   chunk.get('snippet') or 
+                                   str(chunk))
+                else:
+                    chunk_content = str(chunk)
+                
+                # Create a hash of the content for deduplication
+                content_hash = hash(chunk_content[:200])  # Use first 200 chars for hash
+                if content_hash not in seen_chunk_content:
+                    unique_chunks.append(chunk)
+                    seen_chunk_content.add(content_hash)
+
+        
+        logger.info(f"🤖 STEP 4: After deduplication: {len(unique_documents)} documents, {len(unique_chunks)} chunks")
+        
+        # STEP 5: Generate Summary
+        logger.info("🤖 STEP 5: Generating AI summary...")
+        
+        try:
+            summary_result = agent.execute_tool("summarize_results", {
+                "query": query,
+                "include_metadata": True
+            }, context={
+                "consolidated_results": {
+                    "documents": unique_documents,
+                    "document_chunks": unique_chunks
+                }
+            })
+            
+            if summary_result.get("success"):
+                final_summary = summary_result["result"]
+                logger.info("✅ Summary generation completed successfully")
+            else:
+                final_summary = "Summary generation failed"
+                logger.warning(f"❌ Summary generation failed: {summary_result.get('error')}")
+        except Exception as e:
+            logger.error(f"❌ Summary generation exception: {e}")
+            final_summary = "Summary generation encountered an error"
+        
+        # STEP 6: Return Results
+        execution_time = round((time.time() - start_time) * 1000, 2)
+        
+        logger.info(f"🤖 AGENT: Execution completed in {execution_time}ms")
+        logger.info(f"🤖 AGENT: Final results: {len(unique_documents)} documents, {len(unique_chunks)} chunks")
         logger.info("=" * 60)
         
-        # Use consolidated results from execution context if available, otherwise fall back to old method
-        final_consolidated_results = execution_context.get("consolidated_results", {
-            "documents": all_documents,
-            "document_chunks": all_document_chunks,
-            "total_documents": len(all_documents),
-            "total_chunks": len(all_document_chunks)
-        })
-        
-        # Include summary result if available
-        agent_response = {
-            "agent_attempted": True,
-            "agent_implemented": True,
-            "query": query,
-            "reason": reason,
-            "planning_method": "LLM-driven",
-            "execution_plan": execution_plan,
-            "tool_executions": results,
-            "agent_success": len(failed_executions) == 0,
-            "tool_suggestions": tool_suggestions,  # LLM-generated suggestions
-            "consolidated_results": final_consolidated_results,
-            "execution_summary": {
-                "total_steps": len(results),
-                "successful_steps": len(successful_executions),
-                "failed_steps": len(failed_executions),
-                "consolidation_performed": execution_context.get("consolidated_results") is not None,
-                "summarization_performed": execution_context.get("summary_result") is not None
+        # Build detailed execution summary for visibility
+        search_execution_details = []
+        for i, search_result in enumerate(search_results):
+            result_data = search_result["result"]["result"]
+            documents_count = len(result_data[0]) if isinstance(result_data, tuple) else 0
+            chunks_count = len(result_data[1]) if isinstance(result_data, tuple) and len(result_data) >= 2 else 0
+            
+            search_execution_details.append({
+                "search_number": i + 1,
+                "query": search_result["query"],
+                "parameters": {
+                    "project_ids": optimized_project_ids,
+                    "document_type_ids": optimized_document_type_ids,
+                    "search_strategy": optimized_search_strategy,
+                    "location": optimized_location,
+                    "project_status": optimized_project_status,
+                    "years": optimized_years,
+                    "ranking": ranking
+                },
+                "results": {
+                    "documents_returned": documents_count,
+                    "chunks_returned": chunks_count,
+                    "success": True
+                },
+                "execution_mode": execution_mode
+            })
+
+        return {
+            "agent_results": search_results,
+            "planning_method": "Simplified parameter extraction + multi-search",
+            "execution_time": execution_time,
+            "steps_executed": 5,  # 1:validate, 2:extract, 3:search, 4:consolidate, 5:summarize
+            "consolidated_summary": final_summary,
+            "documents": unique_documents,
+            "document_chunks": unique_chunks,
+            "search_executions": len(search_results),
+            "search_execution_details": search_execution_details,  # NEW: Detailed execution visibility
+            "tool_suggestions": tool_suggestions,
+            "extracted_parameters": {
+                "project_ids": optimized_project_ids,
+                "document_type_ids": optimized_document_type_ids,
+                "search_strategy": optimized_search_strategy,
+                "semantic_query": optimized_semantic_query,
+                "location": optimized_location,
+                "project_status": optimized_project_status,
+                "years": optimized_years
             }
         }
-        
-        # Add summary result if available
-        if execution_context.get("summary_result"):
-            agent_response["summary_result"] = execution_context["summary_result"]
-            logger.info("📝 AGENT: Including agent-generated summary in response")
-        
-        return agent_response
         
     except Exception as e:
         logger.error(f"🤖 AGENT: Error in agent processing: {e}")

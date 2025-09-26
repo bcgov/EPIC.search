@@ -108,21 +108,38 @@ class AgentHandler(BaseSearchHandler):
                 # Execution plan (keep as is)
                 metrics["execution_plan"] = agent_result.get("execution_plan", [])
                 
-                # Execution summary with counts
-                execution_summary = agent_result.get("execution_summary", {})
-                tool_executions = agent_result.get("tool_executions", [])
+                # Support both detailed tool_executions (legacy) and simplified format (current)
+                if "tool_executions" in agent_result:
+                    # Legacy detailed format
+                    execution_summary = agent_result.get("execution_summary", {})
+                    tool_executions = agent_result.get("tool_executions", [])
+                    
+                    search_count = len([exec for exec in tool_executions if exec.get("tool") == "search"])
+                    successful_searches = len([exec for exec in tool_executions if exec.get("tool") == "search" and exec.get("result", {}).get("success")])
+                    
+                    metrics["agent_execution"] = {
+                        "total_steps": execution_summary.get("total_steps", 0),
+                        "successful_steps": execution_summary.get("successful_steps", 0), 
+                        "failed_steps": execution_summary.get("failed_steps", 0),
+                        "search_executions": search_count,
+                        "successful_searches": successful_searches
+                    }
+                else:
+                    # Current simplified format - extract from available fields
+                    search_count = agent_result.get("search_executions", 0)
+                    steps_executed = agent_result.get("steps_executed", 5)  # Default to 5 steps from current agent
+                    
+                    metrics["agent_execution"] = {
+                        "total_steps": steps_executed,
+                        "successful_steps": steps_executed,  # Assume all steps succeeded if we got results
+                        "failed_steps": 0,
+                        "search_executions": search_count,
+                        "successful_searches": search_count  # Assume all searches succeeded if we got results
+                    }
                 
-                # Count search executions for consolidation info
-                search_count = len([exec for exec in tool_executions if exec.get("tool") == "search"])
-                successful_searches = len([exec for exec in tool_executions if exec.get("tool") == "search" and exec.get("result", {}).get("success")])
-                
-                metrics["agent_execution"] = {
-                    "total_steps": execution_summary.get("total_steps", 0),
-                    "successful_steps": execution_summary.get("successful_steps", 0), 
-                    "failed_steps": execution_summary.get("failed_steps", 0),
-                    "search_executions": search_count,
-                    "successful_searches": successful_searches
-                }
+                # Add detailed search execution visibility if available
+                if "search_execution_details" in agent_result:
+                    metrics["search_execution_details"] = agent_result["search_execution_details"]
                 
                 # Consolidation info (only if multiple searches)
                 if search_count > 1:
@@ -163,27 +180,44 @@ class AgentHandler(BaseSearchHandler):
             agent_documents = []
             agent_document_chunks = []
             
-            # The agent stub returns consolidated results in its response
-            if agent_result and "consolidated_results" in agent_result:
-                consolidated = agent_result["consolidated_results"]
-                agent_documents = consolidated.get("documents", [])
-                agent_document_chunks = consolidated.get("document_chunks", [])
+            # The agent stub returns consolidated results - check multiple possible locations
+            if agent_result:
+                if "consolidated_results" in agent_result:
+                    # New format with consolidated_results wrapper
+                    consolidated = agent_result["consolidated_results"]
+                    agent_documents = consolidated.get("documents", [])
+                    agent_document_chunks = consolidated.get("document_chunks", [])
+                elif "documents" in agent_result or "document_chunks" in agent_result:
+                    # Direct format (current implementation)
+                    agent_documents = agent_result.get("documents", [])
+                    agent_document_chunks = agent_result.get("document_chunks", [])
                 
                 current_app.logger.info(f"🤖 AGENT MODE: Agent returned {len(agent_documents)} documents and {len(agent_document_chunks)} chunks")
             
             # Use agent-generated summary if available, otherwise generate fallback
-            if agent_result and "summary_result" in agent_result:
-                # Agent performed summarization as part of its execution plan
-                summary_result = agent_result["summary_result"]
-                final_response = summary_result.get("summary", "No summary available")
-                current_app.logger.info("🤖 AGENT MODE: Using agent-generated summary")
-                
-                # Add agent summary metadata to metrics
-                metrics["summary_generated"] = True
-                metrics["summary_method"] = summary_result.get("method", "agent_execution")
-                metrics["summary_confidence"] = summary_result.get("confidence", 0.0)
-                metrics["summary_provider"] = summary_result.get("provider", "agent_stub")
-                metrics["summary_model"] = summary_result.get("model", "unknown")
+            if agent_result and ("summary_result" in agent_result or "consolidated_summary" in agent_result):
+                if "consolidated_summary" in agent_result:
+                    # Current agent implementation returns consolidated_summary directly
+                    final_response = agent_result["consolidated_summary"]
+                    current_app.logger.info("🤖 AGENT MODE: Using agent consolidated summary")
+                    
+                    # Add agent summary metadata to metrics
+                    metrics["summary_generated"] = True
+                    metrics["summary_method"] = "agent_consolidated_summary"
+                    metrics["summary_provider"] = "agent_stub"
+                    
+                elif "summary_result" in agent_result:
+                    # Legacy format with summary_result wrapper
+                    summary_result = agent_result["summary_result"]
+                    final_response = summary_result.get("summary", "No summary available")
+                    current_app.logger.info("🤖 AGENT MODE: Using agent-generated summary")
+                    
+                    # Add agent summary metadata to metrics
+                    metrics["summary_generated"] = True
+                    metrics["summary_method"] = summary_result.get("method", "agent_execution")
+                    metrics["summary_confidence"] = summary_result.get("confidence", 0.0)
+                    metrics["summary_provider"] = summary_result.get("provider", "agent_stub")
+                    metrics["summary_model"] = summary_result.get("model", "unknown")
                 
             else:
                 # Fallback: generate summary if agent didn't include summarization step

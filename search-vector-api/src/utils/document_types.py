@@ -85,11 +85,11 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504cb": {
         "name": "Letter", 
-        "aliases": ["letter", "letters", "correspondence", "email", "emails", "memo", "memos", "memorandum", "memoranda", "communication", "communications"]
+        "aliases": ["letter", "letters", "correspondence", "email", "emails", "memos", "memorandum", "memoranda", "communication", "communications"]
     },
     "5cf00c03a266b7e1877504cc": {
         "name": "Meeting Notes",
-        "aliases": ["meeting notes", "meeting minutes", "meeting transcript", "meeting", "meetings", "minutes", "transcript", "transcripts"]
+        "aliases": ["meeting notes", "meeting minutes", "meeting transcript", "meetings", "minutes", "transcript", "transcripts"]
     },
     "5cf00c03a266b7e1877504cd": {
         "name": "Comment Period",
@@ -97,7 +97,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504ce": {
         "name": "Plan",
-        "aliases": ["plan", "plans", "planning", "scheme"]
+        "aliases": ["plans", "planning", "scheme"]
     },
     "5cf00c03a266b7e1877504cf": {
         "name": "Report/Study",
@@ -109,7 +109,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504d1": {
         "name": "Order",
-        "aliases": ["order", "orders", "directive", "directives", "instruction", "instructions", "mandate", "mandates"]
+        "aliases": ["orders", "directive", "directives", "instruction", "instructions", "mandate", "mandates"]
     },
     "5cf00c03a266b7e1877504d2": {
         "name": "Project Descriptions",
@@ -117,7 +117,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504d3": {
         "name": "Application Information Requirement",
-        "aliases": ["application information requirement", "information requirement", "requirements", "air", "application information", "info requirement", "data requirement"]
+        "aliases": ["application information requirement", "information requirement", "requirements", "application information", "info requirement", "data requirement"]
     },
     "5cf00c03a266b7e1877504d4": {
         "name": "Application Materials",
@@ -137,7 +137,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504d9": {
         "name": "Inspection Record",
-        "aliases": ["inspection record", "inspection", "inspections", "audit", "audits", "review", "reviews", "site visit", "site visits"]
+        "aliases": ["inspection record", "inspection", "inspections", "audit", "audits", "reviews", "site visit", "site visits"]
     },
     "5cf00c03a266b7e1877504da": {
         "name": "Other",
@@ -167,11 +167,11 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5df79dd77b5abbf7da6f51be": {
         "name": "Letter",
-        "aliases": ["letter", "letters", "correspondence", "email", "emails", "memo", "memos", "memorandum", "memoranda", "communication", "communications"]
+        "aliases": ["letter", "letters", "correspondence", "email", "emails", "memos", "memorandum", "memoranda", "communication", "communications"]
     },
     "5df79dd77b5abbf7da6f51bf": {
         "name": "Order",
-        "aliases": ["order", "orders", "directive", "directives", "instruction", "instructions", "mandate", "mandates"]
+        "aliases": ["orders", "directive", "directives", "instruction", "instructions", "mandate", "mandates"]
     },
     "5df79dd77b5abbf7da6f51c0": {
         "name": "Independent Memo",
@@ -187,7 +187,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5df79dd77b5abbf7da6f51c3": {
         "name": "Plan",
-        "aliases": ["plan", "plans", "planning", "scheme"]
+        "aliases": ["plans", "planning", "scheme"]
     },
     "5df79dd77b5abbf7da6f51c4": {
         "name": "Tracking Table",
@@ -195,7 +195,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5df79dd77b5abbf7da6f51c5": {
         "name": "Ad/News Release",
-        "aliases": ["ad", "ads", "advertisement", "advertisements", "news release", "release", "releases", "announcement", "announcements"]
+        "aliases": ["advertisement", "advertisements", "news release", "releases", "announcement", "announcements"]
     },
     "5df79dd77b5abbf7da6f51c6": {
         "name": "Comment/Submission",
@@ -215,7 +215,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5df79dd77b5abbf7da6f51ca": {
         "name": "Inspection Record",
-        "aliases": ["inspection record", "inspection", "inspections", "audit", "audits", "review", "reviews", "site visit", "site visits"]
+        "aliases": ["inspection record", "inspection", "inspections", "audit", "audits", "reviews", "site visit", "site visits"]
     },
     "5df79dd77b5abbf7da6f51cb": {
         "name": "Agreement",
@@ -247,7 +247,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5dfc209bc596f00eb48b2b8f": {
         "name": "Meeting Notes",
-        "aliases": ["meeting notes", "meeting minutes", "meeting transcript", "meeting", "meetings", "minutes", "transcript", "transcripts"]
+        "aliases": ["meeting notes", "meeting minutes", "meeting transcript", "meetings", "minutes", "transcript", "transcripts"]
     },
     "5dfc209bc596f00eb48b2b90": {
         "name": "Process Order Materials",

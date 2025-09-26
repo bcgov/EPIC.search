@@ -103,40 +103,24 @@ class AIHandler(BaseSearchHandler):
             current_app.logger.info("🤖 LLM: Fetching available options for context...")
             
             try:
-                # Get available projects from vector search API
-                available_projects_list = VectorSearchClient.get_projects_list()
-                available_projects = {}
-                for project in available_projects_list:
-                    if isinstance(project, dict) and 'project_name' in project and 'project_id' in project:
-                        available_projects[project['project_name']] = project['project_id']
+                # Get available projects from vector search API (pass array directly)
+                available_projects = VectorSearchClient.get_projects_list()
                 
-                current_app.logger.info(f"🤖 LLM: Found {len(available_projects)} available projects")
+                current_app.logger.info(f"🤖 LLM: Found {len(available_projects) if available_projects else 0} available projects")
                 
             except Exception as e:
                 current_app.logger.warning(f"🤖 LLM: Could not fetch projects: {e}")
-                available_projects = {}
+                available_projects = []
             
             try:
-                # Get available document types from vector search API (now returns normalized array)
-                document_types_array = VectorSearchClient.get_document_types()
-                available_document_types = {}
+                # Get available document types from vector search API (pass array directly)
+                available_document_types = VectorSearchClient.get_document_types()
                 
-                # Convert normalized array back to dictionary format expected by parameter extractor
-                if isinstance(document_types_array, list):
-                    for doc_type in document_types_array:
-                        if isinstance(doc_type, dict) and 'document_type_id' in doc_type:
-                            doc_type_id = doc_type['document_type_id']
-                            available_document_types[doc_type_id] = {
-                                'name': doc_type.get('document_type_name', ''),
-                                'aliases': doc_type.get('aliases', []),
-                                'act': doc_type.get('act', '')
-                            }
-                    
-                    current_app.logger.info(f"🤖 LLM: Converted {len(available_document_types)} document types from normalized array to dictionary format")
+                current_app.logger.info(f"🤖 LLM: Found {len(available_document_types) if available_document_types else 0} document types")
                 
             except Exception as e:
                 current_app.logger.warning(f"🤖 LLM: Could not fetch document types: {e}")
-                available_document_types = {}
+                available_document_types = []
             
             try:
                 # Get available search strategies from vector search API
@@ -162,8 +146,8 @@ class AIHandler(BaseSearchHandler):
             
             extraction_result = parameter_extractor.extract_parameters(
                 query=query,
-                available_projects=available_projects,
-                available_document_types=available_document_types,
+                available_projects=available_projects,  # Now passing arrays directly
+                available_document_types=available_document_types,  # Now passing arrays directly
                 available_strategies=available_strategies,
                 supplied_project_ids=project_ids if project_ids else None,
                 supplied_document_type_ids=document_type_ids if document_type_ids else None,

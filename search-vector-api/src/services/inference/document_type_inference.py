@@ -81,6 +81,11 @@ class DocumentTypeInferenceService:
             # Sort aliases by length (longest first) to get most specific matches
             sorted_aliases = sorted(aliases, key=len, reverse=True)
             for alias in sorted_aliases:
+                # Skip very short aliases for exact matching to prevent false positives
+                # Require minimum 4 characters for exact matches unless it's a compound term
+                if len(alias) < 4 and " " not in alias:
+                    continue
+                    
                 # Use word boundary matching for exact matches
                 pattern = r'\b' + re.escape(alias.lower()) + r'\b'
                 if re.search(pattern, query_lower):
@@ -119,7 +124,9 @@ class DocumentTypeInferenceService:
                                     similarity = max(similarity, 0.85)
                         
                         # Very high threshold for fuzzy matches to reduce false positives
-                        if similarity > best_similarity and similarity >= 0.9:  # Raised from 0.8 to 0.9
+                        # Also require minimum length for both word and alias to avoid generic matches
+                        if (similarity > best_similarity and similarity >= 0.95 and  # Raised from 0.9 to 0.95
+                            len(word) >= 6 and len(alias) >= 6):  # Require longer terms for fuzzy matching
                             best_similarity = similarity
                             best_match = f"{word} → {alias}"
                             match_type = "fuzzy"

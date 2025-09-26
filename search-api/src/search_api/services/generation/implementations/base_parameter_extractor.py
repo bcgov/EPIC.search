@@ -20,8 +20,8 @@ class BaseParameterExtractor(ParameterExtractor):
     def extract_parameters(
         self,
         query: str,
-        available_projects: Optional[Dict] = None,
-        available_document_types: Optional[Dict] = None,
+        available_projects: Optional[List] = None,
+        available_document_types: Optional[List] = None,
         available_strategies: Optional[Dict] = None,
         supplied_project_ids: Optional[List[str]] = None,
         supplied_document_type_ids: Optional[List[str]] = None,
@@ -36,8 +36,8 @@ class BaseParameterExtractor(ParameterExtractor):
         
         Args:
             query: The natural language search query.
-            available_projects: Dict of available projects {name: id}.
-            available_document_types: Dict of available document types with aliases.
+            available_projects: List of available projects from VectorSearchClient.get_projects_list().
+            available_document_types: List of available document types from VectorSearchClient.get_document_types().
             available_strategies: Dict of available search strategies.
             supplied_project_ids: Already provided project IDs (skip LLM extraction if provided).
             supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided).
@@ -58,18 +58,20 @@ class BaseParameterExtractor(ParameterExtractor):
         # Log available context data - SHOW ALL DATA (no truncation)
         logger.info("=== AVAILABLE CONTEXT DATA ===")
         if available_projects:
-            logger.info(f"Available Projects ({len(available_projects)}):")
-            for name, proj_id in available_projects.items():  # Show ALL projects
-                logger.info(f"  - '{name}' -> {proj_id}")
+            logger.info(f"Available Projects Array ({len(available_projects)}):")
+            for project in available_projects:  # Show ALL projects
+                if isinstance(project, dict) and 'project_name' in project and 'project_id' in project:
+                    logger.info(f"  - '{project['project_name']}' -> {project['project_id']}")
         else:
             logger.info("Available Projects: None provided")
             
         if available_document_types:
-            logger.info(f"Available Document Types ({len(available_document_types)}):")
-            for doc_id, doc_data in available_document_types.items():  # Show ALL document types
-                name = doc_data.get('name', 'Unknown')
-                aliases = doc_data.get('aliases', [])
-                logger.info(f"  - '{name}' (ID: {doc_id}) - Aliases: {aliases}")
+            logger.info(f"Available Document Types Array ({len(available_document_types)}):")
+            for doc_type in available_document_types:  # Show ALL document types
+                if isinstance(doc_type, dict) and 'document_type_id' in doc_type:
+                    name = doc_type.get('document_type_name', 'Unknown')
+                    aliases = doc_type.get('aliases', [])
+                    logger.info(f"  - '{name}' (ID: {doc_type['document_type_id']}) - Aliases: {aliases}")
         else:
             logger.info("Available Document Types: None provided")
             
@@ -90,23 +92,28 @@ class BaseParameterExtractor(ParameterExtractor):
         logger.info(f"Supplied Project Status: {supplied_project_status}")
         logger.info(f"Supplied Years: {supplied_years}")
         logger.info("=== END CONTEXT DATA ===")
+        
+        # Convert arrays to dict format for internal processing
+        projects_dict = self._convert_projects_array_to_dict(available_projects)
+        document_types_dict = self._convert_document_types_array_to_dict(available_document_types)
+        
         if use_parallel:
             try:
                 return self._extract_parameters_parallel(
-                    query, available_projects, available_document_types, available_strategies,
+                    query, projects_dict, document_types_dict, available_strategies,
                     supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                     user_location, supplied_location, supplied_project_status, supplied_years
                 )
             except Exception as e:
                 logger.warning(f"Parallel extraction failed, falling back to sequential: {e}")
                 return self._extract_parameters_sequential(
-                    query, available_projects, available_document_types, available_strategies,
+                    query, projects_dict, document_types_dict, available_strategies,
                     supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                     user_location, supplied_location, supplied_project_status, supplied_years
                 )
         else:
             return self._extract_parameters_sequential(
-                query, available_projects, available_document_types, available_strategies,
+                query, projects_dict, document_types_dict, available_strategies,
                 supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                 user_location, supplied_location, supplied_project_status, supplied_years
             )
@@ -417,12 +424,12 @@ Available Projects:
 IMPORTANT CONTEXT UNDERSTANDING:
 - Terms like "Mountain", "River", "Creek", "Lake", "Park", "Resort" are common geographic/facility descriptors
 - The DISTINCTIVE part of a project name is usually the specific location name that comes BEFORE or AFTER these descriptors
-- For example: "South Anderson Mountain Resort" - "South Anderson" is the distinctive identifier, "Mountain Resort" is the descriptor
-- "Black Mountain Reservoir" - "Black" is the distinctive identifier, "Mountain Reservoir" is the descriptor
+- For example: "Black Mountain Reservoir" - "Black" is the distinctive identifier, "Mountain Reservoir" is the descriptor
+- "Coastal River Project" - "Coastal River" is the distinctive identifier, "Project" is the descriptor
 
 Instructions:
 1. Identify the SPECIFIC project name or distinctive location mentioned in the query
-2. If the query mentions a complete project name (e.g., "South Anderson Mountain Resort"), match ONLY that exact project
+2. If the query mentions a complete project name (e.g., "Site C Clean Energy Project"), match ONLY that exact project
 3. If the query uses generic terms (e.g., "mountain projects"), look for the complete context to determine which specific mountain project is intended
 4. Pay attention to ALL parts of the project name, not just common geographic terms
 5. Prefer exact or near-exact matches over broad keyword matches
@@ -439,8 +446,8 @@ Think step by step:
 Return as JSON with format:
 {{
     "project_matches": [
-        {{"project_id": "id1", "project_name": "name1", "confidence": 0.95, "reason": "exact match for complete project name 'South Anderson Mountain Resort'"}},
-        {{"project_id": "id2", "project_name": "name2", "confidence": 0.85, "reason": "strong match for distinctive location 'Anderson' in mountain context"}},
+        {{"project_id": "id1", "project_name": "name1", "confidence": 0.95, "reason": "exact match for complete project name"}},
+        {{"project_id": "id2", "project_name": "name2", "confidence": 0.85, "reason": "strong match for distinctive location identifier"}},
         {{"project_id": "id3", "project_name": "name3", "confidence": 0.75, "reason": "partial match for location identifier, but less specific"}}
     ]
 }}
@@ -555,7 +562,19 @@ Include matches with confidence >= 0.7 and prioritize complete/distinctive name 
 Available Document Types:
 {chr(10).join(doc_context)}
 
-Instructions:
+WHEN TO SELECT DOCUMENT TYPES:
+✓ Query explicitly mentions document types: "show me letters", "find reports", "get presentations"
+✓ Query asks for specific document format: "correspondence about X", "memos regarding Y"
+✓ Query requests specific document categories: "technical reports", "meeting transcripts"
+
+WHEN TO RETURN EMPTY ARRAY [] (search all document types):
+✗ General information queries: "who is the proponent?", "what is the project status?"
+✗ Factual questions about projects: "when was X approved?", "where is Y located?"
+✗ Broad queries: "tell me about project X", "information on Y"
+✗ Process questions: "what are the impacts?", "what consultation occurred?"
+✗ If user asks for "all documents" or "look at all documents"
+
+Instructions for when document types ARE relevant:
 - Look for document type names, aliases, or related terms in the query
 - Search ALL aliases for each document type - if the query mentions any alias, include that document type
 - Look for both exact matches and partial matches
@@ -564,17 +583,17 @@ Instructions:
 - "reports" might match various report types
 - Be inclusive - if there's any reasonable match, include the document type
 - Return document type IDs (not names) for ALL relevant matches
-- If user asks for "all documents" or doesn't specify, return empty array
-- Maximum 5 document type IDs
 
 Query: "{query}"
 
 Think through this step by step:
-1. What document-related terms do I see in the query?
-2. Which document types or aliases match those terms?
-3. What are ALL the IDs for matching document types?
+1. Is this query asking for specific document types, or general information?
+2. If asking for general information, return empty array []
+3. If asking for specific document types, what document-related terms do I see?
+4. Which document types or aliases match those terms?
+5. What are ALL the IDs for matching document types?
 
-Return ALL matching document type IDs as a JSON array of strings."""
+Return matching document type IDs as a JSON array of strings, or [] if this is a general information query."""
 
             logger.info("=== DOCUMENT TYPE EXTRACTION PROMPT ===")
             logger.info(f"Prompt: {prompt}")
@@ -594,33 +613,92 @@ Return ALL matching document type IDs as a JSON array of strings."""
             
             # Try to parse JSON response
             try:
-                if content.startswith('[') and content.endswith(']'):
-                    doc_type_ids = json.loads(content)
-                    
-                    logger.info("=== DOCUMENT TYPE MATCHES ANALYSIS ===")
-                    logger.info(f"LLM returned document type IDs: {doc_type_ids}")
-                    
-                    # Validate that returned IDs are actually available and limit to 5
-                    valid_ids = []
-                    for dtid in doc_type_ids:
-                        if dtid in available_document_types.keys():
-                            doc_name = available_document_types[dtid].get('name', 'Unknown')
-                            valid_ids.append(dtid)
-                            logger.info(f"  ✓ Valid document type ID: {dtid} -> '{doc_name}'")
-                        else:
-                            logger.warning(f"  ✗ Invalid document type ID: {dtid} (not found in available types)")
-                    
-                    final_ids = valid_ids[:5]  # Limit to 5
-                    logger.info(f"Final document type IDs (limited to 5): {final_ids}")
-                    logger.info("=== END DOCUMENT TYPE MATCHES ANALYSIS ===")
-                    logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
-                    return final_ids
+                # Clean up the content and try to parse as JSON
+                content_clean = content.strip()
+                logger.info(f"Cleaned content for JSON parsing: '{content_clean}'")
+                
+                # Extract JSON from markdown code blocks if present
+                if '```json' in content_clean:
+                    # Find the JSON block between ```json and ```
+                    start_marker = '```json'
+                    end_marker = '```'
+                    start_idx = content_clean.find(start_marker)
+                    if start_idx != -1:
+                        start_idx += len(start_marker)
+                        end_idx = content_clean.find(end_marker, start_idx)
+                        if end_idx != -1:
+                            json_content = content_clean[start_idx:end_idx].strip()
+                            logger.info(f"Extracted JSON from markdown blocks: '{json_content}'")
+                            content_clean = json_content
+                
+                # Handle case where LLM provides explanation text followed by JSON array
+                elif not content_clean.startswith('[') and not content_clean.startswith('{'):
+                    # Look for JSON array at the end of explanation text
+                    import re
+                    # Find the last JSON array pattern in the content
+                    array_matches = re.findall(r'\[(?:[^\[\]]*|\[[^\[\]]*\])*\]', content_clean)
+                    if array_matches:
+                        content_clean = array_matches[-1].strip()
+                        logger.info(f"Extracted JSON array from explanation text: '{content_clean}'")
+                
+                # Try to parse directly as JSON (handles multiple formats)
+                parsed_response = json.loads(content_clean)
+                
+                # Handle different response formats
+                if isinstance(parsed_response, list):
+                    # Direct array format: [] or ["id1", "id2"]
+                    doc_type_ids = parsed_response
+                elif isinstance(parsed_response, dict):
+                    # Object format with result key: {"result": []}
+                    if "result" in parsed_response:
+                        doc_type_ids = parsed_response["result"]
+                        logger.info(f"Extracted document type IDs from 'result' key: {doc_type_ids}")
+                    else:
+                        logger.warning(f"LLM response is dict but no 'result' key found: {parsed_response}")
+                        result = self._fallback_document_extraction(query, available_document_types)
+                        logger.info(f"Fallback extraction result: {result}")
+                        logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                        return result
                 else:
-                    logger.warning("LLM response not in expected JSON array format, using fallback")
+                    logger.warning(f"LLM response is not a list or dict, got: {type(parsed_response)}")
                     result = self._fallback_document_extraction(query, available_document_types)
                     logger.info(f"Fallback extraction result: {result}")
                     logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
                     return result
+                
+                # Ensure the final result is a list
+                if not isinstance(doc_type_ids, list):
+                    logger.warning(f"Document type IDs is not a list after extraction, got: {type(doc_type_ids)}")
+                    result = self._fallback_document_extraction(query, available_document_types)
+                    logger.info(f"Fallback extraction result: {result}")
+                    logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                    return result
+                
+                logger.info("=== DOCUMENT TYPE MATCHES ANALYSIS ===")
+                logger.info(f"LLM returned document type IDs: {doc_type_ids}")
+                
+                # If empty array, LLM determined no specific document types needed
+                if not doc_type_ids:
+                    logger.info("LLM returned empty array - no document type filtering needed")
+                    logger.info("=== END DOCUMENT TYPE MATCHES ANALYSIS ===")
+                    logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                    return []
+                
+                # Validate that returned IDs are actually available
+                valid_ids = []
+                for dtid in doc_type_ids:
+                    if dtid in available_document_types.keys():
+                        doc_name = available_document_types[dtid].get('name', 'Unknown')
+                        valid_ids.append(dtid)
+                        logger.info(f"  ✓ Valid document type ID: {dtid} -> '{doc_name}'")
+                    else:
+                        logger.warning(f"  ✗ Invalid document type ID: {dtid} (not found in available types)")
+                
+                final_ids = valid_ids  # No artificial limit
+                logger.info(f"Final document type IDs: {final_ids}")
+                logger.info("=== END DOCUMENT TYPE MATCHES ANALYSIS ===")
+                logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
+                return final_ids
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse LLM response as JSON: {e}")
                 result = self._fallback_document_extraction(query, available_document_types)
@@ -784,7 +862,28 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
     
     def _fallback_document_extraction(self, query: str, available_document_types: Dict) -> List[str]:
         """Fallback document type extraction using comprehensive alias matching."""
+        logger.info("=== FALLBACK DOCUMENT TYPE EXTRACTION ===")
         query_lower = query.lower()
+        
+        # Check if this is a general information query that shouldn't filter document types
+        general_query_indicators = [
+            "who is", "what is", "when was", "where is", "how much", "how many",
+            "main proponent", "project status", "tell me about", "information on",
+            "what are the impacts", "what consultation", "all documents"
+        ]
+        
+        if any(indicator in query_lower for indicator in general_query_indicators):
+            logger.info(f"Query contains general information indicators - returning empty array")
+            logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")
+            return []
+        
+        # Only do text matching for queries that explicitly mention document types
+        document_type_keywords = ["letter", "report", "memo", "correspondence", "transcript", "assessment", "presentation"]
+        if not any(keyword in query_lower for keyword in document_type_keywords):
+            logger.info(f"Query does not mention specific document types - returning empty array")
+            logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")
+            return []
+        
         matched_types = []
         
         for doc_id, doc_data in available_document_types.items():
@@ -802,7 +901,9 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
                     matched_types.append(doc_id)
                     break
         
-        return matched_types[:5]  # Limit to 5
+        logger.info(f"Fallback matched document types: {matched_types}")
+        logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")
+        return matched_types  # Return all matched types
     
     
     def _fallback_extraction(self, query: str, available_projects: Optional[Dict] = None, 
@@ -919,6 +1020,53 @@ Response: {{"location": "Peace River region", "project_status": null, "years": [
                 "reasoning": f"LLM extraction failed: {e}",
                 "confidence": 0.0
             }
+
+    def _convert_projects_array_to_dict(self, projects_array: Optional[List]) -> Dict:
+        """Convert projects array from VectorSearchClient.get_projects_list() to dict format.
+        
+        Args:
+            projects_array: Array from VectorSearchClient.get_projects_list()
+            
+        Returns:
+            Dict in format {project_name: project_id} for internal processing
+        """
+        if not projects_array:
+            return {}
+            
+        projects_dict = {}
+        if isinstance(projects_array, list):
+            for project in projects_array:
+                if isinstance(project, dict) and 'project_id' in project and 'project_name' in project:
+                    projects_dict[project['project_name']] = project['project_id']
+        
+        logger.info(f"Converted {len(projects_array) if projects_array else 0} projects array to {len(projects_dict)} projects dict")
+        return projects_dict
+    
+    def _convert_document_types_array_to_dict(self, document_types_array: Optional[List]) -> Dict:
+        """Convert document types array from VectorSearchClient.get_document_types() to dict format.
+        
+        Args:
+            document_types_array: Array from VectorSearchClient.get_document_types()
+            
+        Returns:
+            Dict in format {doc_type_id: {name, aliases, act}} for internal processing
+        """
+        if not document_types_array:
+            return {}
+            
+        document_types_dict = {}
+        if isinstance(document_types_array, list):
+            for doc_type in document_types_array:
+                if isinstance(doc_type, dict) and 'document_type_id' in doc_type:
+                    doc_type_id = doc_type['document_type_id']
+                    document_types_dict[doc_type_id] = {
+                        'name': doc_type.get('document_type_name', ''),
+                        'aliases': doc_type.get('aliases', []),
+                        'act': doc_type.get('act', '')
+                    }
+        
+        logger.info(f"Converted {len(document_types_array) if document_types_array else 0} document types array to {len(document_types_dict)} document types dict")
+        return document_types_dict
 
     def _make_llm_call(self, messages: List[Dict], temperature: float = 0.1) -> Dict[str, Any]:
         """Make LLM call - must be implemented by subclasses."""
