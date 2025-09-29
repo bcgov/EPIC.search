@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-your-automation-account"
+    },
+    "runbookName": {
+      "value": "Start-VMs"
+    },
+    "scheduleName": {
+      "value": "MorningStart-Weekdays"
+    },
+    "runbookParameters": {
+      "value": {
+        "SubscriptionId": "your-subscription-id",
+        "ResourceGroupName": "rg-your-vm-resourcegroup",
+        "VMNames": "vm-name-1,vm-name-2,vm-name-3"
+      }
+    }
+  }
+}
