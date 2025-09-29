@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-myproject-tools"
+    },
+    "scheduleName": {
+      "value": "Embedder-Mon-Thurs"
+    },
+    "scheduleDescription": {
+      "value": "Run ScheduledEmbedder at 8:00 PM PST, Monday-Thursday"
+    },
+    "startTime": {
+      "value": "2025-09-30T03:00:00"
+    },
+    "timeZone": {
+      "value": "America/Vancouver"
+    },
+    "frequency": {
+      "value": "Week"
+    },
+    "interval": {
+      "value": 1
+    },
+    "weekDays": {
+      "value": ["Monday", "Tuesday", "Wednesday", "Thursday"]
+    }
+  }
+}

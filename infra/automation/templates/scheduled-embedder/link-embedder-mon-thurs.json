@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-your-automation-account"
+    },
+    "runbookName": {
+      "value": "ScheduledEmbedder"
+    },
+    "scheduleName": {
+      "value": "Embedder-Mon-Thurs"
+    },
+    "runbookParameters": {
+      "value": {
+        "SubscriptionId": "your-subscription-id",
+        "ResourceGroupName": "rg-your-resourcegroup",
+        "VMName": "your-vm-name",
+        "ScriptDir": "/path/to/your/embedder/script/directory",
+        "PostgreSQLName": "your-postgresql-server-name",
+        "PostgresHost": "your-postgresql-server.postgres.database.azure.com"
+      }
+    }
+  }
+}
