@@ -189,3 +189,14 @@ Thumbs.db
 *.swp
 *.swo
 *~
+# Infrastructure Environment Files
+infra/**/*.dev.json
+infra/**/*.test.json
+infra/**/*.prod.json
+infra/**/*.tools.json
+
+# Bastion Environment Files
+infra/bastion/deploy-bastion.*.json
+
+
+

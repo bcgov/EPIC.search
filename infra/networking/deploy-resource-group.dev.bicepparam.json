@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "Canada Central"
+    },
+    "accountCoding": {
+      "value": "your-account-coding-here"
+    },
+    "billingGroup": {
+      "value": "your-billing-group-code"
+    },
+    "ministryName": {
+      "value": "Your Ministry Name"
+    },
+    "environmentSuffix": {
+      "value": "dev"
+    },
+    "customTags": {
+      "value": {
+        "Project": "EPIC.search",
+        "CreatedBy": "Infrastructure-as-Code",
+        "Purpose": "Development-Testing"
+      }
+    }
+  }
+}

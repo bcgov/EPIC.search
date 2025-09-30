@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentSuffix": {
+      "value": "ENVIRONMENT_SUFFIX"
+    },
+    "location": {
+      "value": "Canada Central"
+    },
+    "resourceGroupName": {
+      "value": "rg-epic-search-network-ENVIRONMENT_SUFFIX"
+    },
+    "vnetSubscriptionId": {
+      "value": "YOUR_VNET_SUBSCRIPTION_ID"
+    },
+    "vnetResourceGroupName": {
+      "value": "YOUR_VNET_RESOURCE_GROUP"
+    },
+    "vnetName": {
+      "value": "YOUR_VNET_NAME"
+    },
+    "deployAppServicesNSG": {
+      "value": true
+    },
+    "deployPostgreSQLNSG": {
+      "value": true
+    },
+    "deployPrivateEndpointsNSG": {
+      "value": true
+    },
+    "deployVMsNSG": {
+      "value": true
+    },
+    "deployAppServicesSubnet": {
+      "value": true
+    },
+    "appServicesSubnetAddressPrefix": {
+      "value": "10.X.X.0/27"
+    },
+    "deployPostgreSQLSubnet": {
+      "value": true
+    },
+    "postgresqlSubnetAddressPrefix": {
+      "value": "10.X.X.32/28"
+    },
+    "deployPrivateEndpointsSubnet": {
+      "value": true
+    },
+    "privateEndpointsSubnetAddressPrefix": {
+      "value": "10.X.X.48/28"
+    },
+    "deployVMsSubnet": {
+      "value": true
+    },
+    "vmsSubnetAddressPrefix": {
+      "value": "10.X.X.64/26"
+    },
+    "appServicesRouteTableId": {
+      "value": ""
+    },
+    "postgresqlRouteTableId": {
+      "value": ""
+    },
+    "privateEndpointsRouteTableId": {
+      "value": ""
+    },
+    "vmsRouteTableId": {
+      "value": ""
+    }
+  }
+}

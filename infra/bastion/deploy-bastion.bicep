@@ -36,7 +36,7 @@ resource bastionResourceGroup 'Microsoft.Resources/resourceGroups@2024-03-01' = 
 }
 
 // Deploy the Azure Bastion solution to the resource group
-module bastionDeployment './main.bicep' = {
+module bastionDeployment './bastion.bicep' = {
   scope: bastionResourceGroup
   name: 'bastionDeployment'
   params: {

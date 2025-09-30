@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "Canada Central"
+    },
+    "environmentSuffix": {
+      "value": "ENVIRONMENT_SUFFIX"
+    },
+    "resourceGroupName": {
+      "value": "rg-epic-search-network-ENVIRONMENT_SUFFIX"
+    },
+    "deployAppServicesNSG": {
+      "value": true
+    },
+    "deployPostgreSQLNSG": {
+      "value": true
+    },
+    "deployPrivateEndpointsNSG": {
+      "value": true
+    },
+    "deployVMsNSG": {
+      "value": true
+    }
+  }
+}

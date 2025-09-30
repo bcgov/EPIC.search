@@ -4,11 +4,12 @@ This folder contains Bicep templates for deploying Azure Bastion with its requir
 
 ## Files Overview
 
-- **`main.bicep`** - Main template that orchestrates the entire Bastion deployment
+- **`deploy-bastion.bicep`** - Main subscription-scoped template that orchestrates the entire Bastion deployment
 - **`bastion.bicep`** - Core Bastion Host template with Public IP and subnet creation
 - **`nsg.bicep`** - Network Security Group template with Bastion-specific rules
 - **`subnet.bicep`** - Helper template for creating subnets across resource groups
-- **`main.bicepparam`** - Sample parameters file
+- **`deploy-bastion.example.json`** - Parameter template (commit to git)
+- **`deploy-bastion.*.json`** - Environment-specific parameter files (excluded from git)
 
 ## Architecture
 
@@ -40,67 +41,61 @@ The templates deploy:
 ### Required Parameters
 
 | Parameter | Description | Example |
-|-----------|-------------|---------|
-| `bastionName` | Name of the Azure Bastion resource | `bastion-myproject` |
-| `vnetName` | Name of the existing virtual network | `vnet-myproject` |
-| `bastionSubnetAddressPrefix` | Address prefix for AzureBastionSubnet | `10.0.1.0/26` |
+|-----------|-------------|---------|  
+| `bastionResourceGroupName` | Resource group for bastion resources | `rg-epic-search-bastion-dev` |
+| `bastionName` | Name of the Azure Bastion resource | `bastion-epic-search-dev` |
+| `vnetName` | Name of the existing virtual network | `c4b0a8-dev-vwan-spoke` |
+| `vnetResourceGroupName` | Resource group where VNet exists | `c4b0a8-dev-networking` |
+| `bastionSubnetAddressPrefix` | Address prefix for AzureBastionSubnet | `10.46.51.128/26` |
 
 ### Optional Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `vnetResourceGroupName` | Current RG | Resource group where VNet exists |
-| `location` | Current RG location | Azure region for resources |
-| `bastionSku` | `Basic` | Bastion SKU (Basic/Standard/Developer/Premium) |
-| `bastionNsgName` | `nsg-bastion` | Name for the Bastion NSG |
-| `tags` | Default tags | Resource tags |
+| `location` | Canada Central | Azure region for resources |
+| `bastionSku` | Developer | Bastion SKU (Basic/Standard/Developer/Premium) |
+| `bastionNsgName` | nsg-bastion-{suffix} | Name for the Bastion NSG |
+| `tags` | {} | Resource tags |
 
 ## Deployment
 
-### Using Azure CLI
+### Quick Start
+
+1. **Copy and customize parameters**:
+
+```powershell
+# Copy the example file
+Copy-Item "deploy-bastion.example.json" "deploy-bastion.dev.json"
+
+# Edit deploy-bastion.dev.json with your environment values
+```
+
+1. **Deploy using Azure CLI**:
 
 ```bash
-# Deploy with parameters file
-az deployment group create \
-  --resource-group rg-myproject-bastion \
-  --template-file main.bicep \
-  --parameters main.bicepparam
-
-# Deploy with inline parameters
-az deployment group create \
-  --resource-group rg-myproject-bastion \
-  --template-file main.bicep \
-  --parameters \
-    bastionName=bastion-myproject \
-    vnetName=vnet-myproject \
-    bastionSubnetAddressPrefix=10.0.1.0/26
+az deployment sub create \
+  --location "Canada Central" \
+  --template-file "deploy-bastion.bicep" \
+  --parameters "@deploy-bastion.dev.json"
 ```
 
 ### Using Azure PowerShell
 
 ```powershell
-# Deploy with parameters file
-New-AzResourceGroupDeployment `
-  -ResourceGroupName "rg-myproject-bastion" `
-  -TemplateFile "main.bicep" `
-  -TemplateParameterFile "main.bicepparam"
-
-# Deploy with inline parameters
-New-AzResourceGroupDeployment `
-  -ResourceGroupName "rg-myproject-bastion" `
-  -TemplateFile "main.bicep" `
-  -bastionName "bastion-myproject" `
-  -vnetName "vnet-myproject" `
-  -bastionSubnetAddressPrefix "10.0.1.0/26"
+New-AzDeployment `
+  -Location "Canada Central" `
+  -TemplateFile "deploy-bastion.bicep" `
+  -TemplateParameterFile "deploy-bastion.dev.json"
 ```
 
-## Cross-Resource Group Deployment
+## Cross-Resource Group and Subscription Deployment
 
-If your VNet is in a different resource group:
+This template supports deployment across resource groups and subscriptions:
 
-1. Deploy the main template to the resource group where you want Bastion resources
-2. Set the `vnetResourceGroupName` parameter to point to the VNet's resource group
-3. Ensure you have appropriate permissions on both resource groups
+1. **Resource Group Creation**: Template automatically creates the bastion resource group if it doesn't exist
+2. **Cross-RG VNet Access**: Set `vnetResourceGroupName` to point to your existing VNet's resource group
+3. **Permissions**: Ensure you have Contributor access to the target subscription and VNet resource group
+4. **Idempotent**: Safe to run multiple times - creates RG if missing, uses existing if present
 
 ## Prerequisites
 
