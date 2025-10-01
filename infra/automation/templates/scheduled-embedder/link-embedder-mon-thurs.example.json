@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "automationAccountName": {
+      "value": "auto-ENVIRONMENT_SUFFIX-automation"
+    },
+    "runbookName": {
+      "value": "ScheduledEmbedder"
+    },
+    "scheduleName": {
+      "value": "Embedder-Mon-Thurs"
+    },
+    "runbookParameters": {
+      "value": {
+        "SubscriptionId": "YOUR_SUBSCRIPTION_ID",
+        "ResourceGroupName": "rg-ENVIRONMENT_SUFFIX-apps",
+        "FunctionAppName": "func-embedder-name",
+        "FunctionName": "your-function-name"
+      }
+    }
+  }
+}

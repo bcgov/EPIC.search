@@ -3,19 +3,19 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "automationAccountName": {
-      "value": "auto-your-automation-account"
+      "value": "auto-ENVIRONMENT_SUFFIX-automation"
     },
     "runbookName": {
-      "value": "Stop-PostgreSQL"
+      "value": "Stop-VMs"
     },
     "scheduleName": {
       "value": "EveningStop-Weekdays"
     },
     "runbookParameters": {
       "value": {
-        "ResourceGroupName": "rg-your-postgresql-resourcegroup",
-        "PostgreSQLNames": "your-postgresql-server-name",
-        "SubscriptionId": "your-subscription-id"
+        "SubscriptionId": "YOUR_SUBSCRIPTION_ID",
+        "ResourceGroupName": "rg-ENVIRONMENT_SUFFIX-vms",
+        "VMNames": "vm-web-01,vm-web-02,vm-api-01"
       }
     }
   }

@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "automationAccountName": {
-      "value": "auto-your-automation-account"
+      "value": "auto-ENVIRONMENT_SUFFIX-automation"
     },
     "runbookName": {
       "value": "Start-PostgreSQL"
@@ -13,9 +13,9 @@
     },
     "runbookParameters": {
       "value": {
-        "ResourceGroupName": "rg-your-postgresql-resourcegroup",
-        "PostgreSQLNames": "your-postgresql-server-name",
-        "SubscriptionId": "your-subscription-id"
+        "ResourceGroupName": "rg-ENVIRONMENT_SUFFIX-database",
+        "PostgreSQLNames": "psql-server-name",
+        "SubscriptionId": "YOUR_SUBSCRIPTION_ID"
       }
     }
   }

@@ -3,22 +3,22 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "resourceGroupName": {
-      "value": "rg-tools-automation"
+      "value": "rg-ENVIRONMENT_SUFFIX-automation"
     },
     "location": {
-      "value": "East US"
+      "value": "Canada Central"
     },
     "automationAccountName": {
-      "value": "auto-myproject-tools"
+      "value": "auto-epic-search-ENVIRONMENT_SUFFIX"
     },
     "sku": {
       "value": "Basic"
     },
-    "deployStartRunbook": {
-      "value": true
-    },
-    "deployStopRunbook": {
-      "value": true
+    "customTags": {
+      "value": {
+        "Owner": "platform-team",
+        "CostCenter": "shared-services"
+      }
     }
   }
 }

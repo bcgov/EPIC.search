@@ -2,6 +2,12 @@
 
 This solution provides Infrastructure as Code templates for deploying an Azure Automation Account with extensible runbook support for cross-subscription resource management. The solution includes automated start/stop capabilities for App Services and PostgreSQL Flexible Servers.
 
+## 🚀 Quick Start
+
+For quick deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+For comprehensive setup including runbooks, IAM, and scheduling, continue reading this document.
+
 ## 🎯 Features
 
 - **Cross-subscription automation** - Automation account in tools subscription manages resources in dev/test/prod

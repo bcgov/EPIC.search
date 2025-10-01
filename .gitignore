@@ -196,7 +196,10 @@ infra/**/*.prod.json
 infra/**/*.tools.json
 
 # Bastion Environment Files
-infra/bastion/deploy-bastion.*.json
+infra/bastion/deploy-bastion.dev.json
+infra/bastion/deploy-bastion.test.json
+infra/bastion/deploy-bastion.prod.json
+
 
 
 

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "bastionResourceGroupName": {
+      "value": "rg-epic-search-bastion-ENVIRONMENT_SUFFIX"
+    },
+    "bastionName": {
+      "value": "bastion-epic-search-ENVIRONMENT_SUFFIX"
+    },
+    "vnetName": {
+      "value": "YOUR_VNET_NAME"
+    },
+    "bastionSubnetAddressPrefix": {
+      "value": "10.X.X.0/26"
+    },
+    "vnetResourceGroupName": {
+      "value": "YOUR_VNET_RESOURCE_GROUP"
+    },
+    "location": {
+      "value": "Canada Central"
+    },
+    "bastionSku": {
+      "value": "Developer"
+    },
+    "bastionNsgName": {
+      "value": "nsg-bastion-ENVIRONMENT_SUFFIX"
+    }
+  }
+}

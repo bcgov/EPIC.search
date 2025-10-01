@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "automationAccountName": {
-      "value": "auto-myproject-tools"
+      "value": "auto-ENVIRONMENT_SUFFIX-automation"
     },
     "runbookName": {
       "value": "Start-AppServices"
@@ -13,9 +13,9 @@
     },
     "runbookParameters": {
       "value": {
-        "ResourceGroupName": "rg-myproject-apps",
-        "AppServiceNames": "app1,app2,app3",
-        "SubscriptionId": "your-subscription-id",
+        "ResourceGroupName": "rg-ENVIRONMENT_SUFFIX-apps",
+        "AppServiceNames": "app-service-1,app-service-2",
+        "SubscriptionId": "YOUR_SUBSCRIPTION_ID",
         "WaitForStartup": true
       }
     }

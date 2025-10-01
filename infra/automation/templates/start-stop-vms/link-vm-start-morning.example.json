@@ -3,19 +3,19 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "automationAccountName": {
-      "value": "auto-your-automation-account"
+      "value": "auto-ENVIRONMENT_SUFFIX-automation"
     },
     "runbookName": {
-      "value": "Stop-VMs"
+      "value": "Start-VMs"
     },
     "scheduleName": {
-      "value": "EveningStop-Weekdays"
+      "value": "MorningStart-Weekdays"
     },
     "runbookParameters": {
       "value": {
-        "SubscriptionId": "your-subscription-id",
-        "ResourceGroupName": "rg-your-vm-resourcegroup",
-        "VMNames": "vm-name-1,vm-name-2,vm-name-3"
+        "SubscriptionId": "YOUR_SUBSCRIPTION_ID",
+        "ResourceGroupName": "rg-ENVIRONMENT_SUFFIX-vms",
+        "VMNames": "vm-web-01,vm-web-02,vm-api-01"
       }
     }
   }
