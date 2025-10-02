@@ -55,6 +55,7 @@ class BaseSearchHandler(ABC):
                               inference: Optional[List], ranking: Optional[Dict], 
                               search_strategy: Optional[str], semantic_query: Optional[str], 
                               metrics: Dict, location: Optional[Dict] = None, 
+                              user_location: Optional[Dict] = None,
                               project_status: Optional[str] = None, 
                               years: Optional[List] = None) -> Dict[str, Any]:
         """Execute vector search and process the response.
@@ -99,7 +100,8 @@ class BaseSearchHandler(ABC):
             semantic_query=semantic_query,
             location=location,
             project_status=project_status,
-            years=years
+            years=years,
+            user_location=user_location
         )
         search_duration = round((time.time() - search_start) * 1000, 2)
         current_app.logger.info(f"Vector search completed in {search_duration}ms")

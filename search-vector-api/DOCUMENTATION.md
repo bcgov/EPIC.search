@@ -782,7 +782,15 @@ Performs the two-stage search pipeline with document-level filtering followed by
   "projectIds": ["project-123", "project-456"],        // Optional project filtering
   "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
   "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
-  "location": "Langford British Columbia",             // Optional location context
+  "userLocation": {                                    // Optional structured user location
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1696291200000
+  },
+  "location": "Langford British Columbia",             // Optional location context string
   "projectStatus": "recent",                           // Optional project status context
   "years": [2023, 2024, 2025],                        // Optional years context
   "ranking": {                                         // Optional ranking configuration
@@ -893,17 +901,46 @@ The search API supports optional parameters that enhance search queries with add
 
 #### Available Enhancement Parameters
 
+**userLocation** *(object, optional)*
+
+* **Purpose**: Provides structured user geographic location data including coordinates and metadata
+* **Structure**:
+  * `latitude` (float, required): Geographic latitude coordinate (-90 to 90)
+  * `longitude` (float, required): Geographic longitude coordinate (-180 to 180)
+  * `city` (string, optional): City name
+  * `region` (string, optional): Region, province, or state name
+  * `country` (string, optional): Country name
+  * `timestamp` (integer, optional): Unix timestamp in milliseconds when location was captured
+* **Usage**: Represents the user's current or selected geographic position for location-aware search
+* **Example**:
+
+```json
+  {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1696291200000
+  }
+```
+
 **location** *(string, optional)*
-* **Purpose**: Provides geographic context to improve location-specific searches
+
+* **Purpose**: Provides geographic context string to improve location-specific searches
+
 * **Usage**: Appended to the search query as "location: {value}"  
-* **Examples**: 
+* **Examples**
   * `"Langford British Columbia"`
   * `"Northern BC"`
   * `"Vancouver Island"`
   * `"Lower Mainland"`
+* **Note**: Can be used independently or alongside `userLocation` depending on available data
 
 **projectStatus** *(string, optional)*
+
 * **Purpose**: Adds project status context to filter by project phase or state
+
 * **Usage**: Appended to the search query as "project status: {value}"
 * **Examples**:
   * `"recent"` - Focus on recently active projects
@@ -912,7 +949,9 @@ The search API supports optional parameters that enhance search queries with add
   * `"proposed"` - Projects in planning phase
 
 **years** *(array of integers, optional)*
+
 * **Purpose**: Focuses search on specific years or timeframes
+
 * **Usage**: Appended to the search query as "years: {comma-separated values}"
 * **Examples**:
   * `[2023, 2024, 2025]` - Recent years
@@ -924,14 +963,25 @@ The search API supports optional parameters that enhance search queries with add
 When enhancement parameters are provided, they are automatically appended to the original query:
 
 **Example Transformation:**
-```
+
+```json
 Original Query: "environmental impact assessment" 
 Parameters: {
+  "userLocation": {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia"
+  },
   "location": "Langford British Columbia",
   "projectStatus": "recent", 
   "years": [2023, 2024, 2025]
 }
 Enhanced Query: "environmental impact assessment (location: Langford British Columbia | project status: recent | years: 2023, 2024, 2025)"
+
+Note: The userLocation object provides structured geographic data for potential future
+location-aware filtering and ranking, while the location string is currently appended
+to the query for semantic matching.
 ```
 
 The enhanced query is then processed through the normal search pipeline, allowing the semantic and keyword search components to utilize the additional context for improved relevance matching.
@@ -939,6 +989,7 @@ The enhanced query is then processed through the normal search pipeline, allowin
 #### Future Enhancements
 
 These parameters are currently integrated as text enhancements. Future versions may implement:
+
 * Direct database filtering on temporal fields
 * Geographic metadata filtering  
 * Project status-based result ranking
@@ -1310,11 +1361,11 @@ Choosing the appropriate model loading strategy depends on your specific deploym
 The Tools API provides lightweight utility endpoints for external tools and MCP (Model Context Protocol) systems. It offers simplified access to project listings and document type information without the overhead of processing statistics.
 
 #### Projects List
+
 The API provides two distinct success rate metrics:
 
 * **Overall Success Rate**: Includes all files (successful / total_files) - provides insight into file selection and processing pipeline
 * **Processing Success Rate**: Excludes skipped files (successful / processed_files) - focuses on actual processing pipeline effectiveness
-
 
 ```http
 GET /api/tools/projects
@@ -1696,7 +1747,7 @@ The Stats API requires the following database tables:
 * `processed_at` (TIMESTAMP)
 * `metrics` (JSONB)
 
-## Future Enhancements
+## Future High-level Enhancements
 
 * Add authentication and rate limiting
 * Implement caching for frequent queries

@@ -21,7 +21,7 @@ class VectorSearchClient:
     # =============================================================================
 
     @staticmethod
-    def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None, location=None, project_status=None, years=None):
+    def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None, location=None, user_location=None, project_status=None, years=None):
         """Advanced two-stage hybrid search with comprehensive parameters.
         
         Endpoint: POST /vector-search
@@ -42,7 +42,14 @@ class VectorSearchClient:
                 - "HYBRID_PARALLEL"
             semantic_query (str, optional): Cleaned semantic query with project/document type info removed
                 for more focused vector search (used by agentic mode)
-            location (dict, optional): Location parameter for geographic filtering
+            location (str or dict, optional): Geographic search filter extracted from query text 
+                (e.g., "Vancouver", "Peace River region"). This represents WHERE to search for projects,
+                NOT where the user is physically located. Typically extracted by parameter extraction in AI/agent modes.
+            user_location (dict, optional): User's physical geographic location from browser/device.
+                Used for resolving "near me" queries and providing local context. Contains latitude, longitude,
+                city, region, country, and timestamp. This represents WHERE THE USER IS, not a search filter.
+                Example: {"latitude": 48.4284, "longitude": -123.3656, "city": "Victoria", 
+                "region": "British Columbia", "country": "Canada", "timestamp": 1696291200000}
             project_status (str, optional): Project status parameter for status filtering  
             years (list, optional): Years parameter for temporal filtering
             
@@ -107,6 +114,9 @@ class VectorSearchClient:
                 else:
                     current_app.logger.warning(f"Unexpected location format: {type(location)} - {location}")
                     payload["location"] = str(location)
+            if user_location:
+                payload["userLocation"] = user_location
+                current_app.logger.info(f"Added userLocation to payload: {user_location}")
             if project_status:
                 payload["projectStatus"] = project_status
             if years:

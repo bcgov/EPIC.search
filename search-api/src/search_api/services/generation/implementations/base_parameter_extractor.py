@@ -943,10 +943,12 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
             
             prompt = f"""You are a temporal and geographic parameter extraction specialist. Analyze the following search query to extract:
 
-1. LOCATION PARAMETERS: 
+1. LOCATION PARAMETERS (MUST BE STRING FORMAT):
    - Look for geographic references, location names, or phrases like "near me", "local", "my area"
-   - If user has provided location data and query contains location references, use the user location
-   - Otherwise extract specific location names mentioned
+   - ALWAYS return location as a STRING in format "City, Region" or "Region" (e.g., "Langford, BC", "Peace River region", "Vancouver")
+   - If user has provided location data and query contains "near me" or location references, extract the city/region from user location as a STRING
+   - If query mentions specific location names, extract those as a STRING
+   - DO NOT return location as a JSON object - ONLY strings like "Vancouver, BC" or "Peace River region"
 
 2. PROJECT STATUS:
    - Look for project lifecycle indicators: "active", "completed", "recent", "ongoing", "historical", "current", "past", "future"
@@ -969,7 +971,7 @@ QUERY TO ANALYZE: "{query}"
 
 Respond with ONLY a JSON object in this exact format:
 {{
-    "location": null_or_location_object_or_string,
+    "location": null_or_string_like_"Vancouver_BC"_or_"Peace_River_region",
     "project_status": null_or_status_string,
     "years": [],
     "reasoning": "explanation of extraction logic",
@@ -978,11 +980,14 @@ Respond with ONLY a JSON object in this exact format:
 
 EXAMPLES:
 Query: "Show me recent projects near me"
-User Location: {{"city": "Vancouver", "region": "BC"}}
-Response: {{"location": {{"city": "Vancouver", "region": "BC"}}, "project_status": "recent", "years": [{current_year-2}, {current_year-1}, {current_year}], "reasoning": "User wants recent projects in their location", "confidence": 0.9}}
+User Location: {{"city": "Langford", "region": "British Columbia"}}
+Response: {{"location": "Langford, British Columbia", "project_status": "recent", "years": [{current_year-2}, {current_year-1}, {current_year}], "reasoning": "User wants recent projects in their location - extracted city and region as string", "confidence": 0.9}}
 
 Query: "Environmental reports from 2020-2022 in Peace River region"
-Response: {{"location": "Peace River region", "project_status": null, "years": [2020, 2021, 2022], "reasoning": "Specific location and year range provided", "confidence": 0.95}}"""
+Response: {{"location": "Peace River region", "project_status": null, "years": [2020, 2021, 2022], "reasoning": "Specific location and year range provided", "confidence": 0.95}}
+
+Query: "Projects in Vancouver"
+Response: {{"location": "Vancouver", "project_status": null, "years": [], "reasoning": "Query explicitly mentions Vancouver", "confidence": 0.95}}"""
 
             logger.info("=== TEMPORAL EXTRACTION PROMPT ===")
             logger.info(f"Prompt: {prompt}")

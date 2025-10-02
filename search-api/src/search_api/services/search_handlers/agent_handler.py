@@ -67,8 +67,7 @@ class AgentHandler(BaseSearchHandler):
                 project_ids=project_ids,
                 document_type_ids=document_type_ids,
                 search_strategy=search_strategy,
-                ranking=ranking,
-                location=location,
+                ranking=ranking,                
                 project_status=project_status,
                 years=years
             )
