@@ -1513,7 +1513,7 @@ Return only the variations as a JSON array of strings (no explanations):"""
                 location = parameters.get("location", "")
                 project_status = parameters.get("project_status", "")
                 years = parameters.get("years", [])
-                user_location = parameters.get("_user_location", None)
+                user_location = parameters.get("user_location", None)
                 
                 # Log new parameter usage
                 if location:
@@ -2879,37 +2879,48 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         search_queries = agent._generate_search_variations(optimized_semantic_query, num_searches)
         logger.info(f"🤖 STEP 3: Generated {len(search_queries)} search variations")
         
-        # Determine execution mode (disable parallel for now due to Flask context issues)
-        use_parallel = False  # Temporarily disabled due to Flask app context issues in worker threads
-        execution_mode = "parallel" if agent.parallel_searches_enabled and len(search_queries) > 1 else "sequential"
+        # Helper function to build search parameters for a query
+        def build_search_params(search_query):
+            """Build search parameters with optimized values and user_location."""
+            search_params = {
+                "query": search_query,
+                "search_strategy": optimized_search_strategy,
+            }
+            
+            # Add non-None parameters (but always include user_location if provided)
+            if optimized_project_ids:
+                search_params["project_ids"] = optimized_project_ids
+            if optimized_document_type_ids:
+                search_params["document_type_ids"] = optimized_document_type_ids
+            if optimized_location:
+                search_params["location"] = optimized_location
+            if optimized_project_status:
+                search_params["project_status"] = optimized_project_status
+            if optimized_years:
+                search_params["years"] = optimized_years
+            if ranking:
+                search_params["ranking"] = ranking
+                
+            # ALWAYS include user_location when provided (even if None, let vector API handle it)
+            search_params["user_location"] = user_location
+            
+            return search_params
         
-        logger.info(f"🤖 STEP 3: Executing searches in {execution_mode} mode")
-        
-        if use_parallel:
-            # Parallel execution using ThreadPoolExecutor with Flask app context
+        def execute_parallel_searches(search_queries, agent):
+            """Execute searches in parallel using ThreadPoolExecutor."""
+            # Capture the Flask app instance for use in worker threads
+            app = current_app._get_current_object()
+            
             def execute_single_search(search_data):
                 i, search_query = search_data
                 
-                # Set up Flask application context for the worker thread
+                # Set up Flask application context for the worker thread using captured app
                 try:
-                    with current_app.app_context():
+                    with app.app_context():
                         logger.info(f"🔍 Search {i+1}/{len(search_queries)}: '{search_query}'")
                         
-                        # Execute search with optimized parameters
-                        search_params = {
-                            "query": search_query,
-                            "project_ids": optimized_project_ids if optimized_project_ids else None,
-                            "document_type_ids": optimized_document_type_ids if optimized_document_type_ids else None,
-                            "search_strategy": optimized_search_strategy,
-                            "location": optimized_location,
-                            "user_location": user_location,
-                            "project_status": optimized_project_status,
-                            "years": optimized_years if optimized_years else None,
-                            "ranking": ranking
-                        }
-                        
-                        # Remove None values
-                        search_params = {k: v for k, v in search_params.items() if v is not None}
+                        # Build search parameters using shared function
+                        search_params = build_search_params(search_query)
                         
                         try:
                             search_result = agent.execute_tool("search", search_params)
@@ -2953,27 +2964,17 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                         logger.error(f"❌ Parallel search execution error: {e}")
                 
                 # Add successful results in original order
-                search_results = [r for r in parallel_results if r is not None]
-        else:
-            # Sequential execution (fallback)
+                return [r for r in parallel_results if r is not None]
+        
+        def execute_sequential_searches(search_queries, agent):
+            """Execute searches sequentially."""
+            search_results = []
+            
             for i, search_query in enumerate(search_queries):
                 logger.info(f"🔍 Search {i+1}/{len(search_queries)}: '{search_query}'")
                 
-                # Execute search with optimized parameters
-                search_params = {
-                    "query": search_query,
-                    "project_ids": optimized_project_ids if optimized_project_ids else None,
-                    "document_type_ids": optimized_document_type_ids if optimized_document_type_ids else None,
-                    "search_strategy": optimized_search_strategy,
-                    "location": optimized_location,
-                    "user_location": user_location,
-                    "project_status": optimized_project_status,
-                    "years": optimized_years if optimized_years else None,
-                    "ranking": ranking
-                }
-                
-                # Remove None values
-                search_params = {k: v for k, v in search_params.items() if v is not None}
+                # Build search parameters using shared function
+                search_params = build_search_params(search_query)
                 
                 try:
                     search_result = agent.execute_tool("search", search_params)
@@ -2988,6 +2989,19 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                         logger.warning(f"❌ Search {i+1} failed: {search_result.get('error', 'Unknown error')}")
                 except Exception as e:
                     logger.error(f"❌ Search {i+1} exception: {e}")
+            
+            return search_results
+        
+        # Determine execution mode (disable parallel for now due to Flask context issues)
+        execution_mode = "parallel" if agent.parallel_searches_enabled and len(search_queries) > 1 else "sequential"
+        
+        logger.info(f"🤖 STEP 3: Executing searches in {execution_mode} mode")
+        
+        # Execute searches using appropriate strategy
+        if parallel_searches_enabled and len(search_queries) > 1:
+            search_results = execute_parallel_searches(search_queries, agent)
+        else:
+            search_results = execute_sequential_searches(search_queries, agent)
         
         logger.info(f"🤖 STEP 3: Completed {len(search_results)} successful searches")
         
@@ -3013,8 +3027,6 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         unique_chunks = []
         seen_doc_ids = set()
         seen_chunk_content = set()
-        
-
         
         for doc in all_documents:
             doc_id = doc.get('id') or doc.get('document_id')

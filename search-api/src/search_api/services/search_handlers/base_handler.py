@@ -54,7 +54,7 @@ class BaseSearchHandler(ABC):
                               document_type_ids: Optional[List[str]], 
                               inference: Optional[List], ranking: Optional[Dict], 
                               search_strategy: Optional[str], semantic_query: Optional[str], 
-                              metrics: Dict, location: Optional[Dict] = None, 
+                              metrics: Dict, location: Optional[str] = None, 
                               user_location: Optional[Dict] = None,
                               project_status: Optional[str] = None, 
                               years: Optional[List] = None) -> Dict[str, Any]:
@@ -69,7 +69,10 @@ class BaseSearchHandler(ABC):
             search_strategy (str): Search strategy to use
             semantic_query (str): Processed semantic query (may be None)
             metrics (dict): Metrics dictionary to update
-            location (dict): Location parameter for geographic filtering
+            location (str): Geographic search filter INFERRED from query text (e.g., "Vancouver, BC", "Peace River region")
+                           This is NOT user-provided - it's extracted from the query by AI/Agent modes only
+            user_location (dict): User's physical location from browser (latitude, longitude, city, region, etc.)
+                                 This is ALWAYS passed through when provided by the user
             project_status (str): Project status parameter for status filtering
             years (list): Years parameter for temporal filtering
 

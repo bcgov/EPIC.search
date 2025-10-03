@@ -28,9 +28,14 @@ class AgentHandler(BaseSearchHandler):
         
         Agent mode delegates the entire query processing to the agent stub, which handles:
         - Multi-step reasoning and planning
+        - LLM-based parameter extraction (including location inference from query)
         - Multiple RAG calls with different strategies  
         - Result consolidation and deduplication
         - Tool suggestions for API improvements
+        
+        Note: Geographic location filtering is INFERRED by the agent from the query text
+        (e.g., "projects in Vancouver" → location="Vancouver"). This is separate from
+        user_location which is the user's physical browser location.
         
         Args:
             query: The user query
@@ -40,8 +45,7 @@ class AgentHandler(BaseSearchHandler):
             inference: Inference settings
             ranking: Optional ranking configuration
             metrics: Metrics dictionary to update
-            user_location: Optional user location data
-            location: Optional location parameter (user-provided takes precedence)
+            user_location: Optional user location data from browser (passed through to agent)
             project_status: Optional project status parameter (user-provided takes precedence)
             years: Optional years parameter (user-provided takes precedence)
             

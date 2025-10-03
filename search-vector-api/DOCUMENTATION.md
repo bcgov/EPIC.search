@@ -905,13 +905,14 @@ The search API supports optional parameters that enhance search queries with add
 
 * **Purpose**: Provides structured user geographic location data including coordinates and metadata
 * **Structure**:
-  * `latitude` (float, required): Geographic latitude coordinate (-90 to 90)
-  * `longitude` (float, required): Geographic longitude coordinate (-180 to 180)
+  * `latitude` (float, optional): Geographic latitude coordinate (-90 to 90)
+  * `longitude` (float, optional): Geographic longitude coordinate (-180 to 180)
   * `city` (string, optional): City name
   * `region` (string, optional): Region, province, or state name
   * `country` (string, optional): Country name
   * `timestamp` (integer, optional): Unix timestamp in milliseconds when location was captured
 * **Usage**: Represents the user's current or selected geographic position for location-aware search
+* **Smart Enhancement**: The system intelligently determines when to use location data based on query intent (see Smart Location Enhancement below)
 * **Example**:
 
 ```json
@@ -928,7 +929,6 @@ The search API supports optional parameters that enhance search queries with add
 **location** *(string, optional)*
 
 * **Purpose**: Provides geographic context string to improve location-specific searches
-
 * **Usage**: Appended to the search query as "location: {value}"  
 * **Examples**
   * `"Langford British Columbia"`
@@ -986,6 +986,122 @@ to the query for semantic matching.
 
 The enhanced query is then processed through the normal search pipeline, allowing the semantic and keyword search components to utilize the additional context for improved relevance matching.
 
+#### Smart Location Enhancement
+
+The search API implements intelligent location-aware query enhancement that automatically determines when to include user location data based on the semantic content and intent of the query. This prevents location data from diluting search relevance for non-location queries.
+
+##### How Smart Location Enhancement Works
+
+**Location Relevance Detection**: The system analyzes queries using pattern matching with weighted scores to detect location-relevant intent:
+
+**High Relevance Patterns** (0.9-1.0 score):
+
+* `near me`, `near here`, `near my location`
+* `closest to me`, `nearest to me`
+* `in my area`, `in my region`, `in my vicinity`
+* `where I live`, `where I am`
+* `around me`, `around here`
+
+**Medium Relevance Patterns** (0.6-0.8 score):
+
+* `local`, `nearby`, `surrounding`, `proximate`
+* `distance`, `proximity`, `how far`
+* `within X km/miles`
+* `closest`, `nearest` (without "to me")
+
+**Low Relevance Patterns** (0.3-0.5 score):
+
+* `location`, `geographic`, `geographical`
+* `regional`, `local area`
+
+**Negative Patterns** (reduce score):
+
+* Document structure queries (`document format`, `report type`)
+* Information questions (`who is`, `what is`, `when was`)
+* Definitional queries (`definition`, `meaning`, `explain`)
+
+**Scoring Mechanism**:
+
+* **Threshold**: 0.6 (configurable)
+* **Score Range**: 0.0 to 1.0
+* **Decision**: Query is enhanced only if score >= threshold
+
+**Location Formatting**: When a query is determined to be location-relevant, the system creates human-readable location strings with priority order:
+
+1. City, Region, Country (e.g., "Victoria, British Columbia, Canada")
+2. Coordinates as fallback (e.g., "coordinates: 48.4284, -123.3656")
+
+##### Smart Enhancement Examples
+
+**Scenario 1: Location-Relevant Query** ✅
+
+```json
+Request:
+{
+  "query": "projects near me",
+  "userLocation": {
+    "city": "Victoria",
+    "region": "British Columbia"
+  }
+}
+
+Result: Enhanced to "projects near me (user location: Victoria, British Columbia)"
+Score: 1.00 (high relevance pattern detected)
+```
+
+**Scenario 2: Non-Location Query** ❌
+
+```json
+Request:
+{
+  "query": "environmental impact assessment",
+  "userLocation": {
+    "city": "Victoria",
+    "region": "British Columbia"
+  }
+}
+
+Result: NOT enhanced, remains "environmental impact assessment"
+Score: 0.00 (no location intent detected)
+```
+
+**Scenario 3: Ambiguous Query with Medium Relevance** ✅
+
+```json
+Request:
+{
+  "query": "local environmental projects",
+  "userLocation": {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria"
+  }
+}
+
+Result: Enhanced to "local environmental projects (user location: Victoria)"
+Score: 0.70 (medium relevance pattern detected)
+```
+
+##### Benefits of Smart Location Enhancement
+
+* **Improved Search Precision**: Location data only added when semantically relevant
+* **Better User Experience**: Users asking "near me" get local results; general topic searches get broad results
+* **Semantic Intelligence**: Pattern-based detection catches various phrasings and handles ambiguous cases
+* **Reduced Noise**: Prevents location data from diluting relevance for non-location queries
+* **Configurable**: Threshold and pattern weights can be tuned for different use cases
+
+##### Logging and Debugging
+
+The system logs enhancement decisions for debugging and analytics:
+
+```python
+# Location-relevant query
+logging.info(f"Query location-relevant (score: 1.00). Enhanced with user location: Victoria, BC")
+
+# Non-location query  
+logging.debug(f"Query not location-relevant (score: 0.00). Skipping user location enhancement.")
+```
+
 #### Future Enhancements
 
 These parameters are currently integrated as text enhancements. Future versions may implement:
@@ -994,6 +1110,10 @@ These parameters are currently integrated as text enhancements. Future versions 
 * Geographic metadata filtering  
 * Project status-based result ranking
 * Advanced temporal query processing
+* Distance-based search result ranking
+* Geographic boundary filtering
+* Location-aware result prioritization
+* Proximity-based relevance scoring
 
 ### Intelligent Project Inference
 

@@ -40,6 +40,7 @@ import json
 
 from services.search_service import SearchService
 from .apihelper import Api as ApiHelper
+from .query_enhancement import is_query_location_relevant, format_user_location_for_query
 
 
 class UserLocationSchema(Schema):
@@ -288,18 +289,27 @@ class Search(Resource):
         enhanced_query = query
         query_enhancements = []
         
+        # Smart user location enhancement - only add if query is location-relevant
         if user_location:
-            loc_parts = []
-            if user_location.get("city"):
-                loc_parts.append(user_location["city"])
-            if user_location.get("region"):
-                loc_parts.append(user_location["region"])
-            if user_location.get("country"):
-                loc_parts.append(user_location["country"])
-            if loc_parts:
-                loc_str = ", ".join(loc_parts)
-                query_enhancements.append(f"location: {loc_str}")
+            is_location_relevant, relevance_score, relevance_metadata = is_query_location_relevant(query)
             
+            if is_location_relevant:
+                # Query is location-relevant (e.g., "projects near me"), enhance with user location
+                user_loc_str = format_user_location_for_query(user_location)
+                if user_loc_str:
+                    query_enhancements.append(f"user location: {user_loc_str}")
+                    # Log the decision for debugging/analytics
+                    import logging
+                    logging.info(f"Query location-relevant (score: {relevance_score:.2f}). "
+                                f"Enhanced with user location: {user_loc_str}")
+            else:
+                # Query is not location-relevant, skip user location enhancement
+                import logging
+                logging.debug(f"Query not location-relevant (score: {relevance_score:.2f}). "
+                             f"Skipping user location enhancement. "
+                             f"Reason: {relevance_metadata.get('reasoning', 'N/A')}")
+        
+        # Always add explicit location string if provided (user manually specified)
         if location:
             query_enhancements.append(f"location: {location}")
         

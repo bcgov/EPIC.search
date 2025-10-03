@@ -190,12 +190,12 @@ class BaseParameterExtractor(ParameterExtractor):
                     "years": "supplied" if supplied_years is not None else "fallback"
                 }
             else:
-                # Extract temporal parameters using LLM
-                temporal_result = self._extract_temporal_parameters(query, user_location)
+                # Extract temporal and location parameters using LLM
+                temporal_result = self._extract_temporal_and_location_parameters(query, user_location)
                 location = temporal_result.get("location")
                 project_status = temporal_result.get("project_status")
                 years = temporal_result.get("years", [])
-                logger.info(f"Step 5 - Extracted temporal parameters: location={location}, status={project_status}, years={years}")
+                logger.info(f"Step 5 - Extracted temporal and location parameters: location={location}, status={project_status}, years={years}")
                 temporal_sources = {
                     "location": "llm_extracted" if location is not None else "fallback",
                     "project_status": "llm_extracted" if project_status is not None else "fallback",
@@ -285,10 +285,10 @@ class BaseParameterExtractor(ParameterExtractor):
             tasks.append(lambda: self._extract_semantic_query(query))
             task_names.append("semantic_query")
             
-            # Task 5: Extract temporal parameters (if not supplied)
+            # Task 5: Extract temporal and location parameters (if not supplied)
             if supplied_location is None or supplied_project_status is None or supplied_years is None:
-                tasks.append(lambda: self._extract_temporal_parameters(query, user_location))
-                task_names.append("temporal_parameters")
+                tasks.append(lambda: self._extract_temporal_and_location_parameters(query, user_location))
+                task_names.append("temporal_and_location_parameters")
             
             # Execute tasks in parallel using ThreadPoolExecutor
             results = {}
@@ -316,8 +316,8 @@ class BaseParameterExtractor(ParameterExtractor):
                                 available_document_types, available_strategies
                             )
             
-            # Extract temporal parameters from results or use supplied values
-            temporal_result = results.get("temporal_parameters", {})
+            # Extract temporal and location parameters from results or use supplied values
+            temporal_result = results.get("temporal_and_location_parameters", {})
             location = supplied_location if supplied_location is not None else temporal_result.get("location")
             project_status = supplied_project_status if supplied_project_status is not None else temporal_result.get("project_status")
             years = supplied_years if supplied_years is not None else temporal_result.get("years", [])
@@ -927,21 +927,58 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
             }
         }
     
-    def _extract_temporal_parameters(self, query: str, user_location: Optional[Dict] = None) -> Dict[str, Any]:
-        """Extract temporal parameters (location, project_status, years) using LLM reasoning.
+    def _extract_temporal_and_location_parameters(self, query: str, user_location: Optional[Dict] = None) -> Dict[str, Any]:
+        """Extract temporal and location parameters (location, project_status, years) using LLM reasoning.
+        
+        This method intelligently determines whether to extract location based on query intent:
+        - Extracts location for geographic search queries ("projects in Vancouver", "near me")
+        - Skips location extraction for specific project queries ("For the X project...")
         
         Args:
             query: The search query to analyze
-            user_location: User's location data for location-aware queries
+            user_location: User's physical location from browser (used only for "near me" queries)
             
         Returns:
-            Dict containing temporal parameters: location, project_status, years
+            Dict containing temporal and location parameters: location, project_status, years
         """
         try:
             from datetime import datetime
             current_year = datetime.now().year
             
-            prompt = f"""You are a temporal and geographic parameter extraction specialist. Analyze the following search query to extract:
+            # Check if this query is about a specific named project (should NOT extract location)
+            query_lower = query.lower()
+            specific_project_indicators = [
+                'for the', 'about the', 'regarding the', 'concerning the',
+                'project i want', 'project that', 'project,', 'in the project'
+            ]
+            
+            is_specific_project_query = any(indicator in query_lower for indicator in specific_project_indicators)
+            
+            if is_specific_project_query:
+                logger.info(f"Query targets specific project - skipping location extraction: '{query}'")
+                # Only extract temporal parameters, not location
+                prompt = f"""You are a temporal parameter extraction specialist. This query is about a SPECIFIC project, so do NOT extract location parameters. Only extract temporal parameters.
+
+QUERY TO ANALYZE: "{query}"
+
+Extract ONLY:
+1. PROJECT STATUS: Look for project lifecycle indicators: "active", "completed", "recent", "ongoing", "historical", "current", "past", "future"
+2. TEMPORAL/YEARS: Extract specific years, year ranges, or relative time expressions
+   - Current year is {current_year}
+   - Map relative terms to concrete years
+
+Respond with ONLY a JSON object:
+{{
+    "location": null,
+    "project_status": null_or_status_string,
+    "years": [],
+    "reasoning": "specific project query - no location extraction needed",
+    "confidence": 0.0_to_1.0
+}}
+"""
+            else:
+                # Geographic search query - extract location parameters
+                prompt = f"""You are a temporal and geographic parameter extraction specialist. Analyze the following search query to extract:
 
 1. LOCATION PARAMETERS (MUST BE STRING FORMAT):
    - Look for geographic references, location names, or phrases like "near me", "local", "my area"
