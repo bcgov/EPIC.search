@@ -6,6 +6,43 @@ The client is organized into logical groups:
 - Search Operations: Core search functionality with various strategies
 - Discovery Operations: Metadata and capability discovery  
 - Statistics Operations: Processing metrics and health monitoring
+
+LOCATION PARAMETER ARCHITECTURE
+================================
+
+This client handles TWO distinct location-related parameters:
+
+1. location (Geographic Search Filter)
+   - Type: str (e.g., "Vancouver, BC", "Peace River region") 
+   - Source: INFERRED from query text by LLM (AI/Agent modes only)
+   - Purpose: Filter search results to specific geographic areas
+   - Example: User asks "projects in Vancouver" → location="Vancouver"
+   - When to use: Only when the query explicitly mentions a geographic search area
+   - Modes: AI mode and Agent mode (via parameter extraction)
+   - Never user-provided directly via API
+
+2. user_location (User's Physical Location)
+   - Type: dict with {latitude, longitude, city, region, country, timestamp}
+   - Source: User's browser/device via geolocation API
+   - Purpose: Proximity-based relevance, "near me" queries
+   - Example: User in Victoria searches "nearby projects" → user_location={Victoria coords}
+   - When to use: Always pass through when provided by user's browser
+   - Modes: All modes (RAG, RAG+Summary, AI, Agent)
+   - Always user-provided via API request body
+
+Example Scenarios:
+- User in Victoria searches "projects near me"
+  → location=None, user_location={Victoria coordinates}
+  
+- User in Victoria searches "projects in Vancouver"  
+  → location="Vancouver" (inferred), user_location={Victoria coordinates}
+  
+- User location unknown, searches "Peace River projects"
+  → location="Peace River region" (inferred), user_location=None
+
+The vector API uses both parameters:
+- location: Filter results to the specified geographic area
+- user_location: Boost relevance of geographically closer results
 """
 
 import os
@@ -21,7 +58,7 @@ class VectorSearchClient:
     # =============================================================================
 
     @staticmethod
-    def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None, location=None, project_status=None, years=None):
+    def search(query, project_ids=None, document_type_ids=None, project_names=None, document_type_names=None, inference=None, ranking=None, search_strategy=None, semantic_query=None, location=None, user_location=None, project_status=None, years=None):
         """Advanced two-stage hybrid search with comprehensive parameters.
         
         Endpoint: POST /vector-search
@@ -42,7 +79,19 @@ class VectorSearchClient:
                 - "HYBRID_PARALLEL"
             semantic_query (str, optional): Cleaned semantic query with project/document type info removed
                 for more focused vector search (used by agentic mode)
-            location (dict, optional): Location parameter for geographic filtering
+            location (str or dict, optional): Geographic search filter INFERRED from query text.
+                This represents WHERE TO SEARCH for projects (e.g., "Vancouver", "Peace River region").
+                ⚠️ IMPORTANT: This is NOT user-provided. It's extracted by LLM in AI/Agent modes only.
+                Example: User asks "projects in Vancouver" while physically in Victoria
+                → location="Vancouver" (what they're searching for)
+                → user_location={Victoria coordinates} (where they are)
+                If dict format is provided, it will be converted to string: "city, region, country"
+            user_location (dict, optional): User's physical location FROM BROWSER/DEVICE.
+                This represents WHERE THE USER IS physically located. Always passed through when provided.
+                Used for resolving "near me" queries and providing proximity-based relevance.
+                Contains: latitude, longitude, city, region, country, timestamp.
+                Example: {"latitude": 48.4284, "longitude": -123.3656, "city": "Victoria", 
+                "region": "British Columbia", "country": "Canada", "timestamp": 1696291200000}
             project_status (str, optional): Project status parameter for status filtering  
             years (list, optional): Years parameter for temporal filtering
             
@@ -107,6 +156,9 @@ class VectorSearchClient:
                 else:
                     current_app.logger.warning(f"Unexpected location format: {type(location)} - {location}")
                     payload["location"] = str(location)
+            if user_location:
+                payload["userLocation"] = user_location
+                current_app.logger.info(f"Added userLocation to payload: {user_location}")
             if project_status:
                 payload["projectStatus"] = project_status
             if years:

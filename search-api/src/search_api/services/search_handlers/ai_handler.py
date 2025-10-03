@@ -21,14 +21,13 @@ class AIHandler(BaseSearchHandler):
                ranking: Optional[Dict] = None, 
                metrics: Optional[Dict] = None,
                user_location: Optional[Dict] = None,
-               location: Optional[Dict] = None, 
                project_status: Optional[str] = None, 
                years: Optional[List] = None) -> Dict[str, Any]:
         """Handle AI mode processing - LLM parameter extraction plus AI summarization.
         
         AI mode performs:
         - Query relevance check up front
-        - LLM-based parameter extraction (projects, document types, strategy)
+        - LLM-based parameter extraction (projects, document types, strategy, location)
         - Vector search with optimized parameters
         - AI summarization of search results
         
@@ -40,8 +39,7 @@ class AIHandler(BaseSearchHandler):
             inference: Inference settings
             ranking: Optional ranking configuration
             metrics: Metrics dictionary to update
-            user_location: Optional user location data
-            location: Optional location parameter (user-provided takes precedence)
+            user_location: Optional user location data (from browser)
             project_status: Optional project status parameter (user-provided takes precedence)
             years: Optional years parameter (user-provided takes precedence)
             
@@ -153,7 +151,6 @@ class AIHandler(BaseSearchHandler):
                 supplied_document_type_ids=document_type_ids if document_type_ids else None,
                 supplied_search_strategy=search_strategy if search_strategy else None,
                 user_location=user_location,
-                supplied_location=location if location else None,
                 supplied_project_status=project_status if project_status else None,
                 supplied_years=years if years else None
             )
@@ -189,11 +186,12 @@ class AIHandler(BaseSearchHandler):
             if semantic_query != query:
                 current_app.logger.info(f"🤖 LLM: Generated semantic query: '{semantic_query}'")
                 
-            # Apply extracted temporal parameters if not already provided
-            if not location and extraction_result.get('location'):
-                location = extraction_result['location']
-                current_app.logger.info(f"🤖 LLM: Extracted location: {location}")
+            # Extract location from LLM (never user-provided)
+            location = extraction_result.get('location')
+            if location:
+                current_app.logger.info(f"🤖 LLM: Extracted location filter from query: {location}")
                 
+            # Apply extracted temporal parameters if not already provided
             if not project_status and extraction_result.get('project_status'):
                 project_status = extraction_result['project_status']
                 current_app.logger.info(f"🤖 LLM: Extracted project status: {project_status}")
@@ -234,21 +232,24 @@ class AIHandler(BaseSearchHandler):
             metrics["ai_processing_time_ms"] = round((time.time() - agentic_start) * 1000, 2) if 'agentic_start' in locals() else 0
             semantic_query = query  # Fallback to original query
         
-        # Handle parameter stuffing - user-provided parameters take precedence
-        final_location = location  # User-provided takes precedence
+        # Handle parameter stuffing - user-provided parameters take precedence (except location which is always inferred)
+        final_location = location  # Always from LLM extraction, never user-provided
         final_project_status = project_status  # User-provided takes precedence  
         final_years = years  # User-provided takes precedence
         
         # AI mode uses only LLM-extracted parameters (no pattern-based fallback)
         current_app.logger.info("🎯 AI MODE: Using LLM-extracted parameters (no pattern-based fallback)")
-        current_app.logger.info(f"🎯 AI MODE: Final parameters - location: {final_location}, status: {final_project_status}, years: {final_years}")
+        current_app.logger.info(f"🎯 AI MODE: Final parameters - location (inferred): {final_location}, status: {final_project_status}, years: {final_years}")
         
         # Execute vector search with optimized parameters
         current_app.logger.info("🔍 AI MODE: Executing vector search...")
         search_result = cls._execute_vector_search(
             query, project_ids, document_type_ids, inference, ranking, 
-            search_strategy, semantic_query, metrics, final_location, 
-            final_project_status, final_years
+            search_strategy, semantic_query, metrics, 
+            location=final_location,
+            user_location=user_location,
+            project_status=final_project_status, 
+            years=final_years
         )
         
         # Check if search returned no results

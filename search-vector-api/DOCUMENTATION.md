@@ -782,7 +782,15 @@ Performs the two-stage search pipeline with document-level filtering followed by
   "projectIds": ["project-123", "project-456"],        // Optional project filtering
   "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
   "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
-  "location": "Langford British Columbia",             // Optional location context
+  "userLocation": {                                    // Optional structured user location
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1696291200000
+  },
+  "location": "Langford British Columbia",             // Optional location context string
   "projectStatus": "recent",                           // Optional project status context
   "years": [2023, 2024, 2025],                        // Optional years context
   "ranking": {                                         // Optional ranking configuration
@@ -893,17 +901,46 @@ The search API supports optional parameters that enhance search queries with add
 
 #### Available Enhancement Parameters
 
+**userLocation** *(object, optional)*
+
+* **Purpose**: Provides structured user geographic location data including coordinates and metadata
+* **Structure**:
+  * `latitude` (float, optional): Geographic latitude coordinate (-90 to 90)
+  * `longitude` (float, optional): Geographic longitude coordinate (-180 to 180)
+  * `city` (string, optional): City name
+  * `region` (string, optional): Region, province, or state name
+  * `country` (string, optional): Country name
+  * `timestamp` (integer, optional): Unix timestamp in milliseconds when location was captured
+* **Usage**: Represents the user's current or selected geographic position for location-aware search
+* **Smart Enhancement**: The system intelligently determines when to use location data based on query intent (see Smart Location Enhancement below)
+* **Example**:
+
+```json
+  {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1696291200000
+  }
+```
+
 **location** *(string, optional)*
-* **Purpose**: Provides geographic context to improve location-specific searches
+
+* **Purpose**: Provides geographic context string to improve location-specific searches
 * **Usage**: Appended to the search query as "location: {value}"  
-* **Examples**: 
+* **Examples**
   * `"Langford British Columbia"`
   * `"Northern BC"`
   * `"Vancouver Island"`
   * `"Lower Mainland"`
+* **Note**: Can be used independently or alongside `userLocation` depending on available data
 
 **projectStatus** *(string, optional)*
+
 * **Purpose**: Adds project status context to filter by project phase or state
+
 * **Usage**: Appended to the search query as "project status: {value}"
 * **Examples**:
   * `"recent"` - Focus on recently active projects
@@ -912,7 +949,9 @@ The search API supports optional parameters that enhance search queries with add
   * `"proposed"` - Projects in planning phase
 
 **years** *(array of integers, optional)*
+
 * **Purpose**: Focuses search on specific years or timeframes
+
 * **Usage**: Appended to the search query as "years: {comma-separated values}"
 * **Examples**:
   * `[2023, 2024, 2025]` - Recent years
@@ -924,25 +963,157 @@ The search API supports optional parameters that enhance search queries with add
 When enhancement parameters are provided, they are automatically appended to the original query:
 
 **Example Transformation:**
-```
+
+```json
 Original Query: "environmental impact assessment" 
 Parameters: {
+  "userLocation": {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia"
+  },
   "location": "Langford British Columbia",
   "projectStatus": "recent", 
   "years": [2023, 2024, 2025]
 }
 Enhanced Query: "environmental impact assessment (location: Langford British Columbia | project status: recent | years: 2023, 2024, 2025)"
+
+Note: The userLocation object provides structured geographic data for potential future
+location-aware filtering and ranking, while the location string is currently appended
+to the query for semantic matching.
 ```
 
 The enhanced query is then processed through the normal search pipeline, allowing the semantic and keyword search components to utilize the additional context for improved relevance matching.
 
+#### Smart Location Enhancement
+
+The search API implements intelligent location-aware query enhancement that automatically determines when to include user location data based on the semantic content and intent of the query. This prevents location data from diluting search relevance for non-location queries.
+
+##### How Smart Location Enhancement Works
+
+**Location Relevance Detection**: The system analyzes queries using pattern matching with weighted scores to detect location-relevant intent:
+
+**High Relevance Patterns** (0.9-1.0 score):
+
+* `near me`, `near here`, `near my location`
+* `closest to me`, `nearest to me`
+* `in my area`, `in my region`, `in my vicinity`
+* `where I live`, `where I am`
+* `around me`, `around here`
+
+**Medium Relevance Patterns** (0.6-0.8 score):
+
+* `local`, `nearby`, `surrounding`, `proximate`
+* `distance`, `proximity`, `how far`
+* `within X km/miles`
+* `closest`, `nearest` (without "to me")
+
+**Low Relevance Patterns** (0.3-0.5 score):
+
+* `location`, `geographic`, `geographical`
+* `regional`, `local area`
+
+**Negative Patterns** (reduce score):
+
+* Document structure queries (`document format`, `report type`)
+* Information questions (`who is`, `what is`, `when was`)
+* Definitional queries (`definition`, `meaning`, `explain`)
+
+**Scoring Mechanism**:
+
+* **Threshold**: 0.6 (configurable)
+* **Score Range**: 0.0 to 1.0
+* **Decision**: Query is enhanced only if score >= threshold
+
+**Location Formatting**: When a query is determined to be location-relevant, the system creates human-readable location strings with priority order:
+
+1. City, Region, Country (e.g., "Victoria, British Columbia, Canada")
+2. Coordinates as fallback (e.g., "coordinates: 48.4284, -123.3656")
+
+##### Smart Enhancement Examples
+
+**Scenario 1: Location-Relevant Query** ✅
+
+```json
+Request:
+{
+  "query": "projects near me",
+  "userLocation": {
+    "city": "Victoria",
+    "region": "British Columbia"
+  }
+}
+
+Result: Enhanced to "projects near me (user location: Victoria, British Columbia)"
+Score: 1.00 (high relevance pattern detected)
+```
+
+**Scenario 2: Non-Location Query** ❌
+
+```json
+Request:
+{
+  "query": "environmental impact assessment",
+  "userLocation": {
+    "city": "Victoria",
+    "region": "British Columbia"
+  }
+}
+
+Result: NOT enhanced, remains "environmental impact assessment"
+Score: 0.00 (no location intent detected)
+```
+
+**Scenario 3: Ambiguous Query with Medium Relevance** ✅
+
+```json
+Request:
+{
+  "query": "local environmental projects",
+  "userLocation": {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria"
+  }
+}
+
+Result: Enhanced to "local environmental projects (user location: Victoria)"
+Score: 0.70 (medium relevance pattern detected)
+```
+
+##### Benefits of Smart Location Enhancement
+
+* **Improved Search Precision**: Location data only added when semantically relevant
+* **Better User Experience**: Users asking "near me" get local results; general topic searches get broad results
+* **Semantic Intelligence**: Pattern-based detection catches various phrasings and handles ambiguous cases
+* **Reduced Noise**: Prevents location data from diluting relevance for non-location queries
+* **Configurable**: Threshold and pattern weights can be tuned for different use cases
+
+##### Logging and Debugging
+
+The system logs enhancement decisions for debugging and analytics:
+
+```python
+# Location-relevant query
+logging.info(f"Query location-relevant (score: 1.00). Enhanced with user location: Victoria, BC")
+
+# Non-location query  
+logging.debug(f"Query not location-relevant (score: 0.00). Skipping user location enhancement.")
+```
+
 #### Future Enhancements
 
 These parameters are currently integrated as text enhancements. Future versions may implement:
+
 * Direct database filtering on temporal fields
 * Geographic metadata filtering  
 * Project status-based result ranking
 * Advanced temporal query processing
+* Distance-based search result ranking
+* Geographic boundary filtering
+* Location-aware result prioritization
+* Proximity-based relevance scoring
 
 ### Intelligent Project Inference
 
@@ -1310,11 +1481,11 @@ Choosing the appropriate model loading strategy depends on your specific deploym
 The Tools API provides lightweight utility endpoints for external tools and MCP (Model Context Protocol) systems. It offers simplified access to project listings and document type information without the overhead of processing statistics.
 
 #### Projects List
+
 The API provides two distinct success rate metrics:
 
 * **Overall Success Rate**: Includes all files (successful / total_files) - provides insight into file selection and processing pipeline
 * **Processing Success Rate**: Excludes skipped files (successful / processed_files) - focuses on actual processing pipeline effectiveness
-
 
 ```http
 GET /api/tools/projects
@@ -1696,7 +1867,7 @@ The Stats API requires the following database tables:
 * `processed_at` (TIMESTAMP)
 * `metrics` (JSONB)
 
-## Future Enhancements
+## Future High-level Enhancements
 
 * Add authentication and rate limiting
 * Implement caching for frequent queries

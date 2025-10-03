@@ -21,16 +21,19 @@ class RAGSummaryHandler(BaseSearchHandler):
                ranking: Optional[Dict] = None, 
                metrics: Optional[Dict] = None,
                user_location: Optional[Dict] = None,
-               location: Optional[Dict] = None, 
                project_status: Optional[str] = None, 
                years: Optional[List] = None) -> Dict[str, Any]:
         """Handle RAG with summary mode processing - retrieval plus AI summarization.
         
         RAG with summary mode performs:
         - Query relevance check up front
-        - Generic parameter extraction for location, project status, and years
+        - Pattern-based extraction for project status and years only
         - Direct vector search with provided parameters (no AI extraction)
         - AI summarization of search results
+        
+        Note: Location filtering is NOT supported in RAG+Summary mode. Location is only
+        inferred in AI/Agent modes via LLM extraction. RAG+Summary mode only passes through
+        user_location (user's physical browser location) to the vector API.
         
         Args:
             query: The user query
@@ -40,8 +43,7 @@ class RAGSummaryHandler(BaseSearchHandler):
             inference: Inference settings
             ranking: Optional ranking configuration
             metrics: Metrics dictionary to update
-            user_location: Optional user location data
-            location: Optional location parameter (user-provided takes precedence)
+            user_location: Optional user location data from browser (passed through to vector API)
             project_status: Optional project status parameter (user-provided takes precedence)
             years: Optional years parameter (user-provided takes precedence)
             
@@ -65,7 +67,6 @@ class RAGSummaryHandler(BaseSearchHandler):
             "project_ids": project_ids if project_ids else None,
             "document_type_ids": document_type_ids if document_type_ids else None,
             "search_strategy": search_strategy if search_strategy else None,
-            "location": location if location else None,
             "project_status": project_status if project_status else None,
             "years": years if years else None,
             "user_location": user_location if user_location else None
@@ -76,26 +77,20 @@ class RAGSummaryHandler(BaseSearchHandler):
             "project_ids": "supplied" if project_ids else None,
             "document_type_ids": "supplied" if document_type_ids else None,
             "search_strategy": "supplied" if search_strategy else None,
-            "location": "supplied" if location else None,
             "project_status": "supplied" if project_status else None,
             "years": "supplied" if years else None
         }
         
         # Handle parameter stuffing - user-provided parameters take precedence
-        final_location = location  # User-provided takes precedence
         final_project_status = project_status  # User-provided takes precedence  
         final_years = years  # User-provided takes precedence
         
         # If user didn't provide parameters, extract from query using generic method
-        if not any([location, project_status, years]):
+        if not any([project_status, years]):
             current_app.logger.info("🎯 RAG+SUMMARY MODE: No user parameters provided, extracting from query...")
             extracted_params = cls._extract_search_parameters(query, user_location)
             
             # Only use extracted parameters if user didn't provide them
-            if not final_location:
-                final_location = extracted_params['location']
-                if final_location:
-                    metrics["parameter_sources"]["location"] = "pattern_extracted"
             if not final_project_status:
                 final_project_status = extracted_params['project_status']
                 if final_project_status:
@@ -105,7 +100,7 @@ class RAGSummaryHandler(BaseSearchHandler):
                 if final_years:
                     metrics["parameter_sources"]["years"] = "pattern_extracted"
                 
-            current_app.logger.info(f"🎯 RAG+SUMMARY MODE: Final parameters - location: {final_location}, status: {final_project_status}, years: {final_years}")
+            current_app.logger.info(f"🎯 RAG+SUMMARY MODE: Final parameters - status: {final_project_status}, years: {final_years}")
         else:
             current_app.logger.info("🎯 RAG+SUMMARY MODE: Using user-provided parameters (no extraction needed)")
         
@@ -114,7 +109,6 @@ class RAGSummaryHandler(BaseSearchHandler):
             "project_ids": project_ids,
             "document_type_ids": document_type_ids,
             "search_strategy": search_strategy,
-            "location": final_location,
             "project_status": final_project_status,
             "years": final_years
         }
@@ -125,8 +119,10 @@ class RAGSummaryHandler(BaseSearchHandler):
         
         search_result = cls._execute_vector_search(
             query, project_ids, document_type_ids, inference, ranking, 
-            search_strategy, semantic_query, metrics, final_location, 
-            final_project_status, final_years
+            search_strategy, semantic_query, metrics,
+            user_location=user_location,
+            project_status=final_project_status, 
+            years=final_years
         )
         
         # Check if search returned no results

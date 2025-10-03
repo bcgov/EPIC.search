@@ -515,7 +515,15 @@ Performs the two-stage search pipeline with document-level filtering followed by
   "projectIds": ["project-123", "project-456"],        // Optional project filtering
   "documentTypeIds": ["doc-type-123"],                 // Optional document type filtering
   "inference": ["PROJECT", "DOCUMENTTYPE"],            // Optional inference control
-  "location": "Langford British Columbia",             // Optional location context
+  "userLocation": {                                    // Optional structured user location
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1696291200000
+  },
+  "location": "Langford British Columbia",             // Optional location context string
   "projectStatus": "recent",                           // Optional project status context
   "years": [2023, 2024, 2025],                        // Optional years context
   "ranking": {                                         // Optional ranking configuration
@@ -668,6 +676,12 @@ The search API supports optional parameters that enhance the search query with a
 ``` json
 {
   "query": "environmental assessment report",
+  "userLocation": {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia"
+  },
   "location": "Langford British Columbia",
   "projectStatus": "recent", 
   "years": [2023, 2024, 2025]
@@ -677,17 +691,33 @@ The search API supports optional parameters that enhance the search query with a
 **Enhanced Query Processing:**
 
 The system automatically appends these parameters to the search query:
-- **Original query:** `"environmental assessment report"`
-- **Enhanced query:** `"environmental assessment report (location: Langford British Columbia | project status: recent | years: 2023, 2024, 2025)"`
+
+**Original query:** `"environmental assessment report"`
+**Enhanced query:** `"environmental assessment report (location: Langford British Columbia | project status: recent | years: 2023, 2024, 2025)"`
 
 **Parameters:**
 
-- **`location`** *(string, optional)*: Geographic context to improve location-specific searches
-  - Example: `"Langford British Columbia"`, `"Northern BC"`, `"Vancouver Island"`
-- **`projectStatus`** *(string, optional)*: Project status context to filter by project phase
-  - Example: `"recent"`, `"active"`, `"completed"`, `"proposed"`
-- **`years`** *(array of integers, optional)*: Relevant years to focus the search timeframe  
-  - Example: `[2023, 2024, 2025]`, `[2020]`
+**`userLocation`** *(object, optional)*: Structured user location data with coordinates and metadata
+
+* `latitude` (float, required): Geographic latitude (-90 to 90)
+* `longitude` (float, required): Geographic longitude (-180 to 180)
+* `city` (string, optional): City name
+* `region` (string, optional): Region/province/state
+* `country` (string, optional): Country name
+* `timestamp` (integer, optional): Unix timestamp in milliseconds
+
+Example: `{"latitude": 48.4284, "longitude": -123.3656, "city": "Victoria", "region": "British Columbia", "country": "Canada"}`
+
+**`location`** *(string, optional)*: Geographic context string to improve location-specific searches
+
+Example: `"Langford British Columbia"`, `"Northern BC"`, `"Vancouver Island"`
+Note: Can be used independently or alongside `userLocation`
+
+**`projectStatus`** *(string, optional)*: Project status context to filter by project phase
+  Example: `"recent"`, `"active"`, `"completed"`, `"proposed"`
+  
+**`years`** *(array of integers, optional)*: Relevant years to focus the search timeframe  
+  Example: `[2023, 2024, 2025]`, `[2020]`
 
 These parameters are currently integrated into the search query text for semantic processing. Future versions may use them for more sophisticated filtering and ranking.
 
