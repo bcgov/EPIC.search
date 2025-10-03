@@ -163,24 +163,7 @@ class VectorSearchAgent:
         Returns:
             List of execution steps
         """
-        # tools_context = self._format_tools_for_llm()
-        
-        # Get user location context for location-aware planning
-        #user_location = self._get_user_location_context()
-        #location_context = ""
-        #if user_location:
-        #    location_info = []
-        #    if 'city' in user_location:
-        #        location_info.append(f"City: {user_location['city']}")
-        #    if 'region' in user_location:
-        #        location_info.append(f"Region: {user_location['region']}")
-        #    if 'latitude' in user_location and 'longitude' in user_location:
-        #        location_info.append(f"Coordinates: {user_location['latitude']}, {user_location['longitude']}")
-        #    
-        #    location_context = f"\nUSER LOCATION: {'; '.join(location_info)}"
-        #else:
-        #    location_context = "\nUSER LOCATION: Not provided (default to British Columbia context)"
-        
+               
         # Get search execution parameters from environment variables
         min_searches = int(os.getenv("AGENT_MIN_SEARCHES", "1"))
         max_searches = int(os.getenv("AGENT_MAX_SEARCHES", "3"))
