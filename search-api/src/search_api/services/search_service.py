@@ -83,7 +83,7 @@ class SearchService:
         current_app.logger.info(f"Ranking: {ranking}")
         current_app.logger.info(f"Search Strategy: {search_strategy}")
         current_app.logger.info(f"Processing Mode: {mode}")
-        current_app.logger.info(f"Location: {location}")
+        current_app.logger.info(f"User Location: {user_location}")
         current_app.logger.info(f"Project Status: {project_status}")
         current_app.logger.info(f"Years: {years}")
         
@@ -106,25 +106,25 @@ class SearchService:
         
         if mode == "agent":
             # Agent mode handles entire query processing internally with fallback to AI mode
-            result = AgentHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, location, project_status, years)
+            result = AgentHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, project_status, years)
             
             # Check if agent failed and fallback to AI mode
             if result.get("result", {}).get("error") and result.get("result", {}).get("metrics", {}).get("agent_fallback"):
                 current_app.logger.info("🤖 AGENT MODE: Falling back to AI mode due to agent failure...")
                 # Reset metrics for AI mode processing
                 ai_metrics = result.get("result", {}).get("metrics", {})
-                return AIHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, ai_metrics, user_location, location, project_status, years)
+                return AIHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, ai_metrics, user_location, project_status, years)
             
             return result
         elif mode == "ai":
             # AI mode handles LLM parameter extraction + AI summarization
-            return AIHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, location, project_status, years)
+            return AIHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, project_status, years)
         elif mode == "summary":
             # RAG+summary mode handles direct retrieval + AI summarization
-            return RAGSummaryHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, location, project_status, years)
+            return RAGSummaryHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, project_status, years)
         else:  # mode == "rag"
             # RAG mode handles direct retrieval without summarization
-            return RAGHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, location, project_status, years)
+            return RAGHandler.handle(query, project_ids, document_type_ids, search_strategy, inference, ranking, metrics, user_location, project_status, years)
    
     @classmethod
     def get_document_similarity(cls, document_id, project_ids=None, limit=10):

@@ -206,13 +206,7 @@ class SearchRequestSchema(Schema):
         data_key="userLocation",
         required=False,
         allow_none=True,
-        metadata={"description": "Optional user location information to enhance search results with geographic context for location-based queries (e.g., 'near me', 'projects in my area')"}
-    )
-    location = fields.Str(
-        data_key="location",
-        required=False,
-        allow_none=True,
-        metadata={"description": "Location filter - city, region, or area name (e.g., 'Vancouver', 'Peace River region', 'British Columbia'). Provides database-level location filtering."}
+        metadata={"description": "User's physical geographic location from browser/device (NOT a search filter). Used to resolve 'near me' queries and provide local context. Example: {latitude: 48.4284, longitude: -123.3656, city: 'Victoria', region: 'British Columbia'}. Geographic search filters (e.g., 'projects in Vancouver') are automatically extracted from the query text in AI/agent modes."}
     )
     projectStatus = fields.Str(
         data_key="projectStatus",
