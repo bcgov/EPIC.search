@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "rg-epic-search-acr-ENVIRONMENT_SUFFIX"
+    },
+    "location": {
+      "value": "Canada Central"
+    },
+    "registryName": {
+      "value": "epicsearchacrENVIRONMENT_SUFFIX"
+    },
+    "sku": {
+      "value": "Standard"
+    },
+    "adminUserEnabled": {
+      "value": false
+    },
+    "scopeMaps": {
+      "value": [
+        {
+          "name": "_repositories_pull",
+          "description": "Can pull any repository of the registry",
+          "actions": [
+            "repositories/*/content/read"
+          ]
+        },
+        {
+          "name": "_repositories_push",
+          "description": "Can push to any repository of the registry",
+          "actions": [
+            "repositories/*/content/read",
+            "repositories/*/content/write"
+          ]
+        }
+      ]
+    },
+    "customTags": {
+      "value": {
+        "Owner": "platform-team",
+        "CostCenter": "shared-services"
+      }
+    }
+  }
+}
