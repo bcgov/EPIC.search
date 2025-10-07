@@ -19,6 +19,10 @@ param sku string = 'S0'
 @allowed([ 'Enabled', 'Disabled' ])
 param publicNetworkAccess string = 'Disabled'
 
+@description('Default action for network ACLs when public network is enabled')
+@allowed([ 'Allow', 'Deny' ])
+param networkDefaultAction string = 'Deny'
+
 @description('System-assigned identity')
 param enableIdentity bool = true
 
@@ -36,7 +40,7 @@ resource acct 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
     customSubDomainName: accountName
     publicNetworkAccess: publicNetworkAccess
     networkAcls: {
-      defaultAction: 'Deny'
+      defaultAction: networkDefaultAction
       virtualNetworkRules: []
       ipRules: []
     }
