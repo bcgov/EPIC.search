@@ -24,6 +24,9 @@ param vnetName string
 @description('Tags to apply')
 param tags object = {}
 
+@description('Location for Private Endpoints (should match VNet region)')
+param privateEndpointLocation string = location
+
 var subnetName = 'snet-private-endpoints-${environmentSuffix}'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -54,7 +57,7 @@ resource privateEndpointsSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-
 module pe './modules/private-endpoint.bicep' = {
   scope: rg
   params: {
-    location: location
+    location: privateEndpointLocation
     peName: 'pe-${docIntAccountName}'
     targetResourceId: di.outputs.accountId
     subnetId: privateEndpointsSubnet.id

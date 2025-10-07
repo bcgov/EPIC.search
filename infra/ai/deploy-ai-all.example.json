@@ -32,5 +32,7 @@
     "openaiLocation": { "value": "Canada East" },
     "visionLocation": { "value": "Canada Central" },
     "docIntLocation": { "value": "Canada Central" }
+    ,
+    "privateEndpointLocation": { "value": "Canada Central" }
   }
 }
