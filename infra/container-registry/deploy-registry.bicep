@@ -22,6 +22,10 @@ param customTags object = {}
 @description('Optional scope maps to create on the registry')
 param scopeMaps array = [] // [{ name: string, description: string, actions: string[] }]
 
+@description('Role assignment mode for repository permissions. Use AzureRoleAssignments to enable tokens/scope maps; AbacRepositoryPermissions disables tokens/scope maps.')
+@allowed([ 'AzureRoleAssignments', 'AbacRepositoryPermissions' ])
+param roleAssignmentMode string = 'AbacRepositoryPermissions'
+
 // Organizational tags (can be refactored to reuse shared if available)
 var organizationalTags = {
   account_coding: 'your-account-coding'
@@ -46,6 +50,7 @@ module registry './registry.bicep' = {
     adminUserEnabled: adminUserEnabled
     tags: allTags
     scopeMaps: scopeMaps
+    roleAssignmentMode: roleAssignmentMode
   }
 }
 

@@ -30,5 +30,22 @@ az deployment sub create \
 - Admin user is disabled by default. Prefer AAD tokens or workload identity federation.
 - For private network access, add a private endpoint and set `publicNetworkAccess` to `Disabled`.
 - For content trust or retention policies, extend the `properties.policies` block in `registry.bicep`.
-- Optional: You can create common scope maps (pull/push) via the `scopeMaps` parameter in the example file.
+- Role assignment mode:
+  - `AbacRepositoryPermissions` (default): tokens/scope maps are disabled. `scopeMaps` will be ignored.
+  - `AzureRoleAssignments`: enables legacy tokens/scope maps. Required if you want to create `scopeMaps`.
+- Optional: You can create common scope maps (pull/push) via the `scopeMaps` parameter when `roleAssignmentMode` is `AzureRoleAssignments`.
+
+Example snippet in parameters file:
+
+```json
+{
+  "parameters": {
+    "roleAssignmentMode": { "value": "AzureRoleAssignments" },
+    "scopeMaps": { "value": [
+      { "name": "_repositories_pull", "description": "Pull", "actions": ["repositories/*/content/read"] }
+    ]}
+  }
+}
+```
+
 - Webhooks: We can add webhook creation later using secure parameters for service URIs once your target service endpoints are finalized.

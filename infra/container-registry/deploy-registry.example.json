@@ -17,6 +17,9 @@
     "adminUserEnabled": {
       "value": false
     },
+    "roleAssignmentMode": {
+      "value": "AbacRepositoryPermissions"
+    },
     "scopeMaps": {
       "value": [
         {
