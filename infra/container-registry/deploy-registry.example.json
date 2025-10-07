@@ -23,15 +23,15 @@
     "scopeMaps": {
       "value": [
         {
-          "name": "_repositories_pull",
-          "description": "Can pull any repository of the registry",
+          "name": "pull-all",
+          "description": "Custom scope map: can pull any repository of the registry",
           "actions": [
             "repositories/*/content/read"
           ]
         },
         {
-          "name": "_repositories_push",
-          "description": "Can push to any repository of the registry",
+          "name": "push-all",
+          "description": "Custom scope map: can push to any repository of the registry",
           "actions": [
             "repositories/*/content/read",
             "repositories/*/content/write"
