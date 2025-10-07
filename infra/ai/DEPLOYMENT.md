@@ -109,3 +109,28 @@ az deployment sub create `
 - Private Endpoint approval pending: some environments require manual approval on the target account; approve the connection if it remains in Pending.
 - DNS resolution failures: this template assumes policy-managed Private DNS. If you don't have such a policy, create the zones/links for Cognitive Services private endpoints.
 - Custom subdomain in use: account names become the custom subdomain; ensure the name is globally unique per service.
+
+### Soft delete vs purge (re-deploys)
+
+Azure Cognitive Services accounts use soft delete. If you delete an account, the name remains reserved for a retention period. A subsequent deployment with the same name may fail with an error similar to:
+
+```text
+FlagMustBeSetForRestore: An existing resource with ID '.../providers/Microsoft.CognitiveServices/accounts/<name>' has been soft-deleted. To restore the resource, you must specify 'restore' to be 'true' in the property. If you don't want to restore existing resource, please purge it first.
+```
+
+This module does not perform restore operations. To re-deploy with the same names, purge the soft-deleted accounts first:
+
+```powershell
+# Purge OpenAI (example region)
+az cognitiveservices account purge --location canadaeast --resource-group rg-epic-search-ai-dev --name ai-epic-dev
+
+# Purge Computer Vision / Document Intelligence (example region)
+az cognitiveservices account purge --location canadacentral --resource-group rg-epic-search-ai-dev --name cv-epic-dev
+az cognitiveservices account purge --location canadacentral --resource-group rg-epic-search-ai-dev --name di-epic-dev
+```
+
+Notes
+
+- Use the region where the account was created (OpenAI may be in a different region than the wrapper’s default location).
+- You must have permissions to purge soft-deleted resources in the subscription.
+- After purging, re-run the deployment command.
