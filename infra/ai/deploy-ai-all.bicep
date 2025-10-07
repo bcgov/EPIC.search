@@ -42,6 +42,9 @@ param visionLocation string = location
 @description('Override location for Document Intelligence (defaults to location)')
 param docIntLocation string = location
 
+@description('Location for Private Endpoints (should match VNet region)')
+param privateEndpointLocation string = location
+
 var subnetName = 'snet-private-endpoints-${environmentSuffix}'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -57,6 +60,15 @@ module openai './modules/openai-account.bicep' = {
     location: openaiLocation
     accountName: openaiAccountName
     tags: tags
+  }
+}
+
+// Deploy OpenAI model deployments after account exists
+module openaiModels './modules/openai-deployments.bicep' = if (length(openaiDeployments) > 0) {
+  scope: rg
+  dependsOn: [ openai ]
+  params: {
+    accountName: openaiAccountName
     deployments: openaiDeployments
   }
 }
@@ -95,8 +107,9 @@ resource privateEndpointsSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-
 // Private Endpoints
 module openaiPe './modules/private-endpoint.bicep' = {
   scope: rg
+  dependsOn: [ openaiModels ]
   params: {
-    location: openaiLocation
+    location: privateEndpointLocation
     peName: 'pe-${openaiAccountName}'
     targetResourceId: openai.outputs.accountId
     subnetId: privateEndpointsSubnet.id
@@ -106,7 +119,7 @@ module openaiPe './modules/private-endpoint.bicep' = {
 module visionPe './modules/private-endpoint.bicep' = {
   scope: rg
   params: {
-    location: visionLocation
+    location: privateEndpointLocation
     peName: 'pe-${visionAccountName}'
     targetResourceId: vision.outputs.accountId
     subnetId: privateEndpointsSubnet.id
@@ -116,7 +129,7 @@ module visionPe './modules/private-endpoint.bicep' = {
 module docintPe './modules/private-endpoint.bicep' = {
   scope: rg
   params: {
-    location: docIntLocation
+    location: privateEndpointLocation
     peName: 'pe-${docIntAccountName}'
     targetResourceId: docint.outputs.accountId
     subnetId: privateEndpointsSubnet.id
