@@ -34,7 +34,9 @@
           "description": "Custom scope map: can push to any repository of the registry",
           "actions": [
             "repositories/*/content/read",
-            "repositories/*/content/write"
+            "repositories/*/content/write",
+            "repositories/*/metadata/read",
+            "repositories/*/metadata/write"
           ]
         }
       ]
