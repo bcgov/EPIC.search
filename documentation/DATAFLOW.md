@@ -2,13 +2,14 @@
 
 ## Data Source and Public Access
 
-> **Note**: All data processed by EPIC.search originates from publicly available sources, though storage and access methods are secured:
-> - BC EPIC (Environmental Assessment Office) public API
-> - BC Government S3 storage containing copies of publicly available EPIC documents
->   - S3 storage is secured and requires authenticated access
->   - While documents are publicly available through BC websites, storage access is restricted
-> - All storage systems and APIs require proper authentication
-> - No private or restricted data is used in this system
+> **Note**: All data processed by EPIC.search originates from publicly available sources, though storage and access methods are secured
+
+- BC EPIC (Environmental Assessment Office) public API
+- BC Government S3 storage containing copies of publicly available EPIC documents
+- S3 storage is secured and requires authenticated access
+- While documents are publicly available through BC websites, storage access is restricted
+- All storage systems and APIs require proper authentication
+- No private or restricted data is used in this system
 
 ## System Data Flow Overview
 
@@ -31,7 +32,7 @@ flowchart TB
         UI["Web UI"]
         SearchAPI["Search API<br>(Orchestrator)"]
         VectorAPI["Vector API"]
-        LLM["LLM Service<br>(OLLAMA)"]
+        LLM["LLM Service<br>(OLLAMA or Azure OpenAI)"]
     end
 
     %% Data Ingestion Flow
@@ -133,7 +134,7 @@ sequenceDiagram
 | Query Orchestration | search-api (Flask) | Orchestrates the search process and RAG implementation |
 | Vector Search | search-vector-api (Flask) | Performs vector similarity search and keyword matching |
 | Database Query | PostgreSQL/pgvector | Retrieves relevant document chunks based on search criteria |
-| Response Generation | OLLAMA (LLM) | Generates natural language responses using retrieved contexts |
+| Response Generation | LLM Service (OLLAMA or Azure OpenAI) | Generates natural language responses using retrieved contexts |
 | Result Delivery | Web UI | Formatted results displayed to user |
 
 ## Component Data Interactions
@@ -168,7 +169,7 @@ sequenceDiagram
 |-------|--------------|------------|
 | Document Processing | Large file downloads | Temporary storage with immediate cleanup |
 | Vector Search | Query performance | Optimized index and batch parameters |
-| Response Generation | LLM processing time | Lightweight model selection (qwen2.5:0.5b) |
+| Response Generation | LLM processing time | Lightweight model selection (OLLAMA: qwen2.5:0.5b) or managed service (Azure OpenAI: GPT-3.5-turbo) |
 | Result Delivery | Response size | Pagination and result limiting |
 
 > **Note**: The document embedding process is currently manually triggered. This allows for controlled updates and system maintenance windows. Future automation of this process is planned.
