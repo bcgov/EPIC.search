@@ -97,7 +97,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504ce": {
         "name": "Plan",
-        "aliases": ["plans", "planning", "scheme"]
+        "aliases": ["management", "mitigation", "plans", "planning", "scheme"]
     },
     "5cf00c03a266b7e1877504cf": {
         "name": "Report/Study",
@@ -125,7 +125,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504d5": {
         "name": "Certificate Package",
-        "aliases": ["certificate package", "certificate", "certificates", "certification", "permit", "permits", "license", "licenses"]
+        "aliases": ["schedule b", "schedule a", "condition", "certificate package", "certificate", "certificates", "certification", "permit", "permits", "license", "licenses"]
     },
     "5cf00c03a266b7e1877504d6": {
         "name": "Exception Package",
@@ -133,7 +133,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5cf00c03a266b7e1877504d7": {
         "name": "Amendment Package",
-        "aliases": ["amendment package", "amendment", "amendments", "modification", "modifications", "revision", "revisions"]
+        "aliases": ["condition", "amendment package", "amendment", "amendments", "modification", "modifications", "revision", "revisions"]
     },
     "5cf00c03a266b7e1877504d9": {
         "name": "Inspection Record",
@@ -223,7 +223,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5df79dd77b5abbf7da6f51cc": {
         "name": "Certificate Package",
-        "aliases": ["certificate package", "certificate", "certificates", "certification", "permit", "permits", "license", "licenses"]
+        "aliases": ["schedule b", "schedule a", "condition", "certificate package", "certificate", "certificates", "certification", "permit", "permits", "license", "licenses"]
     },
     "5df79dd77b5abbf7da6f51cd": {
         "name": "Decision Materials",
@@ -235,7 +235,7 @@ DOCUMENT_TYPE_ALIASES = {
     },
     "5df79dd77b5abbf7da6f51cf": {
         "name": "Amendment Package",
-        "aliases": ["amendment package", "amendment", "amendments", "modification", "modifications", "revision", "revisions"]
+        "aliases": ["condition", "amendment package", "amendment", "amendments", "modification", "modifications", "revision", "revisions"]
     },
     "5df79dd77b5abbf7da6f51d0": {
         "name": "Other",

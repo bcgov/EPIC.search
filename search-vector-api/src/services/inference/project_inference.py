@@ -72,10 +72,6 @@ class ProjectInferenceService:
             entities = self._extract_project_entities(query)
             inference_metadata["extracted_entities"] = entities
             
-            if not entities:
-                logging.info(f"No project entities extracted from query: '{query}'")
-                return [], 0.0, inference_metadata
-            
             # Get available projects (with caching)
             projects_df = self._get_projects_cached()
             
@@ -104,6 +100,22 @@ class ProjectInferenceService:
                     f"Confidence {confidence:.3f} below threshold {confidence_threshold}"
                 ]
                 logging.info(f"Project inference below confidence threshold: {confidence:.3f} < {confidence_threshold}")
+            
+            if not project_ids:
+                # Fallback: Try matching by metadata fields if name match failed
+                metadata_matches = self._match_projects_by_metadata(query)
+                if metadata_matches:
+                    best = metadata_matches[0]
+                    project_ids = [best["project_id"]]
+                    # Set a minimum confidence for metadata fallback
+                    confidence = max(best["similarity"], 0.5)
+                    inference_metadata["matched_projects"].extend(metadata_matches)
+                    inference_metadata["reasoning"].append(
+                        f"Fell back to metadata match: '{best['project_name']}' with similarity {confidence:.3f}"
+                    )
+                    inference_metadata["use_project_metadata"] = True
+                else:
+                    inference_metadata["use_project_metadata"] = False
             
             return project_ids, confidence, inference_metadata
             
@@ -509,6 +521,68 @@ class ProjectInferenceService:
         
         return cleaned_query
 
+    def _match_projects_by_metadata(self, query: str) -> List[Dict[str, Any]]:
+        """Fallback: Match projects using metadata fields with cumulative similarity."""
+        try:
+            with psycopg.connect(current_app.vector_settings.database_url) as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT project_id, project_name, project_metadata
+                        FROM projects
+                        WHERE project_metadata IS NOT NULL
+                    """)
+                    results = cursor.fetchall()
+
+            matches = []
+            query_lower = query.lower()
+
+            for project_id, project_name, project_metadata in results:
+                if not project_metadata:
+                    continue
+                try:
+                    meta = project_metadata if isinstance(project_metadata, dict) else {}
+                    total_similarity = 0.0
+
+                    # Fields to compare individually
+                    fields = ["region", "sector", "type", "description", "location"]
+
+                    for field in fields:
+                        value = meta.get(field)
+                        if not value:
+                            continue
+                        if isinstance(value, list):
+                            field_text = " ".join([str(v).lower() for v in value])
+                        else:
+                            field_text = str(value).lower()
+                        # Add similarity for this field
+                        total_similarity += SequenceMatcher(None, query_lower, field_text).ratio()
+
+                    # Include proponent name if available
+                    proponent = meta.get("proponent", {})
+                    if isinstance(proponent, dict):
+                        name = proponent.get("name")
+                        if name:
+                            total_similarity += SequenceMatcher(None, query_lower, name.lower()).ratio()
+
+                    if total_similarity > 0:
+                        matches.append({
+                            "entity": "metadata_match",
+                            "project_id": project_id,
+                            "project_name": project_name,
+                            "similarity": total_similarity,
+                            "match_type": "metadata"
+                        })
+                except Exception:
+                    continue
+
+            # Sort by cumulative similarity descending
+            matches.sort(key=lambda x: x["similarity"], reverse=True)
+            logging.debug(f"Metadata matching found {len(matches)} projects")
+            return matches
+
+        except Exception as e:
+            logging.error(f"Error during metadata project matching: {e}")
+            return []
 
 # Global instance for easy access
 project_inference_service = ProjectInferenceService()
