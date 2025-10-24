@@ -258,7 +258,10 @@ class SearchService:
         # we still want to apply semantic cleaning to improve search quality
         if not semantic_query and not is_generic_request and (project_ids or document_type_ids):
             # Apply semantic cleaning even when explicit IDs are provided
-            cleaned_query = pipeline._perform_semantic_cleaning(query)
+            cleaned_query = pipeline._perform_semantic_cleaning(
+                query=inference_results["query_processing"]["final_query"],
+                inference_results=inference_results
+            )
             if cleaned_query != query:
                 final_search_query = cleaned_query
                 logging.info(f"Applied semantic cleaning for explicit ID search: '{cleaned_query}'")

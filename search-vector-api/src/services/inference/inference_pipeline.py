@@ -39,7 +39,8 @@ class InferencePipeline:
         document_type_ids: Optional[List[str]] = None,
         skip_generic_cleaning: bool = False,
         run_project_inference: bool = True,
-        run_document_type_inference: bool = True
+        run_document_type_inference: bool = True,
+        use_project_metadata: bool = False
     ) -> Dict[str, Any]:
         """Process a search query through the complete inference pipeline.
         
@@ -125,6 +126,17 @@ class InferencePipeline:
             logging.info("Document type inference disabled by inference parameter")
         else:
             logging.info(f"Skipping document type inference: explicit document type IDs provided: {document_type_ids}")
+ 
+        # Append project name to query if metadata is enabled
+        appended_project_names = []
+        if use_project_metadata and processing_state.get("project_inference_metadata"):
+            for m in processing_state["project_inference_metadata"]:
+                name = m.get("project_name")
+                if name and name not in processing_state["current_query"]:
+                    appended_project_names.append(name)
+            if appended_project_names:
+                processing_state["current_query"] += " " + " ".join(appended_project_names)
+                logging.info(f"Appended project names to query: {appended_project_names}")
             
         # Step 3: Second-pass semantic cleaning (if not a generic request)
         if not is_generic_request and processing_state["current_query"] != processing_state["original_query"]:
@@ -306,7 +318,7 @@ class InferencePipeline:
         
         return response
 
-    def _perform_semantic_cleaning(self, query: str) -> str:
+    def _perform_semantic_cleaning(self, query: str, inference_results: dict = None) -> str:
         """Perform second-pass semantic cleaning to remove grammatical artifacts and extract key terms.
         
         This method cleans queries that have already been processed by project and document type
@@ -319,6 +331,7 @@ class InferencePipeline:
             str: Semantically cleaned query focused on key search terms
         """
         import re
+        import logging
         
         cleaned_query = query.strip()
         original_length = len(cleaned_query)
@@ -392,16 +405,55 @@ class InferencePipeline:
         # If we removed more than 85% of the original, it's too aggressive
         if len(cleaned_query) < original_length * 0.15:
             logging.warning(f"Semantic cleaning too aggressive (removed {100*(1-len(cleaned_query)/original_length):.0f}%), keeping previous: '{query}'")
-            return query
+            cleaned_query = query
         
         # If the cleaned query is too short, keep the previous version
         if len(cleaned_query.strip()) < 3:
             logging.info(f"Semantic cleaned query too short ('{cleaned_query}'), keeping previous: '{query}'")
-            return query
+            cleaned_query = query
         
         # If no meaningful change was made, return the input
         if cleaned_query.lower() == query.lower():
-            return query
+            cleaned_query = query
+
+        # --------------------------
+        # Remove original project/location mentions before appending project name
+        # --------------------------
+        project_name_to_append = None
+        if inference_results:
+            proj_metadata = inference_results.get("project_inference", {}).get("metadata", {})
+            matched_projects = proj_metadata.get("matched_projects", [])
+
+            # Prefer metadata matches first
+            metadata_matches = [p for p in matched_projects if p.get("match_type") == "metadata"]
+            if metadata_matches:
+                best_match = max(metadata_matches, key=lambda x: x.get("similarity", 0))
+                if best_match.get("similarity", 0) >= 0.8:
+                    project_name_to_append = best_match.get("project_name")
+            else:
+                # Fallback to fuzzy matches
+                fuzzy_matches = [p for p in matched_projects if p.get("match_type") == "fuzzy"]
+                if fuzzy_matches:
+                    best_fuzzy = max(fuzzy_matches, key=lambda x: x.get("similarity", 0))
+                    if best_fuzzy.get("similarity", 0) >= 0.8:
+                        project_name_to_append = best_fuzzy.get("project_name")
+
+            # Remove project/location mentions from query
+            for match in matched_projects:
+                entity = match.get("entity")
+                if entity and entity.lower() in cleaned_query.lower():
+                    # Escape for regex
+                    pattern = re.escape(entity)
+                    cleaned_query = re.sub(pattern, '', cleaned_query, flags=re.IGNORECASE)
+
+            # Clean extra spaces after removal
+            cleaned_query = re.sub(r'\s+', ' ', cleaned_query).strip()
+
+        # --------------------------
+        # Append canonical project name
+        # --------------------------
+        if project_name_to_append:
+            cleaned_query = f"{cleaned_query.strip()} {project_name_to_append}"
         
         logging.info(f"Semantic cleaning successful: '{query}' -> '{cleaned_query}'")
         return cleaned_query
