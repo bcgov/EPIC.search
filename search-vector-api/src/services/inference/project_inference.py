@@ -533,8 +533,36 @@ class ProjectInferenceService:
         return cleaned_query
 
     def _match_projects_by_metadata(self, query: str, similarity_threshold: float = 0.8) -> List[Dict[str, Any]]:
+        """
+        Matches projects based on metadata fields using fuzzy and exact term matching.
+
+        Parameters:
+            query (str): The user's query string used to search project metadata.
+            similarity_threshold (float, default=0.8): Minimum normalized similarity score
+                required for a project to be considered a match.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each representing a matching project with:
+                - 'entity': always 'metadata_match'
+                - 'project_id': the unique project identifier
+                - 'project_name': the name of the project
+                - 'similarity': the normalized similarity score
+                - 'match_type': always 'metadata'
+
+        Method Details:
+            - Uses weighted metadata fields: type, region, sector, status, proponent, description, location.
+            - Uses SequenceMatcher for fuzzy term matching, with additional boosts for:
+                * Exact token matches (EXACT_MATCH_BOOST)
+                * Multi-term matches in the same field (MULTI_TERM_BOOST)
+                * Entire field exact match (EXACT_FIELD_BOOST)
+            - Ignores weak fuzzy matches below MIN_TERM_SIMILARITY to reduce false positives.
+            - Normalizes cumulative similarity by total field weight and returns matches
+            sorted in descending similarity order.
+        """
         EXACT_MATCH_BOOST = 0.5
-        MULTI_TERM_BOOST = 0.3 # extra boost if multiple query terms match in same field
+        MULTI_TERM_BOOST = 0.3  # extra boost if multiple query terms match in same field
+        MIN_TERM_SIMILARITY = 0.3  # ignore weak fuzzy matches below this
+        EXACT_FIELD_BOOST = 0.4    # boost if entire field matches exactly to a query term
 
         try:
             with psycopg.connect(current_app.vector_settings.database_url) as conn:
@@ -586,15 +614,30 @@ class ProjectInferenceService:
                             term_sims = []
                             matched_terms_count = 0
 
+                            # Full-field exact match boost
+                            if field_text.strip() in query.lower():
+                                max_field_sim = 1.0 + EXACT_FIELD_BOOST
+                                matched_terms_count = len(query_terms)
+                                break
+
+                            # Compute per-term fuzzy matches
                             for q_term in query_terms:
-                                best_term_sim = max((SequenceMatcher(None, q_term, f_term).ratio() for f_term in field_terms), default=0)
+                                best_term_sim = max(
+                                    (SequenceMatcher(None, q_term, f_term).ratio() for f_term in field_terms),
+                                    default=0
+                                )
+
+                                if best_term_sim < MIN_TERM_SIMILARITY:
+                                    continue
+
                                 if q_term in field_text:
                                     best_term_sim += EXACT_MATCH_BOOST
                                     matched_terms_count += 1
-                                    term_sims.append(best_term_sim)
+
+                                term_sims.append(best_term_sim)
 
                             if term_sims:
-                                field_sim = sum(term_sims)/len(term_sims)
+                                field_sim = sum(term_sims) / len(term_sims)
                                 # Add multi-term boost if more than 1 query term matched in this field
                                 if matched_terms_count > 1:
                                     field_sim += MULTI_TERM_BOOST * (matched_terms_count - 1)
