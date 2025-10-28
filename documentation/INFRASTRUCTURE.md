@@ -11,7 +11,7 @@ graph TB
     WebAPI["Web API\nPrivate Endpoint\nAzure App Service"]
     VectorAPI["Vector API\nPrivate Endpoint\nAzure App Service"]
     VectorDB["Vector Database\nAzure PostgreSQL\nFlexible Server"]
-    LLM["LLM Model\nOLLAMA Service\nConfigurable Model\nVM"]
+    LLM["LLM Service\n(OLLAMA or Azure OpenAI)\nConfiguration-based\nVM or Azure Service"]
     Embedder["Document Embedder\nVM"]
     
     %% NSG nodes
@@ -80,6 +80,32 @@ For more details, see the [BC Gov Landing Zone Documentation](https://developer.
 - NSG rules following least-privilege access
 - Compliance with BC Government security standards
 
+## LLM Service Deployment Options
+
+The system requires an LLM service and supports two deployment configurations:
+
+### OLLAMA Deployment
+
+| Component | Resource Type | Configuration |
+|-----------|---------------|---------------|
+| OLLAMA Service | Azure VM | Self-hosted model serving with configurable models |
+| Network | VM Subnet + Private Endpoint | Secured access within VNet |
+| Model Storage | VM Local Storage | Downloaded models cached locally |
+| Configuration | Environment Variables | `MODEL_NAME`, `MODEL_VERSION` |
+
+### Azure OpenAI Deployment
+
+| Component | Resource Type | Configuration |
+|-----------|---------------|---------------|
+| Azure OpenAI | Azure OpenAI Service | Managed service with GPT models |
+| Network | Private Endpoint | Secured access within VNet |
+| Model Access | Azure Managed | GPT-3.5-turbo, GPT-4, or other available models |
+| Configuration | Environment Variables | `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY` |
+
+**Deployment Selection**: Set `LLM_PROVIDER=ollama` or `LLM_PROVIDER=azure_openai` to choose deployment type.
+
+**Note**: Both options provide the same API interface to the Web API component, ensuring consistent application behavior regardless of the chosen LLM provider.
+
 ## Azure Implementation Architecture
 
 ### Detailed Component Diagram
@@ -91,7 +117,7 @@ graph TB
     WebAPI["Web API<br>Python Flask Orchestrator<br>Private Endpoint Only<br>Azure App Service"]
     VectorAPI["Vector API<br>Python Flask Query Engine<br>Private Endpoint<br>Azure App Service"]
     VectorDB["Vector Database<br>Azure PostgreSQL Flexible Server<br>Private Endpoint"]
-    LLM["LLM Model<br>OLLAMA (qwen2.5:0.5b)<br>VM<br>Private Endpoint"]
+    LLM["LLM Service<br>OLLAMA or Azure OpenAI<br>VM or Azure Service<br>Private Endpoint"]
     Embedder["Document Embedder<br>Python Processor<br>VM<br>Manual Trigger"]
     Client["Client Browser"]
     

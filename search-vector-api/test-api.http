@@ -37,6 +37,29 @@ Content-Type: application/json
   "offset": 0
 }
 
+### Vector Search - With User Location and Context
+POST http://localhost:8080/api/vector-search
+Content-Type: application/json
+
+{
+  "query": "recent environmental assessments",
+  "userLocation": {
+    "latitude": 48.4284,
+    "longitude": -123.3656,
+    "city": "Victoria",
+    "region": "British Columbia",
+    "country": "Canada",
+    "timestamp": 1696291200000
+  },
+  "location": "Langford British Columbia",
+  "projectStatus": "recent",
+  "years": [2023, 2024, 2025],
+  "ranking": {
+    "minScore": -6.0,
+    "topN": 15
+  }
+}
+
 ### Document Similarity Search
 POST http://localhost:8080/api/document-similarity
 Content-Type: application/json

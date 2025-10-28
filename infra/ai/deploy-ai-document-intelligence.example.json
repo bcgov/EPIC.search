@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": { "value": "rg-epic-search-ai-ENVIRONMENT_SUFFIX" },
+    "location": { "value": "Canada Central" },
+    "environmentSuffix": { "value": "ENVIRONMENT_SUFFIX" },
+    "docIntAccountName": { "value": "ai-di-epic-ENVIRONMENT_SUFFIX" },
+    "vnetSubscriptionId": { "value": "YOUR_VNET_SUBSCRIPTION_ID" },
+    "vnetResourceGroupName": { "value": "YOUR_VNET_RESOURCE_GROUP" },
+    "vnetName": { "value": "YOUR_VNET_NAME" }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": { "value": "rg-epic-search-ai-ENVIRONMENT_SUFFIX" },
+    "location": { "value": "Canada East" },
+    "environmentSuffix": { "value": "ENVIRONMENT_SUFFIX" },
+    "openaiAccountName": { "value": "ai-epic-ENVIRONMENT_SUFFIX" },
+    "vnetSubscriptionId": { "value": "YOUR_VNET_SUBSCRIPTION_ID" },
+    "vnetResourceGroupName": { "value": "YOUR_VNET_RESOURCE_GROUP" },
+    "vnetName": { "value": "YOUR_VNET_NAME" },
+    "deployments": {
+      "value": [
+        {
+          "name": "gpt-41-nano",
+          "sku": { "name": "GlobalStandard", "capacity": 75001 },
+          "properties": {
+            "model": { "format": "OpenAI", "name": "gpt-4.1-nano", "version": "2025-04-14" },
+            "versionUpgradeOption": "OnceNewDefaultVersionAvailable",
+            "currentCapacity": 75001,
+            "raiPolicyName": "Microsoft.DefaultV2"
+          }
+        }
+      ]
+    }
+  }
+}

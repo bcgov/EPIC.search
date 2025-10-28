@@ -8,6 +8,7 @@ EPIC.search is a document search and retrieval system that leverages AI technolo
 - Keyword-based search capabilities
 - AI-powered response generation
 - Document processing and indexing
+- Keycloak OIDC authentication and user access control
 - Secure deployment within BC Government infrastructure
 
 ## Core Components
@@ -20,13 +21,13 @@ The system consists of several key components that work together to provide docu
 - **Document Store**: Vector database storing document embeddings and metadata
 - **AI Model**: Generates natural language responses from search results
 - **Document Embedder**: Processes source documents and generates vector embeddings
-- **Authentication**: Keycloak OIDC integration (planned)
+- **Authentication**: Keycloak OIDC integration for secure user access
 
 ```mermaid
 graph TB
     Client[["User Browser"]]
     WebUI(["Web Interface"])
-    Auth("Keycloak OIDC*")
+    Auth("Keycloak OIDC")
     WebAPI["Search Orchestrator"]
     VectorAPI["Search Engine"]
     LLM{{"AI Model"}}
@@ -65,7 +66,7 @@ graph TB
     class Embedder embedder
 ```
 
-**Note:** * Authentication not yet implemented
+**Note:** Authentication is implemented using Keycloak OIDC for secure user access control
 
 ## Documentation Structure
 

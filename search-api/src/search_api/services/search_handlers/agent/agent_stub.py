@@ -40,7 +40,7 @@ class VectorSearchAgent:
         self.user_document_type_ids = document_type_ids
         self.user_search_strategy = search_strategy
         self.user_ranking = ranking
-        self.user_location_param = location
+        self.location = location
         self.user_project_status = project_status
         self.user_years = years
         self.parallel_searches_enabled = parallel_searches_enabled
@@ -69,6 +69,7 @@ class VectorSearchAgent:
                     "project_ids": "list of project IDs to search in - use ALL matching IDs when multiple projects are relevant (optional list)",
                     "document_type_ids": "list of document type IDs to filter - use ALL matching IDs when multiple document types are relevant (optional list)",
                     "location": "location filter - city, region, or area name (optional string)",
+                    "user_location": "user location context with city, region, latitude, longitude (optional dict)",
                     "project_status": "project status filter - 'active', 'completed', 'recent', etc. (optional string)",
                     "years": "list of years to filter by - [2023, 2024] for recent documents (optional list of integers)",
                     "search_strategy": "search strategy to use (optional string)",
@@ -162,24 +163,7 @@ class VectorSearchAgent:
         Returns:
             List of execution steps
         """
-        tools_context = self._format_tools_for_llm()
-        
-        # Get user location context for location-aware planning
-        user_location = self._get_user_location_context()
-        location_context = ""
-        if user_location:
-            location_info = []
-            if 'city' in user_location:
-                location_info.append(f"City: {user_location['city']}")
-            if 'region' in user_location:
-                location_info.append(f"Region: {user_location['region']}")
-            if 'latitude' in user_location and 'longitude' in user_location:
-                location_info.append(f"Coordinates: {user_location['latitude']}, {user_location['longitude']}")
-            
-            location_context = f"\nUSER LOCATION: {'; '.join(location_info)}"
-        else:
-            location_context = "\nUSER LOCATION: Not provided (default to British Columbia context)"
-        
+               
         # Get search execution parameters from environment variables
         min_searches = int(os.getenv("AGENT_MIN_SEARCHES", "1"))
         max_searches = int(os.getenv("AGENT_MAX_SEARCHES", "3"))
@@ -1512,6 +1496,7 @@ Return only the variations as a JSON array of strings (no explanations):"""
                 location = parameters.get("location", "")
                 project_status = parameters.get("project_status", "")
                 years = parameters.get("years", [])
+                user_location = parameters.get("user_location", None)
                 
                 # Log new parameter usage
                 if location:
@@ -1529,7 +1514,8 @@ Return only the variations as a JSON array of strings (no explanations):"""
                     project_status=project_status,
                     years=years,
                     search_strategy=final_search_strategy,
-                    ranking=final_ranking
+                    ranking=final_ranking,
+                    user_location=user_location
                 )
             elif tool_name == "validate_query_relevance":
                 # Execute query validation using the validation service
@@ -2326,8 +2312,8 @@ JSON Response:"""
                 logger.info(f"🤖 CONTEXT: Using user-provided ranking: {enhanced['ranking']}")
             
             # Prioritize user-provided new parameters
-            if self.user_location_param:
-                enhanced["location"] = self.user_location_param
+            if self.location:
+                enhanced["location"] = self.location
                 logger.info(f"🤖 CONTEXT: Using user-provided location: {enhanced['location']}")
             
             if self.user_project_status:
@@ -2720,7 +2706,7 @@ Example usage: "document_type_ids": ["{result_data[0]['document_type_id'] if res
 def handle_agent_query(query: str, reason: str, llm_client=None, user_location: Optional[Dict[str, Any]] = None, 
                       project_ids: Optional[List[str]] = None, document_type_ids: Optional[List[str]] = None, 
                       search_strategy: Optional[str] = None, ranking: Optional[Dict[str, Any]] = None,
-                      location: Optional[Dict[str, Any]] = None, project_status: Optional[str] = None, 
+                      project_status: Optional[str] = None, 
                       years: Optional[List[int]] = None) -> dict:
     """Handle agent-required queries with simplified parameter extraction flow.
     
@@ -2732,8 +2718,7 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         project_ids: Optional user-provided project IDs 
         document_type_ids: Optional user-provided document type IDs
         search_strategy: Optional user-provided search strategy
-        ranking: Optional user-provided ranking configuration
-        location: Optional location parameter
+        ranking: Optional user-provided ranking configuration        
         project_status: Optional project status parameter
         years: Optional years parameter
         
@@ -2795,20 +2780,6 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
             available_document_types = VectorSearchClient.get_document_types()
             available_strategies = VectorSearchClient.get_search_strategies()
             
-            # Debug: Check if we got project data
-            logger.info(f"🤖 STEP 2: Raw projects list length: {len(available_projects) if available_projects else 0}")
-            if available_projects:
-                project_names = [proj.get('project_name', 'Unknown') for proj in available_projects if isinstance(proj, dict)]
-                logger.info(f"🤖 STEP 2: Available project names: {project_names[:5]}...")  # Show first 5
-                # Check specifically for Air Liquide project
-                air_liquide_projects = [f"{proj.get('project_id')}: {proj.get('project_name', 'Unknown')}" 
-                                      for proj in available_projects 
-                                      if isinstance(proj, dict) and 'air liquide' in proj.get('project_name', '').lower()]
-                if air_liquide_projects:
-                    logger.info(f"🤖 STEP 2: Found Air Liquide projects: {air_liquide_projects}")
-            else:
-                logger.warning(f"🤖 STEP 2: No projects available for parameter extraction")
-            
             logger.info(f"🤖 STEP 2: Got {len(available_projects) if available_projects else 0} projects, {len(available_document_types) if available_document_types else 0} document types")
         except Exception as e:
             logger.warning(f"🤖 STEP 2: Could not fetch available data: {e}")
@@ -2821,14 +2792,13 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         
         extraction_result = parameter_extractor.extract_parameters(
             query=query,
-            available_projects=available_projects,  # Now passing arrays directly
-            available_document_types=available_document_types,  # Now passing arrays directly
+            available_projects=available_projects,
+            available_document_types=available_document_types,
             available_strategies=available_strategies,
             supplied_project_ids=project_ids,
             supplied_document_type_ids=document_type_ids,
             supplied_search_strategy=search_strategy,
-            user_location=user_location,
-            supplied_location=location,
+            user_location=user_location,            
             supplied_project_status=project_status,
             supplied_years=years
         )
@@ -2838,7 +2808,7 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         optimized_document_type_ids = extraction_result.get('document_type_ids', [])
         optimized_search_strategy = extraction_result.get('search_strategy', 'HYBRID_PARALLEL')
         optimized_semantic_query = extraction_result.get('semantic_query', query)
-        optimized_location = extraction_result.get('location')
+        optimized_location = extraction_result.get('location')  # Geographic search filter extracted from query
         optimized_project_status = extraction_result.get('project_status')
         optimized_years = extraction_result.get('years', [])
         
@@ -2847,7 +2817,8 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         logger.info(f"  - Document Type IDs: {optimized_document_type_ids}")
         logger.info(f"  - Search Strategy: {optimized_search_strategy}")
         logger.info(f"  - Semantic Query: '{optimized_semantic_query}'")
-        logger.info(f"  - Location: {optimized_location}")
+        logger.info(f"  - Location Filter (from query): {optimized_location}")
+        logger.info(f"  - User Location (from browser): {user_location}")
         logger.info(f"  - Project Status: {optimized_project_status}")
         logger.info(f"  - Years: {optimized_years}")
         
@@ -2861,12 +2832,12 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         # Initialize agent with optimized parameters
         agent = VectorSearchAgent(
             llm_client=llm_client, 
-            user_location=user_location,
+            user_location=user_location,  # User's physical location from browser (passed through)
             project_ids=optimized_project_ids,  # Use extracted project IDs
             document_type_ids=optimized_document_type_ids,  # Use extracted document type IDs
             search_strategy=optimized_search_strategy,  # Use extracted strategy
             ranking=ranking,
-            location=optimized_location,  # Use extracted location
+            location=optimized_location,  # Geographic search filter extracted from query
             project_status=optimized_project_status,  # Use extracted project status
             years=optimized_years,  # Use extracted years
             parallel_searches_enabled=parallel_searches_enabled,
@@ -2891,36 +2862,48 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         search_queries = agent._generate_search_variations(optimized_semantic_query, num_searches)
         logger.info(f"🤖 STEP 3: Generated {len(search_queries)} search variations")
         
-        # Determine execution mode (disable parallel for now due to Flask context issues)
-        use_parallel = False  # Temporarily disabled due to Flask app context issues in worker threads
-        execution_mode = "parallel" if agent.parallel_searches_enabled and len(search_queries) > 1 else "sequential"
+        # Helper function to build search parameters for a query
+        def build_search_params(search_query):
+            """Build search parameters with optimized values and user_location."""
+            search_params = {
+                "query": search_query,
+                "search_strategy": optimized_search_strategy,
+            }
+            
+            # Add non-None parameters (but always include user_location if provided)
+            if optimized_project_ids:
+                search_params["project_ids"] = optimized_project_ids
+            if optimized_document_type_ids:
+                search_params["document_type_ids"] = optimized_document_type_ids
+            if optimized_location:
+                search_params["location"] = optimized_location
+            if optimized_project_status:
+                search_params["project_status"] = optimized_project_status
+            if optimized_years:
+                search_params["years"] = optimized_years
+            if ranking:
+                search_params["ranking"] = ranking
+                
+            # ALWAYS include user_location when provided (even if None, let vector API handle it)
+            search_params["user_location"] = user_location
+            
+            return search_params
         
-        logger.info(f"🤖 STEP 3: Executing searches in {execution_mode} mode")
-        
-        if use_parallel:
-            # Parallel execution using ThreadPoolExecutor with Flask app context
+        def execute_parallel_searches(search_queries, agent):
+            """Execute searches in parallel using ThreadPoolExecutor."""
+            # Capture the Flask app instance for use in worker threads
+            app = current_app._get_current_object()
+            
             def execute_single_search(search_data):
                 i, search_query = search_data
                 
-                # Set up Flask application context for the worker thread
+                # Set up Flask application context for the worker thread using captured app
                 try:
-                    with current_app.app_context():
+                    with app.app_context():
                         logger.info(f"🔍 Search {i+1}/{len(search_queries)}: '{search_query}'")
                         
-                        # Execute search with optimized parameters
-                        search_params = {
-                            "query": search_query,
-                            "project_ids": optimized_project_ids if optimized_project_ids else None,
-                            "document_type_ids": optimized_document_type_ids if optimized_document_type_ids else None,
-                            "search_strategy": optimized_search_strategy,
-                            "location": optimized_location,
-                            "project_status": optimized_project_status,
-                            "years": optimized_years if optimized_years else None,
-                            "ranking": ranking
-                        }
-                        
-                        # Remove None values
-                        search_params = {k: v for k, v in search_params.items() if v is not None}
+                        # Build search parameters using shared function
+                        search_params = build_search_params(search_query)
                         
                         try:
                             search_result = agent.execute_tool("search", search_params)
@@ -2964,26 +2947,17 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                         logger.error(f"❌ Parallel search execution error: {e}")
                 
                 # Add successful results in original order
-                search_results = [r for r in parallel_results if r is not None]
-        else:
-            # Sequential execution (fallback)
+                return [r for r in parallel_results if r is not None]
+        
+        def execute_sequential_searches(search_queries, agent):
+            """Execute searches sequentially."""
+            search_results = []
+            
             for i, search_query in enumerate(search_queries):
                 logger.info(f"🔍 Search {i+1}/{len(search_queries)}: '{search_query}'")
                 
-                # Execute search with optimized parameters
-                search_params = {
-                    "query": search_query,
-                    "project_ids": optimized_project_ids if optimized_project_ids else None,
-                    "document_type_ids": optimized_document_type_ids if optimized_document_type_ids else None,
-                    "search_strategy": optimized_search_strategy,
-                    "location": optimized_location,
-                    "project_status": optimized_project_status,
-                    "years": optimized_years if optimized_years else None,
-                    "ranking": ranking
-                }
-                
-                # Remove None values
-                search_params = {k: v for k, v in search_params.items() if v is not None}
+                # Build search parameters using shared function
+                search_params = build_search_params(search_query)
                 
                 try:
                     search_result = agent.execute_tool("search", search_params)
@@ -2998,6 +2972,19 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                         logger.warning(f"❌ Search {i+1} failed: {search_result.get('error', 'Unknown error')}")
                 except Exception as e:
                     logger.error(f"❌ Search {i+1} exception: {e}")
+            
+            return search_results
+        
+        # Determine execution mode (disable parallel for now due to Flask context issues)
+        execution_mode = "parallel" if agent.parallel_searches_enabled and len(search_queries) > 1 else "sequential"
+        
+        logger.info(f"🤖 STEP 3: Executing searches in {execution_mode} mode")
+        
+        # Execute searches using appropriate strategy
+        if parallel_searches_enabled and len(search_queries) > 1:
+            search_results = execute_parallel_searches(search_queries, agent)
+        else:
+            search_results = execute_sequential_searches(search_queries, agent)
         
         logger.info(f"🤖 STEP 3: Completed {len(search_results)} successful searches")
         
@@ -3023,8 +3010,6 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         unique_chunks = []
         seen_doc_ids = set()
         seen_chunk_content = set()
-        
-
         
         for doc in all_documents:
             doc_id = doc.get('id') or doc.get('document_id')
@@ -3118,6 +3103,7 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                     "document_type_ids": optimized_document_type_ids,
                     "search_strategy": optimized_search_strategy,
                     "location": optimized_location,
+                    "user_location": user_location,
                     "project_status": optimized_project_status,
                     "years": optimized_years,
                     "ranking": ranking
@@ -3147,6 +3133,7 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
                 "search_strategy": optimized_search_strategy,
                 "semantic_query": optimized_semantic_query,
                 "location": optimized_location,
+                "user_location": user_location,
                 "project_status": optimized_project_status,
                 "years": optimized_years
             }

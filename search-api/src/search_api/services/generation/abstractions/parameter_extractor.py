@@ -14,8 +14,7 @@ class ParameterExtractor(ABC):
                          supplied_project_ids: Optional[list] = None,
                          supplied_document_type_ids: Optional[list] = None,
                          supplied_search_strategy: Optional[str] = None,
-                         user_location: Optional[Dict] = None,
-                         supplied_location: Optional[Dict] = None,
+                         user_location: Optional[Dict] = None,                         
                          supplied_project_status: Optional[str] = None,
                          supplied_years: Optional[list] = None) -> Dict[str, Any]:
         """Extract search parameters from a query.
@@ -28,8 +27,7 @@ class ParameterExtractor(ABC):
             supplied_project_ids: Already provided project IDs (skip LLM extraction if provided)
             supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided)
             supplied_search_strategy: Already provided search strategy (skip LLM extraction if provided)
-            user_location: User's location data for location-aware queries
-            supplied_location: Already provided location parameter (skip LLM extraction if provided)
+            user_location: User's location data for location-aware queries            
             supplied_project_status: Already provided project status (skip LLM extraction if provided)
             supplied_years: Already provided years list (skip LLM extraction if provided)
             

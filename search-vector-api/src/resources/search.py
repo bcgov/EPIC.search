@@ -40,6 +40,41 @@ import json
 
 from services.search_service import SearchService
 from .apihelper import Api as ApiHelper
+from .query_enhancement import is_query_location_relevant, format_user_location_for_query
+
+
+class UserLocationSchema(Schema):
+    """Schema for validating user location data.
+    
+    Defines the structure for user location information including
+    geographic coordinates and location metadata.
+    
+    Attributes:
+        latitude: Geographic latitude coordinate
+        longitude: Geographic longitude coordinate
+        city: City name
+        region: Region/province/state name
+        country: Country name
+        timestamp: Unix timestamp (milliseconds) when location was captured
+    """
+
+    class Meta:  # pylint: disable=too-few-public-methods
+        """Exclude unknown fields in the deserialized output."""
+
+        unknown = EXCLUDE
+
+    latitude = fields.Float(data_key="latitude", required=False,
+                           metadata={"description": "Geographic latitude coordinate (-90 to 90)"})
+    longitude = fields.Float(data_key="longitude", required=False,
+                            metadata={"description": "Geographic longitude coordinate (-180 to 180)"})
+    city = fields.Str(data_key="city", required=False,
+                     metadata={"description": "City name"})
+    region = fields.Str(data_key="region", required=False,
+                       metadata={"description": "Region, province, or state name"})
+    country = fields.Str(data_key="country", required=False,
+                        metadata={"description": "Country name"})
+    timestamp = fields.Int(data_key="timestamp", required=False,
+                          metadata={"description": "Unix timestamp in milliseconds when location was captured"})
 
 
 class RankingConfigSchema(Schema):
@@ -125,6 +160,8 @@ class SearchRequestSchema(Schema):
                                metadata={"description": "Optional search strategy to use. Valid values: 'HYBRID_SEMANTIC_FALLBACK' (default), 'HYBRID_KEYWORD_FALLBACK', 'SEMANTIC_ONLY', 'KEYWORD_ONLY', 'HYBRID_PARALLEL', 'DOCUMENT_ONLY'. If not provided, uses DEFAULT_SEARCH_STRATEGY environment variable setting."})
     ranking = fields.Nested(RankingConfigSchema, data_key="ranking", required=False,
                            metadata={"description": "Optional ranking configuration including minimum score threshold and maximum result count. If not provided, uses environment variable settings."})
+    userLocation = fields.Nested(UserLocationSchema, data_key="userLocation", required=False,
+                                metadata={"description": "Optional structured user location data including coordinates (latitude, longitude), city, region, country, and timestamp. Represents the user's current geographic position."})
     location = fields.Str(data_key="location", required=False,
                          metadata={"description": "Optional location context to enhance search relevance (e.g., 'Langford British Columbia'). Currently appended to search query for improved semantic matching."})
     projectStatus = fields.Str(data_key="projectStatus", required=False,
@@ -220,7 +257,8 @@ class Search(Resource):
         
         Query Enhancement Parameters:
         The following optional parameters enhance the search query for improved semantic matching:
-        - location: Geographic context (e.g., "Langford British Columbia") - appended to query
+        - userLocation: Structured user location data with coordinates (latitude, longitude), city, region, country, and timestamp
+        - location: Geographic context string (e.g., "Langford British Columbia") - appended to query
         - projectStatus: Project status context (e.g., "recent", "active", "completed") - appended to query  
         - years: List of relevant years (e.g., [2023, 2024, 2025]) - appended to query
         These parameters are currently integrated into the search query text for semantic processing.
@@ -238,6 +276,7 @@ class Search(Resource):
         inference = request_data.get("inference", None)  # Optional parameter
         search_strategy = request_data.get("searchStrategy", None)  # Optional parameter
         ranking_config = request_data.get("ranking", {})  # Optional parameter
+        user_location = request_data.get("userLocation", None)  # Optional parameter
         location = request_data.get("location", None)  # Optional parameter
         project_status = request_data.get("projectStatus", None)  # Optional parameter
         years = request_data.get("years", None)  # Optional parameter
@@ -250,6 +289,27 @@ class Search(Resource):
         enhanced_query = query
         query_enhancements = []
         
+        # Smart user location enhancement - only add if query is location-relevant
+        if user_location:
+            is_location_relevant, relevance_score, relevance_metadata = is_query_location_relevant(query)
+            
+            if is_location_relevant:
+                # Query is location-relevant (e.g., "projects near me"), enhance with user location
+                user_loc_str = format_user_location_for_query(user_location)
+                if user_loc_str:
+                    query_enhancements.append(f"user location: {user_loc_str}")
+                    # Log the decision for debugging/analytics
+                    import logging
+                    logging.info(f"Query location-relevant (score: {relevance_score:.2f}). "
+                                f"Enhanced with user location: {user_loc_str}")
+            else:
+                # Query is not location-relevant, skip user location enhancement
+                import logging
+                logging.debug(f"Query not location-relevant (score: {relevance_score:.2f}). "
+                             f"Skipping user location enhancement. "
+                             f"Reason: {relevance_metadata.get('reasoning', 'N/A')}")
+        
+        # Always add explicit location string if provided (user manually specified)
         if location:
             query_enhancements.append(f"location: {location}")
         

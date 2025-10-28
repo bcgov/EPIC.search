@@ -21,16 +21,19 @@ class RAGHandler(BaseSearchHandler):
                ranking: Optional[Dict] = None, 
                metrics: Optional[Dict] = None,
                user_location: Optional[Dict] = None,
-               location: Optional[Dict] = None, 
                project_status: Optional[str] = None, 
                years: Optional[List] = None) -> Dict[str, Any]:
         """Handle RAG mode processing - direct retrieval without summarization.
         
         RAG mode performs:
         - Query relevance check up front
-        - Generic parameter extraction for location, project status, and years
+        - Pattern-based extraction for project status and years only
         - Direct vector search with provided parameters (no AI extraction)
         - Returns raw search results without summarization
+        
+        Note: Location filtering is NOT supported in RAG mode. Location is only inferred
+        in AI/Agent modes via LLM extraction. RAG mode only passes through user_location
+        (user's physical browser location) to the vector API.
         
         Args:
             query: The user query
@@ -40,8 +43,7 @@ class RAGHandler(BaseSearchHandler):
             inference: Inference settings
             ranking: Optional ranking configuration
             metrics: Metrics dictionary to update
-            user_location: Optional user location data
-            location: Optional location parameter (user-provided takes precedence)
+            user_location: Optional user location data from browser (passed through to vector API)
             project_status: Optional project status parameter (user-provided takes precedence)
             years: Optional years parameter (user-provided takes precedence)
             
@@ -65,7 +67,6 @@ class RAGHandler(BaseSearchHandler):
             "project_ids": project_ids if project_ids else None,
             "document_type_ids": document_type_ids if document_type_ids else None,
             "search_strategy": search_strategy if search_strategy else None,
-            "location": location if location else None,
             "project_status": project_status if project_status else None,
             "years": years if years else None,
             "user_location": user_location if user_location else None
@@ -76,26 +77,20 @@ class RAGHandler(BaseSearchHandler):
             "project_ids": "supplied" if project_ids else None,
             "document_type_ids": "supplied" if document_type_ids else None,
             "search_strategy": "supplied" if search_strategy else None,
-            "location": "supplied" if location else None,
             "project_status": "supplied" if project_status else None,
             "years": "supplied" if years else None
         }
         
         # Handle parameter stuffing - user-provided parameters take precedence
-        final_location = location  # User-provided takes precedence
         final_project_status = project_status  # User-provided takes precedence  
         final_years = years  # User-provided takes precedence
         
         # If user didn't provide parameters, extract from query using generic method
-        if not any([location, project_status, years]):
+        if not any([project_status, years]):
             current_app.logger.info("🎯 RAG MODE: No user parameters provided, extracting from query...")
             extracted_params = cls._extract_search_parameters(query, user_location)
             
             # Only use extracted parameters if user didn't provide them
-            if not final_location:
-                final_location = extracted_params['location']
-                if final_location:
-                    metrics["parameter_sources"]["location"] = "pattern_extracted"
             if not final_project_status:
                 final_project_status = extracted_params['project_status']
                 if final_project_status:
@@ -105,7 +100,7 @@ class RAGHandler(BaseSearchHandler):
                 if final_years:
                     metrics["parameter_sources"]["years"] = "pattern_extracted"
                 
-            current_app.logger.info(f"🎯 RAG MODE: Final parameters - location: {final_location}, status: {final_project_status}, years: {final_years}")
+            current_app.logger.info(f"🎯 RAG MODE: Final parameters - status: {final_project_status}, years: {final_years}")
         else:
             current_app.logger.info("🎯 RAG MODE: Using user-provided parameters (no extraction needed)")
         
@@ -114,7 +109,6 @@ class RAGHandler(BaseSearchHandler):
             "project_ids": project_ids,
             "document_type_ids": document_type_ids,
             "search_strategy": search_strategy,
-            "location": final_location,
             "project_status": final_project_status,
             "years": final_years
         }
@@ -125,8 +119,10 @@ class RAGHandler(BaseSearchHandler):
         
         search_result = cls._execute_vector_search(
             query, project_ids, document_type_ids, inference, ranking, 
-            search_strategy, semantic_query, metrics, final_location, 
-            final_project_status, final_years
+            search_strategy, semantic_query, metrics, 
+            user_location=user_location,
+            project_status=final_project_status, 
+            years=final_years
         )
         
         # Check if search returned no results
@@ -186,15 +182,21 @@ class RAGHandler(BaseSearchHandler):
     def _extract_search_parameters(cls, query: str, user_location: Optional[Dict] = None) -> Dict[str, Any]:
         """Extract search parameters using pattern-based temporal extraction.
         
-        Extracts location, project status, and years from the query using regex patterns.
-        This is the pattern-based extraction used by RAG and Summary modes.
+        Extracts project status and years from the query using regex patterns.
+        This is the pattern-based extraction used by RAG and RAG+Summary modes.
+        
+        NOTE: Location extraction has been REMOVED. Geographic location filtering is only
+        supported in AI/Agent modes where it's inferred by LLM from the query text.
+        The user_location parameter (user's physical browser location) is passed through
+        separately and not extracted from the query.
         
         Args:
             query: The search query to extract parameters from
-            user_location: Optional user location context
+            user_location: Optional user location context (not used for extraction, reserved for future use)
             
         Returns:
-            Dict containing extracted parameters with keys 'location', 'project_status', 'years'
+            Dict containing extracted parameters with keys 'project_status', 'years'
+            (location key is included but always None for backwards compatibility)
         """
         import re
         from datetime import datetime
@@ -245,23 +247,12 @@ class RAGHandler(BaseSearchHandler):
             extracted_params['years'] = sorted(list(set(extracted_params['years'])))
             current_app.logger.info(f"📅 Final extracted years: {extracted_params['years']}")
         
-        # Location detection - identify location references and use user location data
-        location_keywords = [
-            'near me', 'my area', 'nearby', 'local', 'in my city', 'in my region',
-            'around here', 'close to me', 'in the vicinity', 'my location', 'my current location'
-        ]
-        
-        query_lower = query.lower()
-        for keyword in location_keywords:
-            if keyword in query_lower:
-                if user_location:
-                    extracted_params['location'] = user_location
-                    current_app.logger.info(f"📍 Location detected: found '{keyword}', using user location data")
-                    break
-                else:
-                    current_app.logger.info(f"📍 Location reference detected ('{keyword}') but no user location available")
+        # NOTE: Location extraction removed - geographic filtering only available in AI/Agent modes
+        # where LLM infers location from query text. user_location (browser position) is passed
+        # through separately and not extracted from the query.
         
         # Project status extraction
+        query_lower = query.lower()
         status_patterns = [
             (r'\b(active|ongoing|current)\s+(projects?|developments?)\b', 'active'),
             (r'\b(completed|finished|done)\s+(projects?|developments?)\b', 'completed'),
