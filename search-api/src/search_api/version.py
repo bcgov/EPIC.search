@@ -22,4 +22,16 @@ Post-release segment: .postN
 Development release segment: .devN
 """
 
-__version__ = '0.1.0a0.dev'  # pylint: disable=invalid-name
+from importlib import resources
+
+
+def _read_version():
+    """Return the version string defined in release.properties."""
+    with resources.open_text(__package__, "release.properties", encoding="utf-8") as prop_file:
+        for line in prop_file:
+            if line.startswith("version="):
+                return line.split("=", 1)[1].strip()
+    raise RuntimeError("version key missing from release.properties")
+
+
+__version__ = _read_version()  # pylint: disable=invalid-name
