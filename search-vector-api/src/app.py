@@ -6,25 +6,29 @@ loading configuration settings, and initializing the structured configuration
 objects that will be used throughout the application.
 """
 
+import logging
 import os
 
 from flask import Flask
 
 from utils.config import get_named_config, VectorSettings, SearchSettings, ModelSettings
+from utils.version import get_version
+
+LOGGER = logging.getLogger(__name__)
 
 
 def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     """Create and configure the Flask application.
-    
+
     Initializes a Flask application instance with the appropriate configuration
     based on the specified run mode. Registers all necessary blueprints and
     sets up configuration objects that provide structured access to settings.
-    
+
     Args:
         run_mode (str): The environment to run the application in.
                        Options: 'development', 'testing', 'production', 'docker'
                        Defaults to the FLASK_ENV environment variable or 'development'.
-    
+
     Returns:
         Flask: A configured Flask application instance ready to run.
     """
@@ -37,13 +41,17 @@ def create_app(run_mode=os.getenv("FLASK_ENV", "development")):
     # Flask app initialize
     app = Flask(__name__)
 
+    version = get_version()
+    LOGGER.info("Starting Vector Search API - version %s (mode=%s)", version, run_mode)
+    print(f"Starting Vector Search API - version {version} (mode={run_mode})")
+
     # Register blueprints
     app.register_blueprint(API_BLUEPRINT)
     app.register_blueprint(HEALTH_BLUEPRINT)
 
     # All configuration are in config file
     app.config.from_object(get_named_config(run_mode))
-    
+
     # Initialize structured configuration objects
     app.vector_settings = VectorSettings(app.config)
     app.search_settings = SearchSettings(app.config)
