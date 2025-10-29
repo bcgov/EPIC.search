@@ -105,15 +105,26 @@ class ProjectInferenceService:
                 # Fallback: Try matching by metadata fields if name match failed
                 metadata_matches = self._match_projects_by_metadata(query)
                 if metadata_matches:
-                    best = metadata_matches[0]
-                    project_ids = [best["project_id"]]
-                    # Set a minimum confidence for metadata fallback
-                    confidence = max(best["similarity"], 0.5)
-                    inference_metadata["matched_projects"].extend(metadata_matches)
-                    inference_metadata["reasoning"].append(
-                        f"Fell back to metadata match: '{best['project_name']}' with similarity {confidence:.3f}"
-                    )
-                    inference_metadata["use_project_metadata"] = True
+                    # Define your confidence threshold
+                    threshold = 0.8  # you can tune this value
+
+                    # Filter out projects with similarity below threshold
+                    high_confidence_matches = [
+                        match for match in metadata_matches if match["similarity"] >= threshold
+                    ]
+
+                    if high_confidence_matches:
+                        # Sort by similarity descending (optional, for consistency)
+                        high_confidence_matches.sort(key=lambda x: x["similarity"], reverse=True)
+
+                        # Collect all project IDs above threshold
+                        project_ids = [match["project_id"] for match in high_confidence_matches]
+
+                        # Optionally, calculate an average or max confidence score
+                        confidence = sum(m["similarity"] for m in high_confidence_matches) / len(high_confidence_matches)
+
+                        inference_metadata["matched_projects"].extend(high_confidence_matches)
+                        inference_metadata["use_project_metadata"] = True
                 else:
                     inference_metadata["use_project_metadata"] = False
             
@@ -521,8 +532,38 @@ class ProjectInferenceService:
         
         return cleaned_query
 
-    def _match_projects_by_metadata(self, query: str) -> List[Dict[str, Any]]:
-        """Fallback: Match projects using metadata fields with cumulative similarity."""
+    def _match_projects_by_metadata(self, query: str, similarity_threshold: float = 0.8) -> List[Dict[str, Any]]:
+        """
+        Matches projects based on metadata fields using fuzzy and exact term matching.
+
+        Parameters:
+            query (str): The user's query string used to search project metadata.
+            similarity_threshold (float, default=0.8): Minimum normalized similarity score
+                required for a project to be considered a match.
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each representing a matching project with:
+                - 'entity': always 'metadata_match'
+                - 'project_id': the unique project identifier
+                - 'project_name': the name of the project
+                - 'similarity': the normalized similarity score
+                - 'match_type': always 'metadata'
+
+        Method Details:
+            - Uses weighted metadata fields: type, region, sector, status, proponent, description, location.
+            - Uses SequenceMatcher for fuzzy term matching, with additional boosts for:
+                * Exact token matches (EXACT_MATCH_BOOST)
+                * Multi-term matches in the same field (MULTI_TERM_BOOST)
+                * Entire field exact match (EXACT_FIELD_BOOST)
+            - Ignores weak fuzzy matches below MIN_TERM_SIMILARITY to reduce false positives.
+            - Normalizes cumulative similarity by total field weight and returns matches
+            sorted in descending similarity order.
+        """
+        EXACT_MATCH_BOOST = 0.5
+        MULTI_TERM_BOOST = 0.3  # extra boost if multiple query terms match in same field
+        MIN_TERM_SIMILARITY = 0.3  # ignore weak fuzzy matches below this
+        EXACT_FIELD_BOOST = 0.4    # boost if entire field matches exactly to a query term
+
         try:
             with psycopg.connect(current_app.vector_settings.database_url) as conn:
                 with conn.cursor() as cursor:
@@ -534,42 +575,85 @@ class ProjectInferenceService:
                     results = cursor.fetchall()
 
             matches = []
-            query_lower = query.lower()
+            query_terms = re.findall(r'\w+', query.lower())
+
+            weighted_fields = {
+                "type": 2.0,
+                "region": 2.0,
+                "sector": 2.0,
+                "status": 2.0,
+                "proponent": 1.5,
+                "description": 1.0,
+                "location": 1.0
+            }
 
             for project_id, project_name, project_metadata in results:
                 if not project_metadata:
                     continue
                 try:
                     meta = project_metadata if isinstance(project_metadata, dict) else {}
-                    total_similarity = 0.0
+                    cumulative_similarity = 0.0
+                    total_weight = 0.0
 
-                    # Fields to compare individually
-                    fields = ["region", "sector", "type", "description", "location"]
+                    for field, weight in weighted_fields.items():
+                        value = None
+                        if field == "proponent":
+                            proponent = meta.get("proponent", {})
+                            value = proponent.get("name")
+                        else:
+                            value = meta.get(field)
 
-                    for field in fields:
-                        value = meta.get(field)
                         if not value:
                             continue
-                        if isinstance(value, list):
-                            field_text = " ".join([str(v).lower() for v in value])
-                        else:
-                            field_text = str(value).lower()
-                        # Add similarity for this field
-                        total_similarity += SequenceMatcher(None, query_lower, field_text).ratio()
 
-                    # Include proponent name if available
-                    proponent = meta.get("proponent", {})
-                    if isinstance(proponent, dict):
-                        name = proponent.get("name")
-                        if name:
-                            total_similarity += SequenceMatcher(None, query_lower, name.lower()).ratio()
+                        field_texts = [str(value).lower()] if not isinstance(value, list) else [str(v).lower() for v in value]
+                        max_field_sim = 0.0
 
-                    if total_similarity > 0:
+                        for field_text in field_texts:
+                            field_terms = re.findall(r'\w+', field_text)
+                            term_sims = []
+                            matched_terms_count = 0
+
+                            # Full-field exact match boost
+                            if field_text.strip() in query.lower():
+                                max_field_sim = 1.0 + EXACT_FIELD_BOOST
+                                matched_terms_count = len(query_terms)
+                                break
+
+                            # Compute per-term fuzzy matches
+                            for q_term in query_terms:
+                                best_term_sim = max(
+                                    (SequenceMatcher(None, q_term, f_term).ratio() for f_term in field_terms),
+                                    default=0
+                                )
+
+                                if best_term_sim < MIN_TERM_SIMILARITY:
+                                    continue
+
+                                if q_term in field_text:
+                                    best_term_sim += EXACT_MATCH_BOOST
+                                    matched_terms_count += 1
+
+                                term_sims.append(best_term_sim)
+
+                            if term_sims:
+                                field_sim = sum(term_sims) / len(term_sims)
+                                # Add multi-term boost if more than 1 query term matched in this field
+                                if matched_terms_count > 1:
+                                    field_sim += MULTI_TERM_BOOST * (matched_terms_count - 1)
+                                max_field_sim = max(max_field_sim, field_sim)
+
+                        cumulative_similarity += max_field_sim * weight
+                        total_weight += weight
+
+                    normalized_similarity = cumulative_similarity / total_weight if total_weight > 0 else 0.0
+
+                    if normalized_similarity >= similarity_threshold:
                         matches.append({
                             "entity": "metadata_match",
                             "project_id": project_id,
                             "project_name": project_name,
-                            "similarity": total_similarity,
+                            "similarity": normalized_similarity,
                             "match_type": "metadata"
                         })
                 except Exception:
