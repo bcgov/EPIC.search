@@ -13,8 +13,11 @@
 # limitations under the License.
 
 """Endpoints to check and manage the health of the service."""
+from flask import current_app
 from flask_restx import Namespace, Resource
 from sqlalchemy import exc, text
+
+from utils.version import get_version
 
 API = Namespace('', description='Service - OPS checks')
 
@@ -49,3 +52,14 @@ class Readyz(Resource):
         """Return a JSON object that identifies if the service is setupAnd ready to work."""
         # TODO: add a poll to the DB when called
         return {'message': 'api is ready'}, 200
+
+
+@API.route('version')
+class Version(Resource):
+    """Expose the running application version for deployment tracking."""
+
+    @staticmethod
+    def get():
+        """Return the current release identifier."""
+        current_app.logger.info("Vector API version endpoint called")
+        return {'version': get_version()}, 200

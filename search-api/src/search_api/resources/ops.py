@@ -16,6 +16,7 @@ from flask import current_app
 from flask_restx import Namespace, Resource
 
 # from api.models import db
+from ..utils.run_version import get_run_version
 
 
 API = Namespace('', description='Service - OPS checks')
@@ -58,6 +59,19 @@ class Readyz(Resource):
         
         current_app.logger.info("Readiness check completed successfully")
         return {'message': 'api is ready'}, 200
+
+
+@API.route('version')
+class Version(Resource):
+    """Expose the running application version for deployment tracking."""
+
+    @staticmethod
+    def get():
+        """Return the current release identifier."""
+        current_app.logger.info("Version endpoint called")
+        return {
+            'version': get_run_version()
+        }, 200
 
 
 @API.route('cache-status')
