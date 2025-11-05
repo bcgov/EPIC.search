@@ -102,7 +102,7 @@ class AIHandler(BaseSearchHandler):
             
             try:
                 # Get available projects from vector search API (pass array directly)
-                available_projects = VectorSearchClient.get_projects_list()
+                available_projects = VectorSearchClient.get_projects_list(include_metadata=True)
                 
                 current_app.logger.info(f"🤖 LLM: Found {len(available_projects) if available_projects else 0} available projects")
                 

@@ -420,8 +420,9 @@ class InferencePipeline:
         # Remove original project/location mentions before appending project name
         # --------------------------
         project_name_to_append = None
+        proj_metadata = {}
         if inference_results:
-            proj_metadata = inference_results.get("project_inference", {}).get("metadata", {})
+            proj_metadata = inference_results.get("project_inference", {}).get("metadata") or {}
             matched_projects = proj_metadata.get("matched_projects", [])
 
             # Prefer metadata matches first

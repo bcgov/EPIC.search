@@ -72,7 +72,8 @@ class ToolsService:
             projects_query = """
             SELECT 
                 project_id,
-                project_name
+                project_name,
+                project_metadata
             FROM projects
             ORDER BY project_name;
             """
@@ -90,10 +91,11 @@ class ToolsService:
             projects_list = []
             
             for row in results:
-                project_id, project_name = row
+                project_id, project_name, project_metadata = row
                 projects_list.append({
                     "project_id": project_id,
-                    "project_name": project_name
+                    "project_name": project_name,
+                    "project_metadata": project_metadata
                 })
             
             response = {
