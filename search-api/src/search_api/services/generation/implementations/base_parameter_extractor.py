@@ -5,7 +5,7 @@ Contains common logic for parameter extraction approach.
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 
 from search_api.services.generation.abstractions.parameter_extractor import ParameterExtractor
 
@@ -93,6 +93,8 @@ class BaseParameterExtractor(ParameterExtractor):
         logger.info(f"Supplied Years: {supplied_years}")
         logger.info("=== END CONTEXT DATA ===")
         
+        available_projects_metadata = available_projects or []
+        
         # Convert arrays to dict format for internal processing
         projects_dict = self._convert_projects_array_to_dict(available_projects)
         document_types_dict = self._convert_document_types_array_to_dict(available_document_types)
@@ -100,20 +102,20 @@ class BaseParameterExtractor(ParameterExtractor):
         if use_parallel:
             try:
                 return self._extract_parameters_parallel(
-                    query, projects_dict, document_types_dict, available_strategies,
+                    query, projects_dict, available_projects_metadata, document_types_dict, available_strategies,
                     supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                     user_location, supplied_location, supplied_project_status, supplied_years
                 )
             except Exception as e:
                 logger.warning(f"Parallel extraction failed, falling back to sequential: {e}")
                 return self._extract_parameters_sequential(
-                    query, projects_dict, document_types_dict, available_strategies,
+                    query, projects_dict, available_projects_metadata, document_types_dict, available_strategies,
                     supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                     user_location, supplied_location, supplied_project_status, supplied_years
                 )
         else:
             return self._extract_parameters_sequential(
-                query, projects_dict, document_types_dict, available_strategies,
+                query, projects_dict, available_projects_metadata, document_types_dict, available_strategies,
                 supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                 user_location, supplied_location, supplied_project_status, supplied_years
             )
@@ -122,6 +124,7 @@ class BaseParameterExtractor(ParameterExtractor):
         self,
         query: str,
         available_projects: Optional[Dict] = None,
+        available_projects_metadata: Optional[List[Dict]] = None,
         available_document_types: Optional[Dict] = None,
         available_strategies: Optional[Dict] = None,
         supplied_project_ids: Optional[List[str]] = None,
@@ -154,7 +157,7 @@ class BaseParameterExtractor(ParameterExtractor):
                 project_ids = supplied_project_ids
                 logger.info(f"Step 1 - Using supplied project IDs: {project_ids}")
             else:
-                project_ids = self._extract_project_ids(query, available_projects)
+                project_ids = self._extract_project_ids(query, available_projects_metadata or available_projects)
                 logger.info(f"Step 1 - Extracted project IDs: {project_ids}")
             
             # Step 2: Extract document type IDs (skip if already provided)
@@ -233,6 +236,7 @@ class BaseParameterExtractor(ParameterExtractor):
         self,
         query: str,
         available_projects: Optional[Dict] = None,
+        available_projects_metadata: Optional[List[Dict]] = None,
         available_document_types: Optional[Dict] = None,
         available_strategies: Optional[Dict] = None,
         supplied_project_ids: Optional[List[str]] = None,
@@ -265,10 +269,20 @@ class BaseParameterExtractor(ParameterExtractor):
             # Prepare tasks for parallel execution
             tasks = []
             task_names = []
-            
+            projects_for_llm = []
             # Task 1: Extract project IDs (if not supplied)
             if not supplied_project_ids:
-                tasks.append(lambda: self._extract_project_ids(query, available_projects))
+                if available_projects_metadata:
+                    projects_for_llm = available_projects_metadata
+                elif isinstance(available_projects, dict):
+                    projects_for_llm = [
+                        {"project_name": name, "project_id": pid, "project_metadata": {}}
+                        for name, pid in available_projects.items()
+                    ]
+                else:
+                    projects_for_llm = available_projects
+
+                tasks.append(lambda projects=projects_for_llm: self._extract_project_ids(query, projects))
                 task_names.append("project_ids")
             
             # Task 2: Extract document type IDs (if not supplied)
@@ -372,7 +386,7 @@ class BaseParameterExtractor(ParameterExtractor):
         else:
             return None
     
-    def _extract_project_ids(self, query: str, available_projects: Optional[Dict] = None) -> List[str]:
+    def _extract_project_ids(self, query: str, available_projects: Optional[Union[Dict, List[Dict]]] = None) -> List[str]:
         """Extract project IDs from query using focused LLM call with validation and retry."""
         logger.info("=== PROJECT ID EXTRACTION START ===")
         logger.info(f"Query for project extraction: '{query}'")
@@ -383,17 +397,37 @@ class BaseParameterExtractor(ParameterExtractor):
             return []
         
         logger.info(f"Available projects for matching ({len(available_projects)}):")
-        for name, proj_id in available_projects.items():  # Show ALL projects, no truncation
-            logger.info(f"  - '{name}' -> {proj_id}")
+        if isinstance(available_projects, dict):
+            for name, proj_id in available_projects.items():
+                logger.info(f"  - '{name}' -> {proj_id}")
+        elif isinstance(available_projects, list):
+            for proj in available_projects:
+                project_id = proj.get("project_id", "")
+                project_name = proj.get("project_name", "")
+                logger.info(f"  - '{project_name}' -> {project_id}")
+        else:
+            logger.warning("available_projects is neither dict nor list; cannot log contents")
         
         # Try LLM extraction with validation and retry
         for attempt in range(3):  # Maximum 3 attempts
             try:
                 logger.info(f"Attempt {attempt + 1}/3 for project ID extraction")
-                result = self._extract_project_ids_single_attempt(query, available_projects, attempt)
+                # Convert available_projects to a list of dicts if it's currently a dict
+                if isinstance(available_projects, dict):
+                    # Transform {name: id} -> [{"project_name": name, "project_id": id, "project_metadata": {}}]
+                    projects_for_llm = [
+                        {"project_name": name, "project_id": pid, "project_metadata": {}}
+                        for name, pid in available_projects.items()
+                    ]
+                else:
+                    # Already a list of dicts with metadata
+                    projects_for_llm = available_projects
+
+                # Pass projects_for_llm to _extract_project_ids_single_attempt
+                result = self._extract_project_ids_single_attempt(query, projects_for_llm, attempt)
                 
                 # Validate the result quality
-                if self._validate_project_extraction_result(query, result, available_projects):
+                if result:
                     logger.info(f"Project extraction successful on attempt {attempt + 1}: {result}")
                     logger.info("=== PROJECT ID EXTRACTION END ===")
                     return result
@@ -413,48 +447,76 @@ class BaseParameterExtractor(ParameterExtractor):
         logger.info("=== PROJECT ID EXTRACTION END ===")
         return result
     
-    def _extract_project_ids_single_attempt(self, query: str, available_projects: Dict, attempt: int) -> List[str]:
-        """Single attempt at project ID extraction with different strategies per attempt."""
+    def _extract_project_ids_single_attempt(self, query: str, available_projects: List[Dict], attempt: int) -> List[str]:
+        """Single attempt at project ID extraction using both project names and selected metadata context."""
         try:
-            prompt = f"""You are a project ID extraction specialist. Analyze the query to find the most relevant project names and match them to available project IDs.
+            # ✅ Extract and format relevant fields from metadata for the LLM
+            project_lines = []
+            for proj in available_projects:
+                project_id = proj.get("project_id", "")
+                project_name = proj.get("project_name", "")
+                meta = proj.get("project_metadata", {}) or {}
 
-Available Projects:
-{chr(10).join([f"- {name}: {project_id}" for name, project_id in available_projects.items()])}
+                # Only include selected fields
+                relevant_meta = {
+                    "type": meta.get("type", ""),
+                    "region": meta.get("region", ""),
+                    "sector": meta.get("sector", ""),
+                    "status": meta.get("status", ""),
+                    "proponent": meta.get("proponent", {}).get("name", ""),
+                    "description": meta.get("description", ""),
+                    "location": meta.get("location", "")
+                }
 
-IMPORTANT CONTEXT UNDERSTANDING:
-- Terms like "Mountain", "River", "Creek", "Lake", "Park", "Resort" are common geographic/facility descriptors
-- The DISTINCTIVE part of a project name is usually the specific location name that comes BEFORE or AFTER these descriptors
-- For example: "Black Mountain Reservoir" - "Black" is the distinctive identifier, "Mountain Reservoir" is the descriptor
-- "Coastal River Project" - "Coastal River" is the distinctive identifier, "Project" is the descriptor
+                # Clean short text representation for the LLM
+                project_lines.append(
+                    f"- {project_name} (ID: {project_id}) | "
+                    f"Type: {relevant_meta['type']}, Region: {relevant_meta['region']}, "
+                    f"Sector: {relevant_meta['sector']}, Status: {relevant_meta['status']}, "
+                    f"Proponent: {relevant_meta['proponent']}, "
+                    f"Location: {relevant_meta['location']}, "
+                    f"Description: {relevant_meta['description'][:200]}..."  # Trim long text
+                )
 
-Instructions:
-1. Identify the SPECIFIC project name or distinctive location mentioned in the query
-2. If the query mentions a complete project name (e.g., "Site C Clean Energy Project"), match ONLY that exact project
-3. If the query uses generic terms (e.g., "mountain projects"), look for the complete context to determine which specific mountain project is intended
-4. Pay attention to ALL parts of the project name, not just common geographic terms
-5. Prefer exact or near-exact matches over broad keyword matches
-6. Maximum 3 project IDs unless the query clearly indicates multiple distinct projects are wanted
-7. If the query is ambiguous, prefer the most distinctive/complete name matches
+            prompt = f"""You are a project ID extraction specialist. Analyze the query and find the most relevant projects by considering both project names and metadata, with the following priorities:
+
+Available Projects (with metadata):
+{chr(10).join(project_lines)}
+
+MATCHING PRIORITY:
+1. Exact project name match: If the query contains the full project name, select ONLY that project with highest confidence.
+2. Partial project name match: If no exact name match, consider projects where parts of the name match the query.
+3. Metadata match: Use metadata fields (type, sector, region, location, status, proponent, description) to find relevant matches.
+4. Combine partial name matches and metadata matches: Projects where multiple fields align should have higher confidence.
+5. Maximum of 3 results unless the query clearly asks for multiple.
+6. If the query is ambiguous, prefer more distinctive or unique projects.
+
+EXAMPLES OF METADATA USE:
+- If the query mentions a location or region, match using "region" or "location".
+- If the query mentions a company, match using "proponent".
+- If the query mentions project type, sector, or status, match using corresponding metadata fields.
+- Multiple metadata fields aligning with the query increase confidence.
 
 Query: "{query}"
 
 Think step by step:
-1. What SPECIFIC location or project name is mentioned in the query?
-2. Which projects contain this specific location name (not just the generic descriptor)?
-3. How confident am I that each match is what the user is actually looking for?
-
-Return as JSON with format:
+1. Check if the query exactly matches any project name → select immediately if found.
+2. If no exact match, check for partial project name matches.
+3. Use metadata fields to refine matches and assign confidence:
+   - Exact name match → highest confidence (~0.95+)
+   - Partial name + multiple metadata fields → medium confidence (~0.8-0.9)
+   - Metadata-only matches → lower confidence (~0.7-0.8)
+4. Return as JSON with format:
 {{
     "project_matches": [
-        {{"project_id": "id1", "project_name": "name1", "confidence": 0.95, "reason": "exact match for complete project name"}},
-        {{"project_id": "id2", "project_name": "name2", "confidence": 0.85, "reason": "strong match for distinctive location identifier"}},
-        {{"project_id": "id3", "project_name": "name3", "confidence": 0.75, "reason": "partial match for location identifier, but less specific"}}
+        {{"project_id": "id1", "project_name": "name1", "confidence": 0.95, "reason": "exact name match"}},
+        {{"project_id": "id2", "project_name": "name2", "confidence": 0.85, "reason": "partial name + metadata match"}},
+        {{"project_id": "id3", "project_name": "name3", "confidence": 0.75, "reason": "metadata-only match"}}
     ]
 }}
+Include matches with confidence >= 0.7 and explain briefly why each match was chosen."""
 
-Include matches with confidence >= 0.7 and prioritize complete/distinctive name matches over generic descriptor matches"""
-
-            logger.info("=== PROJECT EXTRACTION PROMPT ===")
+            logger.info("=== PROJECT EXTRACTION PROMPT (METADATA-AWARE) ===")
             logger.info(f"Prompt: {prompt}")
             logger.info("=== END PROJECT EXTRACTION PROMPT ===")
 
@@ -479,6 +541,7 @@ Include matches with confidence >= 0.7 and prioritize complete/distinctive name 
                     logger.info("=== PROJECT MATCHES ANALYSIS ===")
                     logger.info(f"Number of project matches returned: {len(project_matches)}")
                     
+                    valid_ids = {p.get("project_id") for p in available_projects if p.get("project_id")}
                     # Extract project IDs from matches with confidence >= 0.7
                     matched_ids = []
                     for match in project_matches:
@@ -490,13 +553,7 @@ Include matches with confidence >= 0.7 and prioritize complete/distinctive name 
                         logger.info(f"Match: {project_name} (ID: {project_id}) - Confidence: {confidence} - Reason: {reason}")
                         
                         # Validate project ID exists in available projects
-                        if project_id in available_projects.values():
-                            logger.info(f"  ✓ Valid project ID found in available projects")
-                        else:
-                            logger.warning(f"  ✗ Project ID {project_id} NOT found in available projects")
-                        
-                        # Use higher threshold for better quality matches
-                        if confidence >= 0.7 and project_id and project_id in available_projects.values():
+                        if project_id in valid_ids and confidence >= 0.7:
                             matched_ids.append(project_id)
                             logger.info(f"  → ACCEPTED: {project_name} added to results")
                         else:
@@ -510,10 +567,11 @@ Include matches with confidence >= 0.7 and prioritize complete/distinctive name 
                 elif content.startswith('[') and content.endswith(']'):
                     # Fallback: try old format
                     project_ids = json.loads(content)
-                    valid_ids = [pid for pid in project_ids if pid in available_projects.values()]
-                    logger.warning(f"Using fallback array format, got {len(valid_ids)} project IDs: {valid_ids}")
+                    valid_ids = {p["project_id"] for p in available_projects}
+                    result = [pid for pid in project_ids if pid in valid_ids]
+                    logger.warning(f"Using fallback array format, got {len(result)} project IDs: {result}")
                     logger.info("=== PROJECT ID EXTRACTION END ===")
-                    return valid_ids[:3]  # Limit to 3 for focused results
+                    return result[:3]  # Limit to 3 for focused results
                 else:
                     logger.warning("LLM response not in expected JSON format, using fallback")
                     result = self._fallback_project_extraction(query, available_projects)
