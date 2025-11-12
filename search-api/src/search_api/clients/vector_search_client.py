@@ -270,14 +270,14 @@ class VectorSearchClient:
 
     @staticmethod
     @cache_with_ttl(ttl_seconds=86400)  # Cache for 24 hours (86400 seconds)
-    def get_projects_list():
-        """Get list of available projects for filtering.
+    def get_projects_list(include_metadata: bool = False):
+        """Get list of available projects for filtering (optionally with metadata).
         
         
         Endpoint: GET /tools/projects
         
         Returns:
-            list: Array of project objects with project_id and project_name
+            list: Array of project objects with project_id and project_name (optionally with metadata)
         """
         try:
             base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
@@ -288,7 +288,15 @@ class VectorSearchClient:
             response.raise_for_status()
             
             data = response.json()
-            return data.get('projects', [])
+
+            projects = data.get('projects', [])
+
+            if include_metadata:
+                return projects  # full list including project_metadata
+            else:
+                # Strip metadata if caller doesn't need it
+                return [{"project_id": p["project_id"], "project_name": p["project_name"]} for p in projects]
+
         except Exception as e:
             current_app.logger.error(f"Error calling vector search projects list API: {str(e)}")
             return []
