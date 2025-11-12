@@ -98,7 +98,13 @@ class OpenAISummarizer(Summarizer):
             
             messages = [
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": f"Query: {query}\n\nDocuments to summarize:\n{doc_content}"}
+                {
+                    "role": "user",
+                    "content": (
+                        f"Query: {query}\n\n"
+                        f"Summarize the key regulatory findings, project implications, and compliance notes from these documents:\n{doc_content}"
+                    )
+                }
             ]
             
             logger.info(f"Summarizing {len(documents)} documents using OpenAI")
@@ -162,37 +168,41 @@ class OpenAISummarizer(Summarizer):
             return f"Based on the available documents, here's what I found:\n\n{summary}"
     
     def _build_summarization_prompt(self, query: str, context: Optional[str] = None) -> str:
-        """Build the summarization prompt."""
-        prompt = f"""You are an expert document analyst. Your task is to create a concise summary of the provided documents that directly addresses the user's query.
+        """Build a summarization prompt tailored for EAO content."""
+        prompt = f"""
+You are an expert analyst specializing in Environmental Assessment Office (EAO) reports and regulatory documentation. 
+Your task is to create a concise summary of the provided documents that directly addresses the user's query.
 
 Key instructions:
-1. Focus on information that directly relates to the query: "{query}"
-2. Provide a short, focused summary in 1-2 paragraphs maximum
-3. Include the most important findings and key details
-4. Use clear, professional language
-5. Avoid lengthy sections and detailed breakdowns
-6. Keep the response brief and to the point
+1. Focus only on information relevant to the query: "{query}"
+2. Highlight regulatory considerations, project implications, and critical findings
+3. Provide a short summary in 2-3 paragraphs maximum
+4. Use professional, clear language suitable for stakeholders and project reviewers
+5. Include references to document types, sections, or dates if critical
+6. Avoid lengthy legal or technical excerpts; summarize the essence
+7. Emphasize insights, decisions, or compliance-related points
 
 {f"Additional context: {context}" if context else ""}
 
-Provide a concise summary that answers the query directly without extensive formatting or multiple sections."""
-        
+Provide a concise summary tailored for EAO-related decision making that answers the query directly.
+"""
         return prompt
     
     def _build_response_prompt(self, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """Build the response formatting prompt."""
-        prompt = """You are a professional assistant helping users understand document information. 
+        """Build a response prompt tailored for EAO-focused content."""
+        prompt = """
+You are a professional assistant summarizing Environmental Assessment Office (EAO) documents.
+Your goal is to create a concise, focused response based on the summary.
 
-Create a concise, focused response that:
-1. Directly answers the user's question based on the summary
-2. Uses clear, accessible language
-3. Keeps the response to 1-2 short paragraphs maximum
-4. Provides the most important information without extensive formatting
-5. Avoids multiple sections, headers, or bullet points unless absolutely necessary
-6. Gets straight to the point
+Instructions:
+1. Directly answer the user's question using information from the summary
+2. Highlight regulatory, compliance, and project-relevant insights
+3. Keep response to 1-2 short paragraphs maximum
+4. Use clear, accessible language for decision makers and project stakeholders
+5. Avoid headers, bullet points, or multiple sections unless critical
+6. Get straight to the point with actionable or key information
+"""
 
-Keep the response brief and informative."""
-        
         if metadata:
             search_info = []
             if metadata.get("document_count"):
@@ -201,38 +211,55 @@ Keep the response brief and informative."""
                 search_info.append(f"across projects: {', '.join(metadata['project_ids'])}")
             if metadata.get("document_types"):
                 search_info.append(f"document types: {', '.join(metadata['document_types'])}")
-            
+
             if search_info:
                 prompt += f"\n\nContext: This response is based on information from {', '.join(search_info)}."
-        
+
         return prompt
     
     def _prepare_document_content(self, documents: List[Dict[str, Any]]) -> str:
-        """Prepare document content for summarization."""
+        """Prepare document content for summarization with EAO focus.
+
+        Prioritizes sections relevant to environmental assessment, regulatory compliance,
+        and project implications, and truncates less critical content to fit context limits.
+        """
         content_parts = []
-        
-        # Calculate reasonable limits based on context length
-        # Reserve tokens for prompt, response, and overhead (~25% of context)
+
+        # Reserve ~25% for prompt and response overhead
         available_tokens = int(self.max_context_length * 0.75)
         max_doc_length = min(3000, available_tokens // max(len(documents), 1))
-        
+
         for i, doc in enumerate(documents, 1):
             title = doc.get("title", f"Document {i}")
             content = doc.get("content", "")
             doc_type = doc.get("document_type", "Unknown")
-            
-            # Truncate content based on calculated limits
+            section_info = doc.get("section", "")
+
+            # Optional: Highlight EAO-specific sections
+            eao_keywords = ["environmental assessment", "EAO", "compliance", "mitigation", "regulatory", "permit"]
+            lines = content.splitlines()
+            relevant_lines = [line for line in lines if any(k.lower() in line.lower() for k in eao_keywords)]
+
+            # If relevant lines found, use them; else fallback to full content
+            if relevant_lines:
+                content = "\n".join(relevant_lines)
+            else:
+                content = "\n".join(lines[:500])  # Take first 500 lines/characters if no keyword match
+
+            # Truncate content if exceeds max_doc_length
             if len(content) > max_doc_length:
                 content = content[:max_doc_length] + "..."
-            
-            content_parts.append(f"Document {i}: {title} (Type: {doc_type})\n{content}\n")
-        
+
+            content_parts.append(
+                f"Document {i}: {title} (Type: {doc_type}{', Section: ' + section_info if section_info else ''})\n{content}\n"
+            )
+
         full_content = "\n".join(content_parts)
-        
-        # Additional safety check for total content length
+
+        # Safety check for overall context length
         if len(full_content) > available_tokens:
-            full_content = full_content[:available_tokens] + "\n\n[Content truncated due to context length limits...]"
-        
+            full_content = full_content[:available_tokens] + "\n\n[Content truncated due to context limits...]"
+
         return full_content
     
     def _fallback_summary(self, documents: List[Dict[str, Any]], query: str) -> str:

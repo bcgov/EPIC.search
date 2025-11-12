@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 class BaseParameterExtractor(ParameterExtractor):
     """Base implementation of parameter extractor with common logic."""
-    
+   
     def __init__(self, client):
         self.client = client
-    
+   
     def extract_parameters(
         self,
         query: str,
@@ -33,7 +33,7 @@ class BaseParameterExtractor(ParameterExtractor):
         use_parallel: bool = True
     ) -> Dict[str, Any]:
         """Extract search parameters using parallel or sequential approach.
-        
+       
         Args:
             query: The natural language search query.
             available_projects: List of available projects from VectorSearchClient.get_projects_list().
@@ -47,14 +47,14 @@ class BaseParameterExtractor(ParameterExtractor):
             supplied_project_status: Already provided project status (skip LLM extraction if provided).
             supplied_years: Already provided years list (skip LLM extraction if provided).
             use_parallel: Whether to use parallel execution (default: True).
-            
+           
         Returns:
             Dict containing extracted parameters including temporal parameters.
         """
         logger.info("=== PARAMETER EXTRACTION START ===")
         logger.info(f"Query to extract from: '{query}'")
         logger.info(f"Use parallel execution: {use_parallel}")
-        
+       
         # Log available context data - SHOW ALL DATA (no truncation)
         logger.info("=== AVAILABLE CONTEXT DATA ===")
         if available_projects:
@@ -64,7 +64,7 @@ class BaseParameterExtractor(ParameterExtractor):
                     logger.info(f"  - '{project['project_name']}' -> {project['project_id']}")
         else:
             logger.info("Available Projects: None provided")
-            
+           
         if available_document_types:
             logger.info(f"Available Document Types Array ({len(available_document_types)}):")
             for doc_type in available_document_types:  # Show ALL document types
@@ -74,14 +74,14 @@ class BaseParameterExtractor(ParameterExtractor):
                     logger.info(f"  - '{name}' (ID: {doc_type['document_type_id']}) - Aliases: {aliases}")
         else:
             logger.info("Available Document Types: None provided")
-            
+           
         if available_strategies:
             logger.info(f"Available Strategies ({len(available_strategies)}):")
             for name, description in available_strategies.items():
                 logger.info(f"  - '{name}': {description}")
         else:
             logger.info("Available Strategies: None provided")
-            
+           
         # Log supplied parameters
         logger.info("=== SUPPLIED PARAMETERS ===")
         logger.info(f"Supplied Project IDs: {supplied_project_ids}")
@@ -92,13 +92,13 @@ class BaseParameterExtractor(ParameterExtractor):
         logger.info(f"Supplied Project Status: {supplied_project_status}")
         logger.info(f"Supplied Years: {supplied_years}")
         logger.info("=== END CONTEXT DATA ===")
-        
+       
         available_projects_metadata = available_projects or []
-        
+       
         # Convert arrays to dict format for internal processing
         projects_dict = self._convert_projects_array_to_dict(available_projects)
         document_types_dict = self._convert_document_types_array_to_dict(available_document_types)
-        
+       
         if use_parallel:
             try:
                 return self._extract_parameters_parallel(
@@ -119,7 +119,7 @@ class BaseParameterExtractor(ParameterExtractor):
                 supplied_project_ids, supplied_document_type_ids, supplied_search_strategy,
                 user_location, supplied_location, supplied_project_status, supplied_years
             )
-    
+   
     def _extract_parameters_sequential(
         self,
         query: str,
@@ -136,7 +136,7 @@ class BaseParameterExtractor(ParameterExtractor):
         supplied_years: Optional[list] = None
     ) -> Dict[str, Any]:
         """Extract search parameters using focused, sequential calls.
-        
+       
         Args:
             query: The natural language search query.
             available_projects: Dict of available projects {name: id}.
@@ -145,13 +145,13 @@ class BaseParameterExtractor(ParameterExtractor):
             supplied_project_ids: Already provided project IDs (skip LLM extraction if provided).
             supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided).
             supplied_search_strategy: Already provided search strategy (skip LLM extraction if provided).
-            
+           
         Returns:
             Dict containing extracted parameters.
         """
         try:
             logger.info("Starting sequential parameter extraction")
-            
+           
             # Step 1: Extract project IDs (skip if already provided)
             if supplied_project_ids:
                 project_ids = supplied_project_ids
@@ -159,7 +159,7 @@ class BaseParameterExtractor(ParameterExtractor):
             else:
                 project_ids = self._extract_project_ids(query, available_projects_metadata or available_projects)
                 logger.info(f"Step 1 - Extracted project IDs: {project_ids}")
-            
+           
             # Step 2: Extract document type IDs (skip if already provided)
             if supplied_document_type_ids:
                 document_type_ids = supplied_document_type_ids
@@ -167,7 +167,7 @@ class BaseParameterExtractor(ParameterExtractor):
             else:
                 document_type_ids = self._extract_document_types(query, available_document_types)
                 logger.info(f"Step 2 - Extracted document type IDs: {document_type_ids}")
-            
+           
             # Step 3: Extract search strategy (skip if already provided)
             if supplied_search_strategy:
                 search_strategy = supplied_search_strategy
@@ -175,11 +175,11 @@ class BaseParameterExtractor(ParameterExtractor):
             else:
                 search_strategy = self._extract_search_strategy(query, available_strategies)
                 logger.info(f"Step 3 - Extracted search strategy: {search_strategy}")
-            
+           
             # Step 4: Extract/optimize semantic query (usually always run for query optimization)
             semantic_query = self._extract_semantic_query(query)
             logger.info(f"Step 4 - Optimized semantic query: {semantic_query}")
-            
+           
             # Step 5: Extract temporal parameters (location, project_status, years) using LLM
             if supplied_location is not None or supplied_project_status is not None or supplied_years is not None:
                 # Use supplied temporal parameters
@@ -189,7 +189,7 @@ class BaseParameterExtractor(ParameterExtractor):
                 logger.info(f"Step 5 - Using supplied temporal parameters: location={location}, status={project_status}, years={years}")
                 temporal_sources = {
                     "location": "supplied" if supplied_location is not None else "fallback",
-                    "project_status": "supplied" if supplied_project_status is not None else "fallback", 
+                    "project_status": "supplied" if supplied_project_status is not None else "fallback",
                     "years": "supplied" if supplied_years is not None else "fallback"
                 }
             else:
@@ -204,7 +204,7 @@ class BaseParameterExtractor(ParameterExtractor):
                     "project_status": "llm_extracted" if project_status is not None else "fallback",
                     "years": "llm_extracted" if years else "fallback"
                 }
-            
+           
             # Combine results
             return {
                 "project_ids": project_ids,
@@ -223,15 +223,15 @@ class BaseParameterExtractor(ParameterExtractor):
                     **temporal_sources
                 }
             }
-            
+           
         except Exception as e:
             logger.error(f"Sequential parameter extraction failed: {e}")
             return self._fallback_extraction(query, available_projects, available_document_types, available_strategies, supplied_project_ids, supplied_document_type_ids, supplied_search_strategy)
-            
+           
         except Exception as e:
             logger.error(f"Multi-step parameter extraction failed: {e}")
             return self._fallback_extraction(query, available_projects, available_document_types, available_strategies, supplied_project_ids, supplied_document_type_ids, supplied_search_strategy)
-    
+   
     def _extract_parameters_parallel(
         self,
         query: str,
@@ -249,7 +249,7 @@ class BaseParameterExtractor(ParameterExtractor):
         timeout: float = 30.0
     ) -> Dict[str, Any]:
         """Extract search parameters using parallel LLM calls for maximum speed.
-        
+       
         Args:
             query: The natural language search query.
             available_projects: Dict of available projects {name: id}.
@@ -259,13 +259,13 @@ class BaseParameterExtractor(ParameterExtractor):
             supplied_document_type_ids: Already provided document type IDs (skip LLM extraction if provided).
             supplied_search_strategy: Already provided search strategy (skip LLM extraction if provided).
             timeout: Timeout in seconds for parallel execution.
-            
+           
         Returns:
             Dict containing extracted parameters.
         """
         try:
             logger.info("Starting parallel parameter extraction")
-            
+           
             # Prepare tasks for parallel execution
             tasks = []
             task_names = []
@@ -284,37 +284,37 @@ class BaseParameterExtractor(ParameterExtractor):
 
                 tasks.append(lambda projects=projects_for_llm: self._extract_project_ids(query, projects))
                 task_names.append("project_ids")
-            
+           
             # Task 2: Extract document type IDs (if not supplied)
             if not supplied_document_type_ids:
                 tasks.append(lambda: self._extract_document_types(query, available_document_types))
                 task_names.append("document_type_ids")
-            
+           
             # Task 3: Extract search strategy (if not supplied)
             if not supplied_search_strategy:
                 tasks.append(lambda: self._extract_search_strategy(query, available_strategies))
                 task_names.append("search_strategy")
-            
+           
             # Task 4: Extract semantic query (always run for optimization)
             tasks.append(lambda: self._extract_semantic_query(query))
             task_names.append("semantic_query")
-            
+           
             # Task 5: Extract temporal and location parameters (if not supplied)
             if supplied_location is None or supplied_project_status is None or supplied_years is None:
                 tasks.append(lambda: self._extract_temporal_and_location_parameters(query, user_location))
                 task_names.append("temporal_and_location_parameters")
-            
+           
             # Execute tasks in parallel using ThreadPoolExecutor
             results = {}
-            
+           
             if tasks:
                 with ThreadPoolExecutor(max_workers=min(len(tasks), 4)) as executor:
                     # Submit all tasks
                     future_to_name = {
-                        executor.submit(task): name 
+                        executor.submit(task): name
                         for task, name in zip(tasks, task_names)
                     }
-                    
+                   
                     # Collect results with timeout
                     for future in as_completed(future_to_name, timeout=timeout):
                         task_name = future_to_name[future]
@@ -326,16 +326,16 @@ class BaseParameterExtractor(ParameterExtractor):
                             logger.warning(f"Parallel task '{task_name}' failed: {e}")
                             # Use fallback for failed task
                             results[task_name] = self._get_fallback_for_task(
-                                task_name, query, available_projects, 
+                                task_name, query, available_projects,
                                 available_document_types, available_strategies
                             )
-            
+           
             # Extract temporal and location parameters from results or use supplied values
             temporal_result = results.get("temporal_and_location_parameters", {})
             location = supplied_location if supplied_location is not None else temporal_result.get("location")
             project_status = supplied_project_status if supplied_project_status is not None else temporal_result.get("project_status")
             years = supplied_years if supplied_years is not None else temporal_result.get("years", [])
-            
+           
             # Combine results with supplied values
             return {
                 "project_ids": supplied_project_ids or results.get("project_ids", []),
@@ -356,7 +356,7 @@ class BaseParameterExtractor(ParameterExtractor):
                     "years": "supplied" if supplied_years is not None else ("llm_parallel" if years else "fallback")
                 }
             }
-            
+           
         except Exception as e:
             logger.error(f"Parallel parameter extraction failed: {e}")
             # Fallback to sequential extraction
@@ -365,11 +365,11 @@ class BaseParameterExtractor(ParameterExtractor):
                 query, available_projects, available_document_types, available_strategies,
                 supplied_project_ids, supplied_document_type_ids, supplied_search_strategy
             )
-    
+   
     def _get_fallback_for_task(
-        self, 
-        task_name: str, 
-        query: str, 
+        self,
+        task_name: str,
+        query: str,
         available_projects: Optional[Dict] = None,
         available_document_types: Optional[Dict] = None,
         available_strategies: Optional[Dict] = None
@@ -385,17 +385,17 @@ class BaseParameterExtractor(ParameterExtractor):
             return query
         else:
             return None
-    
+   
     def _extract_project_ids(self, query: str, available_projects: Optional[Union[Dict, List[Dict]]] = None) -> List[str]:
         """Extract project IDs from query using focused LLM call with validation and retry."""
         logger.info("=== PROJECT ID EXTRACTION START ===")
         logger.info(f"Query for project extraction: '{query}'")
-        
+       
         if not available_projects:
             logger.warning("No available projects provided - returning empty list")
             logger.info("=== PROJECT ID EXTRACTION END ===")
             return []
-        
+       
         logger.info(f"Available projects for matching ({len(available_projects)}):")
         if isinstance(available_projects, dict):
             for name, proj_id in available_projects.items():
@@ -407,7 +407,7 @@ class BaseParameterExtractor(ParameterExtractor):
                 logger.info(f"  - '{project_name}' -> {project_id}")
         else:
             logger.warning("available_projects is neither dict nor list; cannot log contents")
-        
+       
         # Try LLM extraction with validation and retry
         for attempt in range(3):  # Maximum 3 attempts
             try:
@@ -425,7 +425,7 @@ class BaseParameterExtractor(ParameterExtractor):
 
                 # Pass projects_for_llm to _extract_project_ids_single_attempt
                 result = self._extract_project_ids_single_attempt(query, projects_for_llm, attempt)
-                
+               
                 # Validate the result quality
                 if result:
                     logger.info(f"Project extraction successful on attempt {attempt + 1}: {result}")
@@ -433,20 +433,20 @@ class BaseParameterExtractor(ParameterExtractor):
                     return result
                 else:
                     logger.warning(f"Project extraction attempt {attempt + 1} failed validation, will retry")
-                    
+                   
             except Exception as e:
                 logger.warning(f"Project extraction attempt {attempt + 1} failed with error: {e}")
                 if attempt == 2:  # Last attempt
                     logger.error("All LLM attempts failed, using fallback")
                     break
-        
+       
         # All attempts failed, use fallback
         logger.warning("LLM project extraction failed all attempts, using fallback method")
         result = self._fallback_project_extraction(query, available_projects)
         logger.info(f"Fallback extraction result: {result}")
         logger.info("=== PROJECT ID EXTRACTION END ===")
         return result
-    
+   
     def _extract_project_ids_single_attempt(self, query: str, available_projects: List[Dict], attempt: int) -> List[str]:
         """Single attempt at project ID extraction using both project names and selected metadata context."""
         try:
@@ -524,23 +524,23 @@ Include matches with confidence >= 0.7 and explain briefly why each match was ch
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
-            
+           
             logger.info("=== PROJECT EXTRACTION LLM RESPONSE ===")
             logger.info(f"Raw LLM Response: {response}")
-            
+           
             content = response["choices"][0]["message"]["content"].strip()
             logger.info(f"Content extracted from response: '{content}'")
             logger.info("=== END PROJECT EXTRACTION LLM RESPONSE ===")
-            
+           
             # Try to parse JSON response with confidence scores
             try:
                 if content.startswith('{') and content.endswith('}'):
                     result = json.loads(content)
                     project_matches = result.get("project_matches", [])
-                    
+                   
                     logger.info("=== PROJECT MATCHES ANALYSIS ===")
                     logger.info(f"Number of project matches returned: {len(project_matches)}")
-                    
+                   
                     valid_ids = {p.get("project_id") for p in available_projects if p.get("project_id")}
                     # Extract project IDs from matches with confidence >= 0.7
                     matched_ids = []
@@ -549,21 +549,21 @@ Include matches with confidence >= 0.7 and explain briefly why each match was ch
                         project_id = match.get("project_id")
                         project_name = match.get("project_name", "")
                         reason = match.get("reason", "")
-                        
+                       
                         logger.info(f"Match: {project_name} (ID: {project_id}) - Confidence: {confidence} - Reason: {reason}")
-                        
+                       
                         # Validate project ID exists in available projects
                         if project_id in valid_ids and confidence >= 0.7:
                             matched_ids.append(project_id)
                             logger.info(f"  → ACCEPTED: {project_name} added to results")
                         else:
                             logger.info(f"  → REJECTED: Confidence too low ({confidence}) or invalid ID")
-                    
+                   
                     logger.info(f"Final matched project IDs: {matched_ids}")
                     logger.info("=== END PROJECT MATCHES ANALYSIS ===")
                     logger.info("=== PROJECT ID EXTRACTION END ===")
                     return matched_ids[:3]  # Limit to 3 for more focused results
-                    
+                   
                 elif content.startswith('[') and content.endswith(']'):
                     # Fallback: try old format
                     project_ids = json.loads(content)
@@ -578,34 +578,34 @@ Include matches with confidence >= 0.7 and explain briefly why each match was ch
                     logger.info(f"Fallback extraction result: {result}")
                     logger.info("=== PROJECT ID EXTRACTION END ===")
                     return result
-                    
+                   
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse LLM response as JSON: {e}")
                 result = self._fallback_project_extraction(query, available_projects)
                 logger.info(f"Fallback extraction result: {result}")
                 logger.info("=== PROJECT ID EXTRACTION END ===")
                 return result
-                
+               
         except Exception as e:
             logger.warning(f"Project ID extraction failed: {e}")
             return self._fallback_project_extraction(query, available_projects)
-    
+   
     def _extract_document_types(self, query: str, available_document_types: Optional[Dict] = None) -> List[str]:
         """Extract document type IDs from query using focused LLM call."""
         logger.info("=== DOCUMENT TYPE EXTRACTION START ===")
         logger.info(f"Query for document type extraction: '{query}'")
-        
+       
         if not available_document_types:
             logger.warning("No available document types provided - returning empty list")
             logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
             return []
-        
+       
         logger.info(f"Available document types for matching ({len(available_document_types)}):")
         for doc_id, doc_data in available_document_types.items():  # Show ALL document types, no truncation
             name = doc_data.get('name', 'Unknown')
             aliases = doc_data.get('aliases', [])
             logger.info(f"  - '{name}' (ID: {doc_id}) - Aliases: {aliases}")
-        
+       
         try:
             # Build comprehensive document type info including aliases
             doc_context = []
@@ -614,44 +614,106 @@ Include matches with confidence >= 0.7 and explain briefly why each match was ch
                 aliases = doc_data.get('aliases', [])
                 alias_text = f" (aliases: {', '.join(aliases)})" if aliases else ""
                 doc_context.append(f"- {name}{alias_text} (ID: {doc_id})")
-            
-            prompt = f"""You are a document type identification specialist. Find document type references in the query and match them to available document type IDs.
+           
+            prompt = f"""
+You are a **document type classification specialist** working for the **Environmental Assessment Office (EAO) of British Columbia**.
 
-Available Document Types:
+Your goal is to determine which **document types** (by ID) are relevant to the user’s query.
+
+EAO document types include reports, letters, meeting notes, certificates, permits, applications, public comments, and many other project-related materials.
+
+---
+
+### 🗂 Available Document Types:
 {chr(10).join(doc_context)}
 
-WHEN TO SELECT DOCUMENT TYPES:
-✓ Query explicitly mentions document types: "show me letters", "find reports", "get presentations"
-✓ Query asks for specific document format: "correspondence about X", "memos regarding Y"
-✓ Query requests specific document categories: "technical reports", "meeting transcripts"
+Each document type name represents a category of EAO records. Many have multiple ways users might refer to them.
 
-WHEN TO RETURN EMPTY ARRAY [] (search all document types):
-✗ General information queries: "who is the proponent?", "what is the project status?"
-✗ Factual questions about projects: "when was X approved?", "where is Y located?"
-✗ Broad queries: "tell me about project X", "information on Y"
-✗ Process questions: "what are the impacts?", "what consultation occurred?"
-✗ If user asks for "all documents" or "look at all documents"
+---
 
-Instructions for when document types ARE relevant:
-- Look for document type names, aliases, or related terms in the query
-- Search ALL aliases for each document type - if the query mentions any alias, include that document type
-- Look for both exact matches and partial matches
-- "letters" should match both "Letter to Minister" and "Letter from Minister" document types
-- "correspondence" might match letter types
-- "reports" might match various report types
-- Be inclusive - if there's any reasonable match, include the document type
-- Return document type IDs (not names) for ALL relevant matches
+### 🔍 WHEN TO SELECT DOCUMENT TYPES (include IDs):
+You should include **one or more document types** when the query clearly or indirectly refers to:
+- A specific **type of document** (e.g., “letters”, “reports”, “applications”, “orders”, “meeting notes”)
+- A **communication or submission** (“correspondence”, “comments”, “public input”, “feedback”)
+- A **decision or approval** (“EAO order”, “project decision materials”, “certificate package”)
+- A **plan or study** (“management plan”, “environmental report”, “impact study”)
+- A **notice or news release** (“advertisement”, “notification”, “announcement”)
+- A **presentation or technical document** (“slides”, “technical memo”, “scientific study”)
+- A **package or grouping** of documents (e.g., “amendment documents”, “application package”)
 
+✅ Be inclusive — if the query even *suggests* a document type or related term, include the most relevant types.
+
+---
+
+### 🚫 WHEN TO RETURN AN EMPTY ARRAY []
+Return `[]` (no specific types) only if:
+- The query is general or factual (e.g., “who is the proponent?”, “project location”, “status of the project”)
+- The user is asking about processes, events, or outcomes rather than documents (e.g., “when was it approved?”, “what were the environmental impacts?”)
+- The query requests “all documents” or “everything related to X”.
+
+---
+
+### 💡 Matching Rules and Synonyms
+
+| Common User Terms | Match To Document Type |
+|-------------------|------------------------|
+| letter, correspondence, email | **Letter** |
+| comments, feedback, submissions | **Comment/Submission**, **Comment Period** |
+| meeting, minutes, notes | **Meeting Notes** |
+| decision, approval, determination | **Decision Materials**, **Order** |
+| application, form, submission materials | **Application Materials**, **Application Information Requirement** |
+| plan, management plan, mitigation plan | **Plan**, **Management Plan** |
+| report, study, technical paper, analysis | **Report/Study**, **Scientific Memo**, **Independent Memo** |
+| certificate, EA certificate, permit | **Certificate Package**, **Order** |
+| notification, announcement, advertisement | **Notification**, **Ad/News Release** |
+| inspection, compliance check | **Inspection Record** |
+| agreement, MOU | **Agreement** |
+| amendment, revision, exception | **Amendment Package**, **Amendment Information**, **Exception Package** |
+| project description, overview | **Project Description**, **Project Descriptions** |
+| presentation, slides | **Presentation** |
+| tracking, index | **Tracking Table** |
+
+---
+
+### 🧭 Reasoning Process (step-by-step)
+
+1. **Interpret intent** – Is the query about a *type of document* or a *general topic*?  
+2. **Extract related terms** – Identify nouns or phrases that hint at documents, records, or communications.  
+3. **Match semantically** – Use synonyms and context clues (e.g., “emails” → “Letters”, “report on wildlife” → “Report/Study”).  
+4. **Map to document type IDs** – Return the IDs for *all matching document types*.  
+5. **If nothing fits or query is general**, return an empty list `[]`.
+
+---
+
+### 🧩 Examples
+
+**Example 1**  
+Query: “Letters between EAO and Ministry of Environment”  
+→ Matches: `["Letter"]`
+
+**Example 2**  
+Query: “Technical reports about the KSM project”  
+→ Matches: `["Report/Study", "Scientific Memo"]`
+
+**Example 3**  
+Query: “When was the environmental certificate issued?”  
+→ Matches: `["Certificate Package", "Order"]`
+
+**Example 4**  
+Query: “What are the impacts of the project?”  
+→ Matches: `[]` (general inquiry)
+
+**Example 5**  
+Query: “Meeting minutes with First Nations”  
+→ Matches: `["Meeting Notes", "Agreement"]`
+
+---
+
+Now, analyze this query carefully and follow the reasoning steps.
 Query: "{query}"
 
-Think through this step by step:
-1. Is this query asking for specific document types, or general information?
-2. If asking for general information, return empty array []
-3. If asking for specific document types, what document-related terms do I see?
-4. Which document types or aliases match those terms?
-5. What are ALL the IDs for matching document types?
-
-Return matching document type IDs as a JSON array of strings, or [] if this is a general information query."""
+Return the **document type IDs** as a JSON array of strings (e.g., `["5cf00c03a266b7e1877504cb"]`), or `[]` if no specific document types apply.
+"""
 
             logger.info("=== DOCUMENT TYPE EXTRACTION PROMPT ===")
             logger.info(f"Prompt: {prompt}")
@@ -661,20 +723,20 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
-            
+           
             logger.info("=== DOCUMENT TYPE EXTRACTION LLM RESPONSE ===")
             logger.info(f"Raw LLM Response: {response}")
-            
+           
             content = response["choices"][0]["message"]["content"].strip()
             logger.info(f"Content extracted from response: '{content}'")
             logger.info("=== END DOCUMENT TYPE EXTRACTION LLM RESPONSE ===")
-            
+           
             # Try to parse JSON response
             try:
                 # Clean up the content and try to parse as JSON
                 content_clean = content.strip()
                 logger.info(f"Cleaned content for JSON parsing: '{content_clean}'")
-                
+               
                 # Extract JSON from markdown code blocks if present
                 if '```json' in content_clean:
                     # Find the JSON block between ```json and ```
@@ -688,7 +750,7 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                             json_content = content_clean[start_idx:end_idx].strip()
                             logger.info(f"Extracted JSON from markdown blocks: '{json_content}'")
                             content_clean = json_content
-                
+               
                 # Handle case where LLM provides explanation text followed by JSON array
                 elif not content_clean.startswith('[') and not content_clean.startswith('{'):
                     # Look for JSON array at the end of explanation text
@@ -698,10 +760,10 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                     if array_matches:
                         content_clean = array_matches[-1].strip()
                         logger.info(f"Extracted JSON array from explanation text: '{content_clean}'")
-                
+               
                 # Try to parse directly as JSON (handles multiple formats)
                 parsed_response = json.loads(content_clean)
-                
+               
                 # Handle different response formats
                 if isinstance(parsed_response, list):
                     # Direct array format: [] or ["id1", "id2"]
@@ -723,7 +785,7 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                     logger.info(f"Fallback extraction result: {result}")
                     logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
                     return result
-                
+               
                 # Ensure the final result is a list
                 if not isinstance(doc_type_ids, list):
                     logger.warning(f"Document type IDs is not a list after extraction, got: {type(doc_type_ids)}")
@@ -731,17 +793,17 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                     logger.info(f"Fallback extraction result: {result}")
                     logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
                     return result
-                
+               
                 logger.info("=== DOCUMENT TYPE MATCHES ANALYSIS ===")
                 logger.info(f"LLM returned document type IDs: {doc_type_ids}")
-                
+               
                 # If empty array, LLM determined no specific document types needed
                 if not doc_type_ids:
                     logger.info("LLM returned empty array - no document type filtering needed")
                     logger.info("=== END DOCUMENT TYPE MATCHES ANALYSIS ===")
                     logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
                     return []
-                
+               
                 # Validate that returned IDs are actually available
                 valid_ids = []
                 for dtid in doc_type_ids:
@@ -751,7 +813,7 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                         logger.info(f"  ✓ Valid document type ID: {dtid} -> '{doc_name}'")
                     else:
                         logger.warning(f"  ✗ Invalid document type ID: {dtid} (not found in available types)")
-                
+               
                 final_ids = valid_ids  # No artificial limit
                 logger.info(f"Final document type IDs: {final_ids}")
                 logger.info("=== END DOCUMENT TYPE MATCHES ANALYSIS ===")
@@ -763,21 +825,21 @@ Return matching document type IDs as a JSON array of strings, or [] if this is a
                 logger.info(f"Fallback extraction result: {result}")
                 logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
                 return result
-                
+               
         except Exception as e:
             logger.warning(f"Document type extraction failed: {e}")
             return self._fallback_document_extraction(query, available_document_types)
-    
+   
     def _extract_search_strategy(self, query: str, available_strategies: Optional[Dict] = None) -> str:
         """Extract search strategy using focused LLM call."""
         logger.info("=== SEARCH STRATEGY EXTRACTION START ===")
         logger.info(f"Query for search strategy extraction: '{query}'")
-        
+       
         try:
             strategies_list = list(available_strategies.keys()) if available_strategies else ["HYBRID_PARALLEL", "SEMANTIC_ONLY", "KEYWORD_ONLY"]
-            
+           
             logger.info(f"Available strategies: {strategies_list}")
-            
+           
             prompt = f"""You are a search strategy specialist. Determine the best search strategy for this query.
 
 Available Strategies: {', '.join(strategies_list)}
@@ -799,14 +861,14 @@ Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
-            
+           
             logger.info("=== SEARCH STRATEGY EXTRACTION LLM RESPONSE ===")
             logger.info(f"Raw LLM Response: {response}")
-            
+           
             content = response["choices"][0]["message"]["content"].strip().replace('"', '')
             logger.info(f"Content extracted from response: '{content}'")
             logger.info("=== END SEARCH STRATEGY EXTRACTION LLM RESPONSE ===")
-            
+           
             # Validate strategy
             if content in strategies_list:
                 logger.info(f"Strategy '{content}' is valid - using it")
@@ -816,7 +878,7 @@ Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
                 logger.warning(f"Strategy '{content}' not in available strategies, defaulting to HYBRID_PARALLEL")
                 logger.info("=== SEARCH STRATEGY EXTRACTION END ===")
                 return "HYBRID_PARALLEL"
-                
+               
         except Exception as e:
             logger.warning(f"Search strategy extraction failed: {e}")
             return "HYBRID_PARALLEL"
@@ -825,25 +887,33 @@ Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
         """Extract and optimize semantic query using focused LLM call."""
         logger.info("=== SEMANTIC QUERY EXTRACTION START ===")
         logger.info(f"Original query for semantic optimization: '{query}'")
-        
+       
         try:
-            prompt = f"""You are a semantic query optimization specialist. Extract the core search concepts from this query.
+            prompt = f"""You are an expert in environmental assessment and regulatory document search.
+Your task is to extract the **core semantic search concepts** from the user's query so that it can be used to retrieve relevant documents from the Environmental Assessment Office (EAO) system.
 
-Instructions:
-- Extract ONLY the core search concepts, remove project names and document type references
-- Keep semantic query concise (2-6 key terms)
-- Focus on the subject matter, not the metadata filters
-- Preserve important entity names and specific terms
+### Instructions:
+- Focus on **main subject terms** like project names, condition numbers, locations, and environmental topics.
+- Remove conversational or filler text like "can you get me", "show me", "reports for", etc.
+- Keep the query concise (2–8 key terms maximum).
+- Preserve **important project names**, **locations**, and **environmental terms** (e.g., “air quality”, “pipeline”, “marine port”, “transmission lines”, “Schedule B”, “condition 1”).
+- Avoid metadata or generic words like "document", "report", "file", "project", unless they are part of a specific entity name.
+- If the query refers to a **condition** (e.g., “condition 1 from Schedule B”), keep both the **condition number** and the **schedule reference**.
+- If the query refers to a **facility or project type** (e.g., "transmission lines", "pipelines", "marine terminals"), preserve those as main terms.
+- If the query mentions a **region or place** (e.g., “Lower Mainland”, “Babkirk Secure Landfill”), keep it intact.
 
-Examples:
+### Examples:
+- "condition related to air quality for transmission lines" → "air quality condition transmission lines"
+- "can you get me condition 1 from schedule b for Babkirk Secure Landfill" → "condition 1 schedule b Babkirk Secure Landfill"
+- "get me the reports for marine port facilities near lower mainland" → "marine port facilities Lower Mainland"
+- "transmission lines" → "transmission lines"
+- "pipelines" → "pipelines"
 - "letters mentioning Nooaitch Indian Band" → "Nooaitch Indian Band"
 - "environmental impact of water quality" → "environmental impact water quality"
-- "permits for forestry project" → "forestry permits"
-- "correspondence about Lower Similkameen Indian Band" → "Lower Similkameen Indian Band correspondence"
 
 Original Query: "{query}"
 
-Return ONLY the optimized semantic query (no quotes, no explanation)"""
+Return ONLY the optimized semantic query (no quotes, no explanation)."""
 
             logger.info("=== SEMANTIC QUERY EXTRACTION PROMPT ===")
             logger.info(f"Prompt: {prompt}")
@@ -853,14 +923,14 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
-            
+           
             logger.info("=== SEMANTIC QUERY EXTRACTION LLM RESPONSE ===")
             logger.info(f"Raw LLM Response: {response}")
-            
+           
             content = response["choices"][0]["message"]["content"].strip().replace('"', '')
             logger.info(f"Content extracted from response: '{content}'")
             logger.info("=== END SEMANTIC QUERY EXTRACTION LLM RESPONSE ===")
-            
+           
             # Basic validation - should be shorter and meaningful
             if len(content) > 0 and len(content) < len(query) * 1.5:
                 logger.info(f"Semantic query optimization successful: '{query}' -> '{content}'")
@@ -870,42 +940,42 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
                 logger.warning(f"Semantic query validation failed - content too long or empty, using original query")
                 logger.info("=== SEMANTIC QUERY EXTRACTION END ===")
                 return query
-                
+               
         except Exception as e:
             logger.warning(f"Semantic query extraction failed: {e}")
             logger.info("=== SEMANTIC QUERY EXTRACTION END ===")
             return query
-    
+   
     def _fallback_project_extraction(self, query: str, available_projects: Dict) -> List[str]:
         """Enhanced fallback project extraction with focus on distinctive name components."""
         query_lower = query.lower()
         matched_projects = []
-        
+       
         # Common geographic/facility descriptors that are less distinctive
         generic_terms = {'mountain', 'river', 'creek', 'lake', 'park', 'resort', 'wind', 'reservoir', 'project'}
-        
+       
         for project_name, project_id in available_projects.items():
             project_name_lower = project_name.lower()
-            
+           
             # Check for exact match first
             if project_name_lower in query_lower or query_lower in project_name_lower:
                 matched_projects.append(project_id)
                 continue
-            
+           
             # Smart keyword matching - focus on distinctive parts
             project_words = set(project_name_lower.split())
             query_words = set(query_lower.split())
-            
+           
             # Filter out common words and generic geographic terms
             distinctive_project_words = project_words - {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by'} - generic_terms
             distinctive_query_words = query_words - {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by', 'projects'} - generic_terms
-            
+           
             # Find matching distinctive words
             distinctive_matches = distinctive_project_words & distinctive_query_words
-            
+           
             # Also check for generic terms if there are other supporting matches
             generic_matches = (project_words & generic_terms) & (query_words & generic_terms)
-            
+           
             if len(distinctive_matches) > 0:
                 # Strong match - has distinctive identifiers
                 matched_projects.append(project_id)
@@ -914,57 +984,57 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
                 # Only include if the query is very specific and short (likely targeting this type)
                 if len(query_words) <= 3 and any(word in project_name_lower for word in query_words if len(word) > 4):
                     matched_projects.append(project_id)
-        
+       
         # Limit to 3 for focused results
         return matched_projects[:3]
-    
+   
     def _fallback_document_extraction(self, query: str, available_document_types: Dict) -> List[str]:
         """Fallback document type extraction using comprehensive alias matching."""
         logger.info("=== FALLBACK DOCUMENT TYPE EXTRACTION ===")
         query_lower = query.lower()
-        
+       
         # Check if this is a general information query that shouldn't filter document types
         general_query_indicators = [
             "who is", "what is", "when was", "where is", "how much", "how many",
             "main proponent", "project status", "tell me about", "information on",
             "what are the impacts", "what consultation", "all documents"
         ]
-        
+       
         if any(indicator in query_lower for indicator in general_query_indicators):
             logger.info(f"Query contains general information indicators - returning empty array")
             logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")
             return []
-        
+       
         # Only do text matching for queries that explicitly mention document types
         document_type_keywords = ["letter", "report", "memo", "correspondence", "transcript", "assessment", "presentation"]
         if not any(keyword in query_lower for keyword in document_type_keywords):
             logger.info(f"Query does not mention specific document types - returning empty array")
             logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")
             return []
-        
+       
         matched_types = []
-        
+       
         for doc_id, doc_data in available_document_types.items():
             name = doc_data.get('name', '').lower()
             aliases = [alias.lower() for alias in doc_data.get('aliases', [])]
-            
+           
             # Check name
             if name and any(word in query_lower for word in name.split() if len(word) > 3):
                 matched_types.append(doc_id)
                 continue
-            
+           
             # Check all aliases - look for any that contain query terms or vice versa
             for alias in aliases:
                 if alias in query_lower or any(term in alias for term in query_lower.split() if len(term) > 3):
                     matched_types.append(doc_id)
                     break
-        
+       
         logger.info(f"Fallback matched document types: {matched_types}")
         logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")
         return matched_types  # Return all matched types
-    
-    
-    def _fallback_extraction(self, query: str, available_projects: Optional[Dict] = None, 
+   
+   
+    def _fallback_extraction(self, query: str, available_projects: Optional[Dict] = None,
                            available_document_types: Optional[Dict] = None,
                            available_strategies: Optional[Dict] = None,
                            supplied_project_ids: Optional[List[str]] = None,
@@ -984,34 +1054,34 @@ Return ONLY the optimized semantic query (no quotes, no explanation)"""
                 "semantic_query": "fallback"
             }
         }
-    
+   
     def _extract_temporal_and_location_parameters(self, query: str, user_location: Optional[Dict] = None) -> Dict[str, Any]:
         """Extract temporal and location parameters (location, project_status, years) using LLM reasoning.
-        
+       
         This method intelligently determines whether to extract location based on query intent:
         - Extracts location for geographic search queries ("projects in Vancouver", "near me")
         - Skips location extraction for specific project queries ("For the X project...")
-        
+       
         Args:
             query: The search query to analyze
             user_location: User's physical location from browser (used only for "near me" queries)
-            
+           
         Returns:
             Dict containing temporal and location parameters: location, project_status, years
         """
         try:
             from datetime import datetime
             current_year = datetime.now().year
-            
+           
             # Check if this query is about a specific named project (should NOT extract location)
             query_lower = query.lower()
             specific_project_indicators = [
                 'for the', 'about the', 'regarding the', 'concerning the',
                 'project i want', 'project that', 'project,', 'in the project'
             ]
-            
+           
             is_specific_project_query = any(indicator in query_lower for indicator in specific_project_indicators)
-            
+           
             if is_specific_project_query:
                 logger.info(f"Query targets specific project - skipping location extraction: '{query}'")
                 # Only extract temporal parameters, not location
@@ -1092,25 +1162,25 @@ Response: {{"location": "Vancouver", "project_status": null, "years": [], "reaso
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1
             )
-            
+           
             content = response["choices"][0]["message"]["content"].strip()
             logger.info(f"Raw temporal extraction response: {content}")
-            
+           
             # Parse JSON response
             result = json.loads(content)
-            
+           
             # Validate and clean the response
             temporal_params = {
                 "location": result.get("location"),
-                "project_status": result.get("project_status"), 
+                "project_status": result.get("project_status"),
                 "years": result.get("years", []),
                 "reasoning": result.get("reasoning", ""),
                 "confidence": float(result.get("confidence", 0.0))
             }
-            
+           
             logger.info(f"Extracted temporal parameters: {temporal_params}")
             return temporal_params
-            
+           
         except Exception as e:
             logger.error(f"Error extracting temporal parameters: {e}")
             return {
@@ -1123,37 +1193,37 @@ Response: {{"location": "Vancouver", "project_status": null, "years": [], "reaso
 
     def _convert_projects_array_to_dict(self, projects_array: Optional[List]) -> Dict:
         """Convert projects array from VectorSearchClient.get_projects_list() to dict format.
-        
+       
         Args:
             projects_array: Array from VectorSearchClient.get_projects_list()
-            
+           
         Returns:
             Dict in format {project_name: project_id} for internal processing
         """
         if not projects_array:
             return {}
-            
+           
         projects_dict = {}
         if isinstance(projects_array, list):
             for project in projects_array:
                 if isinstance(project, dict) and 'project_id' in project and 'project_name' in project:
                     projects_dict[project['project_name']] = project['project_id']
-        
+       
         logger.info(f"Converted {len(projects_array) if projects_array else 0} projects array to {len(projects_dict)} projects dict")
         return projects_dict
-    
+   
     def _convert_document_types_array_to_dict(self, document_types_array: Optional[List]) -> Dict:
         """Convert document types array from VectorSearchClient.get_document_types() to dict format.
-        
+       
         Args:
             document_types_array: Array from VectorSearchClient.get_document_types()
-            
+           
         Returns:
             Dict in format {doc_type_id: {name, aliases, act}} for internal processing
         """
         if not document_types_array:
             return {}
-            
+           
         document_types_dict = {}
         if isinstance(document_types_array, list):
             for doc_type in document_types_array:
@@ -1164,7 +1234,7 @@ Response: {{"location": "Vancouver", "project_status": null, "years": [], "reaso
                         'aliases': doc_type.get('aliases', []),
                         'act': doc_type.get('act', '')
                     }
-        
+       
         logger.info(f"Converted {len(document_types_array) if document_types_array else 0} document types array to {len(document_types_dict)} document types dict")
         return document_types_dict
 
