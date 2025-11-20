@@ -840,18 +840,30 @@ Return the **document type IDs** as a JSON array of strings (e.g., `["5cf00c03a2
            
             logger.info(f"Available strategies: {strategies_list}")
            
-            prompt = f"""You are a search strategy specialist. Determine the best search strategy for this query.
+            prompt = f"""
+You are an expert search-strategy classifier.  
+Your job is to select exactly one strategy from the list below based ONLY on the query.
 
 Available Strategies: {', '.join(strategies_list)}
 
-Instructions:
-- PREFER "HYBRID_PARALLEL" unless very confident another strategy is better
-- Use "KEYWORD_ONLY" only if user asks for exact term matching
-- Use "SEMANTIC_ONLY" only if user asks for conceptual/thematic search
+Decision Rules (follow in order):
+1. DEFAULT → Choose "HYBRID_PARALLEL" unless there is a CLEAR and STRONG reason to choose another strategy.
+2. Choose "KEYWORD_ONLY" ONLY when the user explicitly wants:
+   - exact phrase matching,
+   - literal text search,
+   - quotes, operators, IDs, codes, or numbers.
+3. Choose "SEMANTIC_ONLY" ONLY when the user asks for:
+   - conceptual understanding,
+   - thematic similarity,
+   - idea-based lookup (not exact terms).
+4. For all other situations (mixed, unclear, broad queries) return "HYBRID_PARALLEL".
+
+Important:
+- Return ONLY the strategy name as plain text, nothing else.
+- Do NOT explain your reasoning.
 
 Query: "{query}"
-
-Return ONLY the strategy name (e.g., "HYBRID_PARALLEL")"""
+"""
 
             logger.info("=== SEARCH STRATEGY EXTRACTION PROMPT ===")
             logger.info(f"Prompt: {prompt}")
