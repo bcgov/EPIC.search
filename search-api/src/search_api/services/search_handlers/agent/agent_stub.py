@@ -1348,18 +1348,30 @@ LOCATION QUERY STRATEGY:
         # Generate additional variations based on the base query
         try:
             if self.llm_client:
-                prompt = f"""Generate {num_variations - 1} semantic variations of this search query for comprehensive document retrieval.
+                prompt = f"""
+You are a search optimization specialist for the BC Environmental Assessment Office (EAO).
+Generate high-quality semantic variations of the user query to improve document retrieval.
 
 Original Query: "{base_query}"
 
-Instructions:
-- Create variations that use different terminology and phrasing
-- Maintain the same search intent and core concepts
-- Use synonyms and alternative expressions
-- Keep variations concise (2-8 words each)
-- Focus on different aspects or angles of the same topic
+Generate exactly {num_variations - 1} variations.
 
-Return only the variations as a JSON array of strings (no explanations):"""
+Rules:
+- Preserve the exact meaning and search intent.
+- Rephrase using synonyms, alternate wording, and expanded abbreviations
+  (e.g., EA → Environmental Assessment, AIR → Application Information Requirements).
+- Use terminology commonly found in EAO documents, such as project descriptions,
+  impact assessments, technical reports, environmental management plans, or compliance documents.
+- Keep each variation concise (3–10 words).
+- **Do not invent or change any project names, geographic locations, species, or entities**.
+  Treat all proper nouns in the query as fixed. For example, if the query says
+  "mine near Peace," "Peace" is a location and must not be used as a mine name.
+- Focus on alternative phrasing, synonyms, and abbreviation expansions **only**.
+- Do NOT include explanations, numbering, or extra text.
+- Output MUST be a valid JSON array of strings, with no text before or after.
+
+Return JSON only.
+"""
 
                 messages = [{"role": "user", "content": prompt}]
                 response = self.llm_client.chat_completion(messages, temperature=0.3, max_tokens=300)
@@ -2776,7 +2788,7 @@ def handle_agent_query(query: str, reason: str, llm_client=None, user_location: 
         # Get available data for parameter extraction
         try:
             # Get data arrays directly from VectorSearchClient (no conversion needed)
-            available_projects = VectorSearchClient.get_projects_list()
+            available_projects = VectorSearchClient.get_projects_list(include_metadata=True)
             available_document_types = VectorSearchClient.get_document_types()
             available_strategies = VectorSearchClient.get_search_strategies()
             
