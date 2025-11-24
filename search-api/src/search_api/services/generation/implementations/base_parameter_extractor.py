@@ -478,43 +478,76 @@ class BaseParameterExtractor(ParameterExtractor):
                     f"Description: {relevant_meta['description'][:200]}..."  # Trim long text
                 )
 
-            prompt = f"""You are a project ID extraction specialist. Analyze the query and find the most relevant projects by considering both project names and metadata, with the following priorities:
+            prompt = f"""
+You are given a user query and a list of projects. Each project has the following metadata:
+- project_id
+- project_name
+- proponent
+- location
+- region
+- type
+- sector
+- status
+- description
 
-Available Projects (with metadata):
+Task:
+Return a ranked list of projects most relevant to the query, using all metadata. Consider:
+
+1. Exact and partial matches in project_name, type, sector, and description.
+2. Synonyms, related terms, and alternate phrases:
+   - 'marine port facilities' → 'port', 'terminal', 'jetty', 'wharf', 'dock'
+   - 'hydroelectric' → 'run-of-river', 'power plant', 'generating station'
+   - 'energy storage' → 'LNG', 'gas storage', 'tank', 'facility'
+   - 'tourist destination' → 'resort', 'hotel', 'marina', 'golf', 'recreation'
+   - Include any other relevant synonyms implied by context.
+3. Region relevance: prioritize exact region matches but include nearby or functionally relevant regions.
+4. Proponent relevance: prioritize projects if the proponent or company is mentioned in the query.
+5. Status relevance: prioritize operational, post-decision, or under-construction projects, but include others if highly relevant.
+6. Multiple metadata fields aligning with the query increases confidence.
+
+For each project, return:
+- project_id
+- project_name
+- proponent
+- location
+- region
+- type
+- sector
+- status
+- description
+- confidence (0-1)
+- reason (explain why this project is relevant)
+
+Examples:
+
+Query: “certificate for marine port facilities near Lower Mainland”
+Projects:
+- Tilbury Marine Jetty | Confidence: 0.95 | Reason: Marine port facility in Lower Mainland, directly matches query.
+- Roberts Bank Terminal 2 | Confidence: 0.90 | Reason: Major port facility in Lower Mainland, relevant to query.
+- Vancouver Convention Centre Expansion | Confidence: 0.75 | Reason: Waterfront infrastructure in Lower Mainland, partially relevant to port facilities.
+
+Query: “hydroelectric projects by BC Hydro”
+Projects:
+- Stave Falls Powerplant | Confidence: 0.95 | Reason: Hydro plant operated by BC Hydro.
+- Waneta Generating Station Upgrade | Confidence: 0.85 | Reason: Co-proponent BC Hydro, hydroelectric generation.
+
+Query: “LNG storage facilities by FortisBC”
+Projects:
+- Tilbury Phase 2 LNG Expansion | Confidence: 0.95 | Reason: LNG storage facility in Delta, proponent FortisBC, directly relevant to query.
+- WCC LNG | Confidence: 0.85 | Reason: LNG project in Skeena region, relevant to LNG query.
+
+Instructions:
+- Include multiple relevant projects even if only partially matching.
+- Rank results by confidence descending.
+- Use all metadata fields (project_name, type, sector, description, region, location, proponent, status) to maximize relevance.
+- If the query mentions a region or company explicitly, prioritize those matches.
+- Include reasoning for each project to justify relevance.
+
+Available Projects: 
 {chr(10).join(project_lines)}
 
-MATCHING PRIORITY:
-1. Exact project name match: If the query contains the full project name, select ONLY that project with highest confidence.
-2. Partial project name match: If no exact name match, consider projects where parts of the name match the query.
-3. Metadata match: Use metadata fields (type, sector, region, location, status, proponent, description) to find relevant matches.
-4. Combine partial name matches and metadata matches: Projects where multiple fields align should have higher confidence.
-5. Maximum of 3 results unless the query clearly asks for multiple.
-6. If the query is ambiguous, prefer more distinctive or unique projects.
-
-EXAMPLES OF METADATA USE:
-- If the query mentions a location or region, match using "region" or "location".
-- If the query mentions a company, match using "proponent".
-- If the query mentions project type, sector, or status, match using corresponding metadata fields.
-- Multiple metadata fields aligning with the query increase confidence.
-
 Query: "{query}"
-
-Think step by step:
-1. Check if the query exactly matches any project name → select immediately if found.
-2. If no exact match, check for partial project name matches.
-3. Use metadata fields to refine matches and assign confidence:
-   - Exact name match → highest confidence (~0.95+)
-   - Partial name + multiple metadata fields → medium confidence (~0.8-0.9)
-   - Metadata-only matches → lower confidence (~0.7-0.8)
-4. Return as JSON with format:
-{{
-    "project_matches": [
-        {{"project_id": "id1", "project_name": "name1", "confidence": 0.95, "reason": "exact name match"}},
-        {{"project_id": "id2", "project_name": "name2", "confidence": 0.85, "reason": "partial name + metadata match"}},
-        {{"project_id": "id3", "project_name": "name3", "confidence": 0.75, "reason": "metadata-only match"}}
-    ]
-}}
-Include matches with confidence >= 0.7 and explain briefly why each match was chosen."""
+"""
 
             logger.info("=== PROJECT EXTRACTION PROMPT (METADATA-AWARE) ===")
             logger.info(f"Prompt: {prompt}")
@@ -896,36 +929,45 @@ Query: "{query}"
             return "HYBRID_PARALLEL"
 
     def _extract_semantic_query(self, query: str) -> str:
-        """Extract and optimize semantic query using focused LLM call."""
+        """
+        Extract and optimize semantic query using focused LLM call.
+        Preserves key regulatory, project, proponent, location, and environmental terms.
+        """
         logger.info("=== SEMANTIC QUERY EXTRACTION START ===")
         logger.info(f"Original query for semantic optimization: '{query}'")
        
         try:
-            prompt = f"""You are an expert in environmental assessment and regulatory document search.
-Your task is to extract the **core semantic search concepts** from the user's query so that it can be used to retrieve relevant documents from the Environmental Assessment Office (EAO) system.
+            prompt = f"""
+You are an expert in environmental assessment and regulatory document search.
+Your task is to extract the **core semantic search concepts** from the user's query so that it can be used to retrieve relevant projects or documents from the Environmental Assessment Office (EAO) system.
 
 ### Instructions:
-- Focus on **main subject terms** like project names, condition numbers, locations, and environmental topics.
+- Focus on **main subject terms**: project names, proponents, locations, environmental topics, condition numbers, certificates, permits, approvals.
 - Remove conversational or filler text like "can you get me", "show me", "reports for", etc.
-- Keep the query concise (2–8 key terms maximum).
-- Preserve **important project names**, **locations**, and **environmental terms** (e.g., “air quality”, “pipeline”, “marine port”, “transmission lines”, “Schedule B”, “condition 1”).
-- Avoid metadata or generic words like "document", "report", "file", "project", unless they are part of a specific entity name.
-- If the query refers to a **condition** (e.g., “condition 1 from Schedule B”), keep both the **condition number** and the **schedule reference**.
-- If the query refers to a **facility or project type** (e.g., "transmission lines", "pipelines", "marine terminals"), preserve those as main terms.
-- If the query mentions a **region or place** (e.g., “Lower Mainland”, “Babkirk Secure Landfill”), keep it intact.
+- Keep the query concise (2-10 key terms maximum).
+- Preserve important terms: project names, locations, environmental terms (e.g., “air quality”, “pipeline”, “marine port”, “transmission lines”), regulatory terms (e.g., “Schedule B”, “condition 1”, “certificate”, “permit”, “approval”).
+- Avoid generic words like "document", "report", unless part of a specific entity name.
+- If query mentions a **condition or schedule**, preserve both numbers and references.
+- If query mentions a **facility or project type**, preserve it.
+- If query mentions a **region or place**, keep it intact.
+- Use synonyms and related terms where appropriate to retain meaning.
 
 ### Examples:
-- "condition related to air quality for transmission lines" → "air quality condition transmission lines"
-- "can you get me condition 1 from schedule b for Babkirk Secure Landfill" → "condition 1 schedule b Babkirk Secure Landfill"
-- "get me the reports for marine port facilities near lower mainland" → "marine port facilities Lower Mainland"
-- "transmission lines" → "transmission lines"
-- "pipelines" → "pipelines"
+- "certificate for marine port facilities near Lower Mainland" → "certificate marine port facilities Lower Mainland"
+- "get me condition 1 from Schedule B for Babkirk Secure Landfill" → "condition 1 Schedule B Babkirk Secure Landfill"
+- "all permits issued to Tilbury Jetty LP for marine expansion" → "permit Tilbury Jetty LP marine expansion"
+- "environmental assessment for Roberts Bank Terminal 2" → "environmental assessment Roberts Bank Terminal 2"
+- "pipeline transmission line impacts on air quality in Lower Mainland" → "pipeline transmission line air quality Lower Mainland"
 - "letters mentioning Nooaitch Indian Band" → "Nooaitch Indian Band"
-- "environmental impact of water quality" → "environmental impact water quality"
+- "reports on hydroelectric projects by BC Hydro" → "hydroelectric BC Hydro"
+- "status of condition 3 for Wapiti Power Development" → "condition 3 Wapiti Power Development"
+- "approvals for LNG storage facility near Squamish & Gibsons" → "approval LNG storage Squamish Gibsons"
+- "mitigation plans for air emissions at Waneta Generating Station Upgrade" → "mitigation air emissions Waneta Generating Station Upgrade"
 
 Original Query: "{query}"
 
-Return ONLY the optimized semantic query (no quotes, no explanation)."""
+Return ONLY the optimized semantic query (no quotes, no explanation).
+"""
 
             logger.info("=== SEMANTIC QUERY EXTRACTION PROMPT ===")
             logger.info(f"Prompt: {prompt}")
