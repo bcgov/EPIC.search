@@ -13,8 +13,8 @@ Embedding dimensions are dynamically set from the configuration (settings.py), d
 """
 
 import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, DateTime, Text, JSON
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.ext.declarative import declarative_base
 from src.config.settings import get_settings
@@ -81,3 +81,16 @@ class ProcessingLog(Base):
     status = Column(String, nullable=False)  # e.g. "success" or "failure"
     processed_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
     metrics = Column(JSONB, nullable=True)  # Stores per-method timing metrics as JSONB
+
+class SearchFeedback(Base):
+    __tablename__ = "search_feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(UUID(as_uuid=True), nullable=True)
+    user_id = Column(String(100), nullable=True)
+    query_text = Column(Text, nullable=False)
+    project_ids = Column(JSON, nullable=True)
+    document_type_ids = Column(JSON, nullable=True)
+    feedback = Column(String(20), nullable=True)
+    comments = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)

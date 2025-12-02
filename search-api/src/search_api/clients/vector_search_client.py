@@ -49,6 +49,7 @@ import os
 import requests
 from flask import current_app
 from ..utils.cache import cache_with_ttl
+from ..utils.token_info import get_user_id
 
 class VectorSearchClient:
     """Client for communicating with the external vector search API."""
@@ -557,3 +558,75 @@ class VectorSearchClient:
         except Exception as e:
             current_app.logger.error(f"Error calling vector search project health API: {str(e)}")
             return {}
+
+    # =============================================================================
+    # FEEDBACK OPERATIONS - Capture user feedback and session
+    # =============================================================================
+
+    @staticmethod
+    def create_feedback_session(query_text: str = None,
+                                project_ids: list = None, document_type_ids: list = None) -> str:
+        """
+        Create a new feedback session in the vector DB.
+
+        Args:
+            user_id (str, optional): ID of the user submitting the query
+            query_text (str): User's search query
+            project_ids (list, optional): List of project IDs related to query
+            document_type_ids (list, optional): List of document type IDs related to query
+
+        Returns:
+            str: The generated session ID for feedback tracking
+        """
+        try:
+            base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
+            url = f"{base_url}/tools/feedback"
+
+            payload = {
+                "userId": get_user_id(),
+                "queryText": query_text,
+                "projectIds": project_ids,
+                "documentTypeIds": document_type_ids
+            }
+
+            current_app.logger.info(f"Creating feedback session via POST {url} with payload: {payload}")
+            response = requests.post(url, json=payload, timeout=300)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("sessionId")
+
+        except Exception as e:
+            current_app.logger.error(f"Error creating feedback session: {e}")
+            return None
+
+    @staticmethod
+    def update_feedback(session_id: str, feedback: str, comments: str = None) -> bool:
+        """
+        Update an existing feedback session in the vector DB.
+
+        Args:
+            session_id (str): The feedback session ID to update
+            feedback (str): Feedback value (e.g., "useful", "not_useful")
+            comments (str, optional): Optional comments from the user
+
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
+        try:
+            base_url = os.getenv("VECTOR_SEARCH_API_URL", "http://localhost:8080/api")
+            url = f"{base_url}/tools/feedback"
+
+            payload = {
+                "sessionId": session_id,
+                "feedback": feedback,
+                "comments": comments
+            }
+
+            current_app.logger.info(f"Updating feedback via PATCH {url} with payload: {payload}")
+            response = requests.patch(url, json=payload, timeout=300)
+            response.raise_for_status()
+            return True
+
+        except Exception as e:
+            current_app.logger.error(f"Error updating feedback for session {session_id}: {e}")
+            return False

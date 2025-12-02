@@ -19,10 +19,12 @@ from flask import Response, current_app, request
 import time
 import json
 
+from search_api.clients.vector_search_client import VectorSearchClient
 from search_api.services.search_service import SearchService
 from search_api.utils.util import cors_preflight
 from search_api.schemas.search import SearchRequestSchema
 from search_api.schemas.search import SimilaritySearchRequestSchema
+from search_api.schemas.search import FeedbackSchema
 from search_api.auth import auth
 from .apihelper import Api as ApiHelper
 from flask import Response, current_app
@@ -39,6 +41,10 @@ search_request_model = ApiHelper.convert_ma_schema_to_restx_model(
 
 similar_request_model = ApiHelper.convert_ma_schema_to_restx_model(
     API, SimilaritySearchRequestSchema(), "Search"
+)
+
+feedback_model = ApiHelper.convert_ma_schema_to_restx_model(
+    API, FeedbackSchema(), "Feedback"
 )
 
 @cors_preflight("POST, OPTIONS")
@@ -85,6 +91,16 @@ class Search(Resource):
             current_app.logger.info(f"Search parameters - Search Strategy: {search_strategy}")
             current_app.logger.info(f"Search parameters - Processing Mode: {mode}")
             current_app.logger.info(f"Search parameters - User Location (from browser): {user_location}")
+
+            # ----------------------------
+            # Create feedback session using VectorSearchClient
+            # ----------------------------
+            session_id = VectorSearchClient.create_feedback_session(
+                query_text=query,
+                project_ids=project_ids,
+                document_type_ids=document_type_ids
+            )
+            current_app.logger.info(f"Feedback session created: {session_id}")
             
             current_app.logger.info("Calling SearchService.get_documents_by_query")
             start_time = time.time()
@@ -94,6 +110,8 @@ class Search(Resource):
             current_app.logger.info(f"SearchService completed in {(end_time - start_time):.2f} seconds")
             current_app.logger.info(f"Search results: {len(documents.get('documents', [])) if isinstance(documents, dict) else 'Unknown count'} documents returned")
             current_app.logger.info("=== Search query request completed successfully ===")
+            
+            documents["feedback_session_id"] = session_id
             
             return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:
@@ -150,3 +168,115 @@ class DocumentSimilaritySearch(Resource):
             current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
             current_app.logger.error("=== Document similarity search request ended with error ===")
             return Response(json.dumps({"error": "Failed to get document similarity"}), status=HTTPStatus.INTERNAL_SERVER_ERROR, mimetype='application/json')
+
+
+@cors_preflight("POST, PATCH, OPTIONS")
+@API.route("/feedback", methods=["POST", "PATCH", "OPTIONS"])
+class Feedback(Resource):
+    """Endpoint to submit or update user feedback for search sessions."""
+
+    @staticmethod
+    @API.expect(feedback_model)
+    @ApiHelper.swagger_decorators(API, endpoint_description="Submit or update search feedback")
+    @API.response(400, "Bad Request")
+    @API.response(200, "Feedback updated successfully")
+    def post():
+        """Create or update feedback for a search session."""
+        try:
+            data = request.get_json()
+            if not data:
+                return Response(
+                    json.dumps({"error": "Invalid request payload"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            session_id = data.get("sessionId")
+            feedback = data.get("feedback")
+            comments = data.get("comments")
+
+            if not session_id or not feedback:
+                return Response(
+                    json.dumps({"error": "Missing required parameters: sessionId and feedback"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            success = VectorSearchClient.update_feedback(
+                session_id=session_id,
+                feedback=feedback,
+                comments=comments
+            )
+
+            if success:
+                return Response(
+                    json.dumps({"message": "Feedback updated successfully", "sessionId": session_id}),
+                    status=HTTPStatus.OK,
+                    mimetype="application/json"
+                )
+            else:
+                return Response(
+                    json.dumps({"error": "Failed to update feedback"}),
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    mimetype="application/json"
+                )
+
+        except Exception as e:
+            current_app.logger.error(f"Error in feedback submission: {e}")
+            return Response(
+                json.dumps({"error": "Internal server error"}),
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                mimetype="application/json"
+            )
+
+    @staticmethod
+    def patch():
+        """
+        Explicit PATCH method to update feedback for an existing session.
+        """
+        try:
+            data = request.get_json()
+            if not data:
+                return Response(
+                    json.dumps({"error": "Invalid request payload"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            session_id = data.get("sessionId")
+            feedback = data.get("feedback")
+            comments = data.get("comments")
+
+            if not session_id or not feedback:
+                return Response(
+                    json.dumps({"error": "Missing required parameters: sessionId and feedback"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            success = VectorSearchClient.update_feedback(
+                session_id=session_id,
+                feedback=feedback,
+                comments=comments
+            )
+
+            if success:
+                return Response(
+                    json.dumps({"message": "Feedback updated successfully", "sessionId": session_id}),
+                    status=HTTPStatus.OK,
+                    mimetype="application/json"
+                )
+            else:
+                return Response(
+                    json.dumps({"error": "Failed to update feedback"}),
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    mimetype="application/json"
+                )
+
+        except Exception as e:
+            current_app.logger.error(f"Error in feedback PATCH: {e}")
+            return Response(
+                json.dumps({"error": "Internal server error"}),
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                mimetype="application/json"
+            )

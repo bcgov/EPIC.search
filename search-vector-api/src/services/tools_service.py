@@ -10,7 +10,8 @@ The service provides:
 
 import logging
 import psycopg
-from typing import List, Dict, Any
+import uuid
+from typing import List, Dict, Any, Optional
 from flask import current_app
 from utils.document_types import (
     get_all_document_types, 
@@ -248,6 +249,71 @@ class ToolsService:
                 "document_type": None,
                 "error": str(e)
             }
+
+    @classmethod
+    def create_feedback_session(cls, user_id: Optional[str], query_text: str,
+                                project_ids: Optional[List[str]] = None,
+                                document_type_ids: Optional[List[str]] = None) -> str:
+        try:
+            session_id = str(uuid.uuid4())
+
+            insert_query = """
+                INSERT INTO search_feedback
+                (session_id, user_id, query_text, project_ids, document_type_ids)
+                VALUES (%s, %s, %s, %s, %s);
+            """
+
+            conn_params = current_app.vector_settings.database_url
+            with psycopg.connect(conn_params) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        insert_query,
+                        (
+                            session_id,
+                            user_id,
+                            query_text,
+                            project_ids,          # <-- list or None
+                            document_type_ids     # <-- list or None
+                        )
+                    )
+
+            logging.info(f"Created feedback session {session_id}")
+            return session_id
+
+        except Exception as e:
+            logging.error(f"Error creating feedback session: {e}")
+            return None
+
+    @classmethod
+    def update_feedback(cls, session_id: str, feedback: str, comments: Optional[str] = None) -> bool:
+        """
+        Update an existing feedback record based on session_id using raw SQL.
+
+        Returns:
+            bool: True if update succeeded, False otherwise
+        """
+        try:
+            update_query = """
+                UPDATE search_feedback
+                SET feedback = %s,
+                    comments = %s
+                WHERE session_id = %s;
+            """
+
+            conn_params = current_app.vector_settings.database_url
+            with psycopg.connect(conn_params) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(update_query, (feedback, comments, session_id))
+                    if cur.rowcount == 0:
+                        logging.warning(f"No feedback record found for session {session_id}")
+                        return False
+
+            logging.info(f"✅ Updated feedback for session {session_id}")
+            return True
+
+        except Exception as e:
+            logging.error(f"Error updating feedback for session {session_id}: {e}")
+            return False
 
     @classmethod
     def get_search_strategies(cls) -> Dict[str, Any]:

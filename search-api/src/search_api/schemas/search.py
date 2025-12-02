@@ -271,3 +271,19 @@ class SimilaritySearchResponseSchema(Schema):
 
     similar_documents = fields.List(fields.Nested(SimilarDocumentSchema))
     search_metrics = fields.Nested(SimilaritySearchMetricsSchema)
+
+
+class FeedbackSchema(Schema):
+    session_id = fields.Str(
+        required=True,
+        data_key="sessionId",
+        metadata={"description": "Feedback session ID for the search query"}
+    )
+    feedback = fields.Str(
+        required=True,
+        metadata={"description": "User feedback value (e.g., 'useful', 'not_useful')"}
+    )
+    comments = fields.Str(
+        required=False,
+        metadata={"description": "Optional comments from the user"}
+    )

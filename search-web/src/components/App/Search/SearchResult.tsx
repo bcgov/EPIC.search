@@ -1,10 +1,9 @@
-import { AutoAwesomeTwoTone, CategoryTwoTone, Code } from "@mui/icons-material";
-import { Box, Grid, Typography, CircularProgress, Fab, Tooltip } from "@mui/material";
+import { AutoAwesomeTwoTone, CategoryTwoTone } from "@mui/icons-material";
+import { Box, Grid, Typography, CircularProgress } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import SearchDocumentCard from "./SearchDocumentCard";
 import SearchDocumentGroupHeader from "./SearchDocumentGroupHeader";
 import SimilarSearchResult from "./SimilarSearchResult";
-import RawResponseViewer from "./RawResponseViewer";
 import { SearchResponse, getDocumentsFromResponse, Document } from "@/models/Search";
 import { useSimilarSearch } from "@/hooks/useSimilarSearch";
 import { useState } from "react";
@@ -44,9 +43,6 @@ const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultPro
     searchType: "all" | "project";
   } | null>(null);
   
-  // Raw response viewer state
-  const [showRawResponse, setShowRawResponse] = useState(false);
-  
   const similarSearchMutation = useSimilarSearch();
 
   const handleSimilarSearch = async (documentId: string, projectIds?: string[]) => {
@@ -73,25 +69,6 @@ const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultPro
   const handleBackToOriginal = () => {
     setSimilarResults(null);
   };
-
-  const handleShowRawResponse = () => {
-    setShowRawResponse(true);
-  };
-
-  const handleBackFromRawResponse = () => {
-    setShowRawResponse(false);
-  };
-
-  // Show raw response if requested
-  if (showRawResponse) {
-    return (
-      <RawResponseViewer
-        searchResponse={searchResults}
-        searchText={searchText}
-        onBack={handleBackFromRawResponse}
-      />
-    );
-  }
 
   // Show similar results if available
   if (similarResults) {
@@ -379,27 +356,6 @@ const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultPro
           ))}
         </Box>
       )}
-      
-      {/* Floating Action Button for Raw Response */}
-      <Tooltip title="View raw search response">
-        <Fab
-          color="secondary"
-          size="medium"
-          onClick={handleShowRawResponse}
-          sx={{
-            position: "fixed",
-            bottom: 24,
-            right: 24,
-            backgroundColor: BCDesignTokens.themeGray70,
-            "&:hover": {
-              backgroundColor: BCDesignTokens.themeGray80,
-            },
-            zIndex: 1000,
-          }}
-        >
-          <Code />
-        </Fab>
-      </Tooltip>
     </>
   );
 } catch (error) {

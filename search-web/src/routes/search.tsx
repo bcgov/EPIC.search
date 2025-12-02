@@ -18,6 +18,8 @@ import { useProjects } from "@/hooks/useProjects";
 import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
 import { LocationControl } from "@/components/Location";
 import { SearchMode } from "@/hooks/useSearch";
+import FeedbackModal from "@/components/App/Feedback/FeedbackModal";
+import FeedbackIcon from "@mui/icons-material/Feedback";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -50,6 +52,8 @@ function Search() {
   const [selectedDocumentTypeIds, setSelectedDocumentTypeIds] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>(getStoredSearchMode());
   const [modeMenuAnchor, setModeMenuAnchor] = useState<null | HTMLElement>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackSessionId, setFeedbackSessionId] = useState<string | null>(null);
 
   const { isLoading: projectsLoading, isError: projectsError, data: allProjects } = useProjects();
   const { data: allDocTypes } = useDocumentTypeMappings(selectedDocumentTypeIds.length > 0);
@@ -72,6 +76,13 @@ function Search() {
       }
       
       setSearchResults(data);
+
+      // Store feedback session ID if it exists
+      if ('feedback_session_id' in data && typeof data.feedback_session_id === 'string') {
+        setFeedbackSessionId(data.feedback_session_id);
+      } else {
+        setFeedbackSessionId(null);
+      }
     } catch (error) {
       console.error('Error processing search response:', error);
       // Treat malformed response as an error
@@ -560,6 +571,33 @@ function Search() {
           />
         )}
       </Box>
+      {/* Floating Feedback Button */}
+      <IconButton
+        onClick={() => setFeedbackOpen(true)}
+        sx={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
+          boxShadow: "0 4px 10px rgba(0,0,0,0.2)",
+          width: 56,
+          height: 56,
+          borderRadius: "50%",
+          "&:hover": {
+            backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
+            boxShadow: "0 6px 14px rgba(0,0,0,0.25)"
+          }
+        }}
+      >
+        <FeedbackIcon sx={{ fontSize: 30, color: BCDesignTokens.iconsColorSuccess }} />
+      </IconButton>
+
+      {/* Feedback Modal */}
+      <FeedbackModal
+        sessionId={feedbackSessionId ?? undefined}
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+      />
     </Container>
   );
 }
