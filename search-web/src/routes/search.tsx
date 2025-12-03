@@ -19,7 +19,7 @@ import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
 import { LocationControl } from "@/components/Location";
 import { SearchMode } from "@/hooks/useSearch";
 import FeedbackModal from "@/components/App/Feedback/FeedbackModal";
-import FeedbackIcon from "@mui/icons-material/Feedback";
+import { ThumbUp, ThumbDown } from "@mui/icons-material";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -54,6 +54,7 @@ function Search() {
   const [modeMenuAnchor, setModeMenuAnchor] = useState<null | HTMLElement>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackSessionId, setFeedbackSessionId] = useState<string | null>(null);
+  const [feedbackType, setFeedbackType] = useState<'up' | 'down' | null>(null);
 
   const { isLoading: projectsLoading, isError: projectsError, data: allProjects } = useProjects();
   const { data: allDocTypes } = useDocumentTypeMappings(selectedDocumentTypeIds.length > 0);
@@ -156,6 +157,11 @@ function Search() {
 
   const handleModeMenuClose = () => {
     setModeMenuAnchor(null);
+  };
+
+  const handleFeedbackClick = (type: 'up' | 'down') => {
+    setFeedbackType(type);
+    setFeedbackOpen(true);
   };
 
   const getModeDescription = (mode: SearchMode): string => {
@@ -571,32 +577,52 @@ function Search() {
           />
         )}
       </Box>
-      {/* Floating Feedback Button */}
-      <IconButton
-        onClick={() => setFeedbackOpen(true)}
-        sx={{
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-          boxShadow: "0 4px 10px rgba(0,0,0,0.2)",
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          "&:hover": {
-            backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-            boxShadow: "0 6px 14px rgba(0,0,0,0.25)"
-          }
-        }}
-      >
-        <FeedbackIcon sx={{ fontSize: 30, color: BCDesignTokens.iconsColorSuccess }} />
-      </IconButton>
 
       {/* Feedback Modal */}
+      {isSuccess && searchResults?.result && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            p: 1.5,
+            borderRadius: 2,
+            backgroundColor: BCDesignTokens.themeBlue10,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Was this search helpful?
+          </Typography>
+          <Tooltip title="Yes, this was helpful">
+            <IconButton
+              size="small"
+              color="success"
+              onClick={() => handleFeedbackClick('up')}
+            >
+              <ThumbUp fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="No, this was not helpful">
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => handleFeedbackClick('down')}
+            >
+              <ThumbDown fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
       <FeedbackModal
         sessionId={feedbackSessionId ?? undefined}
         open={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
+        initialFeedback={feedbackType}
       />
     </Container>
   );

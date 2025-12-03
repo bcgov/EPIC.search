@@ -10,7 +10,7 @@ import {
   CircularProgress,
   Typography
 } from "@mui/material";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFeedback, FeedbackValue, FeedbackRequest } from "@/hooks/useFeedback";
 
 interface FeedbackModalProps {
@@ -20,6 +20,7 @@ interface FeedbackModalProps {
   queryText?: string;
   projectIds?: string[];
   documentTypeIds?: string[];
+  initialFeedback?: 'up' | 'down' | null;
 }
 
 export default function FeedbackModal({
@@ -29,13 +30,26 @@ export default function FeedbackModal({
   queryText,
   projectIds,
   documentTypeIds,
+  initialFeedback,
 }: FeedbackModalProps) {
   const [text, setText] = useState<string>("");
-  const [rating, setRating] = useState<number | null>(4);
+  const [rating, setRating] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isError, setIsError] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isSubmitted, setIsSubmitted] = useState(false); // new state
+
+    useEffect(() => {
+    if (open) {
+      if (initialFeedback === 'up') setRating(5);
+      else if (initialFeedback === 'down') setRating(1);
+      else setRating(4); // default neutral
+      setText(""); // clear comment
+      setIsSubmitted(false); // reset submitted state
+      setIsError(false);
+      setErrorMessage("");
+    }
+  }, [open, initialFeedback]);
 
   const { mutate } = useFeedback(
     () => {
