@@ -94,3 +94,4 @@ class SearchFeedback(Base):
     feedback = Column(String(20), nullable=True)
     comments = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.datetime.utcnow)
+    search_result = Column(JSONB, nullable=True)

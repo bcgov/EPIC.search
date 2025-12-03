@@ -92,16 +92,6 @@ class Search(Resource):
             current_app.logger.info(f"Search parameters - Processing Mode: {mode}")
             current_app.logger.info(f"Search parameters - User Location (from browser): {user_location}")
 
-            # ----------------------------
-            # Create feedback session using VectorSearchClient
-            # ----------------------------
-            session_id = VectorSearchClient.create_feedback_session(
-                query_text=query,
-                project_ids=project_ids,
-                document_type_ids=document_type_ids
-            )
-            current_app.logger.info(f"Feedback session created: {session_id}")
-            
             current_app.logger.info("Calling SearchService.get_documents_by_query")
             start_time = time.time()
             documents = SearchService.get_documents_by_query(query, project_ids, document_type_ids, inference, ranking, search_strategy, mode, user_location, project_status, years)
@@ -109,9 +99,20 @@ class Search(Resource):
             
             current_app.logger.info(f"SearchService completed in {(end_time - start_time):.2f} seconds")
             current_app.logger.info(f"Search results: {len(documents.get('documents', [])) if isinstance(documents, dict) else 'Unknown count'} documents returned")
-            current_app.logger.info("=== Search query request completed successfully ===")
-            
+
+            # ----------------------------
+            # Create feedback session using VectorSearchClient
+            # ----------------------------
+            session_id = VectorSearchClient.create_feedback_session(
+                query_text=query,
+                project_ids=project_ids,
+                document_type_ids=document_type_ids,
+                search_result=documents
+            )
+            current_app.logger.info(f"Feedback session created: {session_id}")
             documents["feedback_session_id"] = session_id
+            
+            current_app.logger.info("=== Search query request completed successfully ===")
             
             return Response(json.dumps(documents), status=HTTPStatus.OK, mimetype='application/json')
         except Exception as e:

@@ -337,6 +337,7 @@ class Feedback(Resource):
             query_text = data.get("queryText")
             project_ids = data.get("projectIds")
             document_type_ids = data.get("documentTypeIds")
+            search_result = data.get("searchResult")
 
             if not query_text:
                 return Response(
@@ -345,11 +346,13 @@ class Feedback(Resource):
                     mimetype="application/json"
                 )
 
+            # Create feedback session
             session_id = ToolsService.create_feedback_session(
                 user_id=user_id,
                 query_text=query_text,
                 project_ids=project_ids,
-                document_type_ids=document_type_ids
+                document_type_ids=document_type_ids,
+                search_result=search_result
             )
 
             return Response(

@@ -8,6 +8,7 @@ The service provides:
 2. Document type lookups and metadata
 """
 
+import json
 import logging
 import psycopg
 import uuid
@@ -249,18 +250,22 @@ class ToolsService:
                 "document_type": None,
                 "error": str(e)
             }
-
     @classmethod
-    def create_feedback_session(cls, user_id: Optional[str], query_text: str,
-                                project_ids: Optional[List[str]] = None,
-                                document_type_ids: Optional[List[str]] = None) -> str:
+    def create_feedback_session(
+        cls,
+        user_id: Optional[str],
+        query_text: str,
+        project_ids: Optional[List[str]] = None,
+        document_type_ids: Optional[List[str]] = None,
+        search_result: Optional[dict] = None
+    ) -> str:
         try:
             session_id = str(uuid.uuid4())
 
             insert_query = """
                 INSERT INTO search_feedback
-                (session_id, user_id, query_text, project_ids, document_type_ids)
-                VALUES (%s, %s, %s, %s, %s);
+                (session_id, user_id, query_text, project_ids, document_type_ids, search_result)
+                VALUES (%s, %s, %s, %s, %s, %s);
             """
 
             conn_params = current_app.vector_settings.database_url
@@ -272,8 +277,9 @@ class ToolsService:
                             session_id,
                             user_id,
                             query_text,
-                            project_ids,          # <-- list or None
-                            document_type_ids     # <-- list or None
+                            project_ids,
+                            document_type_ids,
+                            json.dumps(search_result) if search_result else None
                         )
                     )
 

@@ -565,7 +565,8 @@ class VectorSearchClient:
 
     @staticmethod
     def create_feedback_session(query_text: str = None,
-                                project_ids: list = None, document_type_ids: list = None) -> str:
+                                project_ids: list = None, document_type_ids: list = None,
+                                search_result: dict = None) -> str:
         """
         Create a new feedback session in the vector DB.
 
@@ -588,6 +589,9 @@ class VectorSearchClient:
                 "projectIds": project_ids,
                 "documentTypeIds": document_type_ids
             }
+
+            if search_result is not None:
+                payload["searchResult"] = search_result
 
             current_app.logger.info(f"Creating feedback session via POST {url} with payload: {payload}")
             response = requests.post(url, json=payload, timeout=300)
