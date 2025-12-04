@@ -32,7 +32,7 @@ Vector Database Utilities module for unified pgvector integration and ORM manage
 """
 
 from src.config.settings import get_settings
-from src.models.pgvector.vector_models import Base, DocumentChunk, Document, Project, ProcessingLog
+from src.models.pgvector.vector_models import Base, DocumentChunk, Document, Project, ProcessingLog, SearchFeedback
 from sqlalchemy import create_engine, text, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import Engine
@@ -127,7 +127,7 @@ def init_vec_db(skip_hnsw=False):
         print("[DB RESET] All tables dropped successfully.")
 
     # Create tables and PKs if missing (safe for production)
-    Base.metadata.create_all(engine, tables=[DocumentChunk.__table__, Document.__table__, Project.__table__, ProcessingLog.__table__])
+    Base.metadata.create_all(engine, tables=[DocumentChunk.__table__, Document.__table__, Project.__table__, ProcessingLog.__table__,SearchFeedback.__table__])
 
     # Add metadata, GIN, and regular indexes for metadata, tags, keywords, headings, project_id, etc.
     with engine.connect() as conn:
@@ -137,6 +137,7 @@ def init_vec_db(skip_hnsw=False):
         ensure_primary_key(conn, 'documents', 'document_id')
         ensure_primary_key(conn, 'projects', 'project_id')
         ensure_primary_key(conn, 'processing_logs', 'id')
+        ensure_primary_key(conn, 'search_feedback', 'id')
         create_index(conn,
             """CREATE INDEX IF NOT EXISTS idx_documents_metadata_type_id 
             ON documents ((document_metadata->>'document_type_id'));""",
@@ -191,6 +192,26 @@ def init_vec_db(skip_hnsw=False):
         create_index(conn,
             """CREATE INDEX IF NOT EXISTS ix_projects_metadata ON projects USING gin (project_metadata);""",
             "ix_projects_metadata"
+        )
+        create_index(
+            conn,
+            """CREATE INDEX IF NOT EXISTS idx_search_feedback_user
+            ON search_feedback (user_id);""",
+            "idx_search_feedback_user",
+        )
+
+        create_index(
+            conn,
+            """CREATE INDEX IF NOT EXISTS idx_search_feedback_created_at
+            ON search_feedback (created_at);""",
+            "idx_search_feedback_created_at",
+        )
+
+        create_index(
+            conn,
+            """CREATE INDEX IF NOT EXISTS idx_search_feedback_session
+            ON search_feedback (session_id);""",
+            "idx_search_feedback_session",
         )
         # ProcessingLog: no custom indexes needed
         conn.commit()

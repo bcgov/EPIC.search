@@ -12,7 +12,7 @@ The endpoints include:
 
 from http import HTTPStatus
 from flask_restx import Namespace, Resource
-from flask import Response
+from flask import request, Response
 from marshmallow import EXCLUDE, Schema, fields
 import json
 
@@ -312,6 +312,108 @@ class ApiCapabilitiesResource(Resource):
         except Exception as e:
             error_response = {
                 "error": "Failed to retrieve API capabilities",
+                "details": str(e)
+            }
+            return Response(
+                response=json.dumps(error_response),
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                mimetype="application/json"
+            )
+
+
+@API.route("/feedback", methods=["POST", "PATCH", "OPTIONS"])
+class Feedback(Resource):
+    """Endpoint to create or update search feedback."""
+
+    @staticmethod
+    @ApiHelper.swagger_decorators(API, endpoint_description="Create or update search feedback")
+    @API.response(400, "Bad Request")
+    @API.response(200, "Operation successful")
+    def post():
+        """Create a new feedback session"""
+        try:
+            data = request.get_json() or {}
+            user_id = data.get("userId")
+            query_text = data.get("queryText")
+            project_ids = data.get("projectIds")
+            document_type_ids = data.get("documentTypeIds")
+            search_result = data.get("searchResult")
+
+            if not query_text:
+                return Response(
+                    response=json.dumps({"error": "queryText is required"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            # Create feedback session
+            session_id = ToolsService.create_feedback_session(
+                user_id=user_id,
+                query_text=query_text,
+                project_ids=project_ids,
+                document_type_ids=document_type_ids,
+                search_result=search_result
+            )
+
+            return Response(
+                response=json.dumps({"sessionId": session_id}),
+                status=HTTPStatus.OK,
+                mimetype="application/json"
+            )
+
+        except Exception as e:
+            error_response = {
+                "error": "Failed to create feedback session",
+                "details": str(e)
+            }
+            return Response(
+                response=json.dumps(error_response),
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                mimetype="application/json"
+            )
+        
+
+    @staticmethod
+    @ApiHelper.swagger_decorators(API, endpoint_description="Update feedback for a session")
+    @API.response(400, "Bad Request")
+    @API.response(200, "Feedback updated successfully")
+    def patch():
+        """Update feedback for an existing session"""
+        try:
+            data = request.get_json() or {}
+            session_id = data.get("sessionId")
+            feedback = data.get("feedback")
+            comments = data.get("comments")
+
+            if not session_id or not feedback:
+                return Response(
+                    response=json.dumps({"error": "sessionId and feedback are required"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            updated = ToolsService.update_feedback(
+                session_id=session_id,
+                feedback=feedback,
+                comments=comments
+            )
+
+            if not updated:
+                return Response(
+                    response=json.dumps({"error": "No feedback record found for the given sessionId"}),
+                    status=HTTPStatus.BAD_REQUEST,
+                    mimetype="application/json"
+                )
+
+            return Response(
+                response=json.dumps({"message": "Feedback updated successfully"}),
+                status=HTTPStatus.OK,
+                mimetype="application/json"
+            )
+
+        except Exception as e:
+            error_response = {
+                "error": "Failed to update feedback",
                 "details": str(e)
             }
             return Response(

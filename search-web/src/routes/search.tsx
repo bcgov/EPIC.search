@@ -18,6 +18,8 @@ import { useProjects } from "@/hooks/useProjects";
 import ProjectLoadingScreen from "@/components/App/Search/ProjectLoadingScreen";
 import { LocationControl } from "@/components/Location";
 import { SearchMode } from "@/hooks/useSearch";
+import FeedbackModal from "@/components/App/Feedback/FeedbackModal";
+import { ThumbUp, ThumbDown } from "@mui/icons-material";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -50,6 +52,9 @@ function Search() {
   const [selectedDocumentTypeIds, setSelectedDocumentTypeIds] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>(getStoredSearchMode());
   const [modeMenuAnchor, setModeMenuAnchor] = useState<null | HTMLElement>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackSessionId, setFeedbackSessionId] = useState<string | null>(null);
+  const [feedbackType, setFeedbackType] = useState<'up' | 'down' | null>(null);
 
   const { isLoading: projectsLoading, isError: projectsError, data: allProjects } = useProjects();
   const { data: allDocTypes } = useDocumentTypeMappings(selectedDocumentTypeIds.length > 0);
@@ -72,6 +77,13 @@ function Search() {
       }
       
       setSearchResults(data);
+
+      // Store feedback session ID if it exists
+      if ('feedback_session_id' in data && typeof data.feedback_session_id === 'string') {
+        setFeedbackSessionId(data.feedback_session_id);
+      } else {
+        setFeedbackSessionId(null);
+      }
     } catch (error) {
       console.error('Error processing search response:', error);
       // Treat malformed response as an error
@@ -145,6 +157,11 @@ function Search() {
 
   const handleModeMenuClose = () => {
     setModeMenuAnchor(null);
+  };
+
+  const handleFeedbackClick = (type: 'up' | 'down') => {
+    setFeedbackType(type);
+    setFeedbackOpen(true);
   };
 
   const getModeDescription = (mode: SearchMode): string => {
@@ -560,6 +577,53 @@ function Search() {
           />
         )}
       </Box>
+
+      {/* Feedback Modal */}
+      {isSuccess && searchResults?.result && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            p: 1.5,
+            borderRadius: 2,
+            backgroundColor: BCDesignTokens.themeBlue10,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            Was this search helpful?
+          </Typography>
+          <Tooltip title="Yes, this was helpful">
+            <IconButton
+              size="small"
+              color="success"
+              onClick={() => handleFeedbackClick('up')}
+            >
+              <ThumbUp fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="No, this was not helpful">
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => handleFeedbackClick('down')}
+            >
+              <ThumbDown fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
+      <FeedbackModal
+        sessionId={feedbackSessionId ?? undefined}
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        initialFeedback={feedbackType}
+      />
     </Container>
   );
 }
