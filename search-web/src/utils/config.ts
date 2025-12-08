@@ -25,6 +25,7 @@ export const AppConfig = {
   apiUrl: `${API_URL}`,
   version: APP_VERSION,
   appTitle: APP_TITLE,
+  clientId: CLIENT_ID,
 };
 
 export const OidcConfig = {

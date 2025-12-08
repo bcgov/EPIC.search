@@ -2,7 +2,7 @@ import { Cancel, Search as SearchIcon, Settings, FilterList, Psychology, SmartTo
 import { Box, Container, Typography, Tooltip, IconButton, Chip, Menu, MenuItem, ListItemIcon, ListItemText } from "@mui/material";
 import { InputBase } from "@mui/material";
 import { Paper } from "@mui/material";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { BCDesignTokens } from "epic.theme";
 import { useEffect, useState } from "react";
 import { useSearchQuery, SearchStrategy, SearchRequest } from "@/hooks/useSearch";
@@ -20,6 +20,7 @@ import { LocationControl } from "@/components/Location";
 import { SearchMode } from "@/hooks/useSearch";
 import FeedbackModal from "@/components/App/Feedback/FeedbackModal";
 import { ThumbUp, ThumbDown } from "@mui/icons-material";
+import { useRoles } from "@/hooks/useRoles";
 
 export const Route = createFileRoute("/search")({
   component: Search,
@@ -46,7 +47,6 @@ function Search() {
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
-  const [searchStrategy, setSearchStrategy] = useState<SearchStrategy | undefined>(getStoredSearchStrategy());
   const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [selectedDocumentTypeIds, setSelectedDocumentTypeIds] = useState<string[]>([]);
@@ -58,6 +58,19 @@ function Search() {
 
   const { isLoading: projectsLoading, isError: projectsError, data: allProjects } = useProjects();
   const { data: allDocTypes } = useDocumentTypeMappings(selectedDocumentTypeIds.length > 0);
+
+  const { isAdmin, isViewer } = useRoles();
+
+  const [searchStrategy, setSearchStrategy] = useState<SearchStrategy | undefined>(() => {
+    const stored = getStoredSearchStrategy();
+
+    // Viewer: always default to HYBRID_PARALLEL
+    if (isViewer) return "HYBRID_PARALLEL";
+
+    // Admin: use stored value or undefined
+    return stored;
+  });
+
 
   const onSuccess = (data: SearchResponse) => {
     try {
@@ -125,16 +138,20 @@ function Search() {
     
     const searchRequest: SearchRequest = {
       query: searchText,
-      ...(searchStrategy && { searchStrategy }),
+      searchStrategy: isViewer ? 'HYBRID_PARALLEL' : searchStrategy,
       ...(selectedProjectIds.length > 0 && { projectIds: selectedProjectIds }),
       ...(selectedDocumentTypeIds.length > 0 && { documentTypeIds: selectedDocumentTypeIds }),
       ...(rankingConfig.useCustomRanking && {
         ranking: {
-          minScore: scoreSettings[rankingConfig.scoreSetting],
-          topN: resultsSettings[rankingConfig.resultsSetting]
+          minScore: scoreSettings[
+            isViewer ? "FLEXIBLE" : rankingConfig.scoreSetting
+          ],
+          topN: resultsSettings[
+            isViewer ? "MEDIUM" : rankingConfig.resultsSetting
+          ],
         }
       }),
-      mode: searchMode
+      mode: isViewer ? 'agent' : searchMode,
     };
     doSearch(searchRequest);
   };
@@ -218,6 +235,10 @@ function Search() {
     </Box>;
   }
 
+  if (!isAdmin && !isViewer) {
+      return <Navigate to="/unauthorized" />;
+  }
+
   return (
     <Container maxWidth="lg" sx={{ mt: 1 }}>
       <Typography
@@ -255,24 +276,26 @@ function Search() {
           },
         }}
       >
-        <Tooltip title={`${getModeLabel(searchMode)}: ${getModeDescription(searchMode)}`}>
-          <IconButton
-            onClick={handleModeMenuOpen}
-            sx={{
-              mr: 1,
-              borderRadius: "12px",
-              minWidth: "48px",
-              height: "48px",
-              color: BCDesignTokens.iconsColorSuccess,
-              backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-              "&:hover": {
+        {isAdmin &&
+          <Tooltip title={`${getModeLabel(searchMode)}: ${getModeDescription(searchMode)}`}>
+            <IconButton
+              onClick={handleModeMenuOpen}
+              sx={{
+                mr: 1,
+                borderRadius: "12px",
+                minWidth: "48px",
+                height: "48px",
+                color: BCDesignTokens.iconsColorSuccess,
                 backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-              },
-            }}
-          >
-            {getModeIcon(searchMode)}
-          </IconButton>
-        </Tooltip>
+                "&:hover": {
+                  backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
+                },
+              }}
+            >
+              {getModeIcon(searchMode)}
+            </IconButton>
+          </Tooltip>
+        }
         
         <Menu
           anchorEl={modeMenuAnchor}
@@ -412,17 +435,19 @@ function Search() {
             <FilterList sx={{ fontSize: 24, color: BCDesignTokens.themeGray60 }} />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Search Configuration">
-          <IconButton
-            type="button"
-            sx={{ p: "10px" }}
-            aria-label="search configuration"
-            size="large"
-            onClick={() => setConfigModalOpen(true)}
-          >
-            <Settings sx={{ fontSize: 24, color: BCDesignTokens.themeGray60 }} />
-          </IconButton>
-        </Tooltip>
+        {isAdmin &&
+          <Tooltip title="Search Configuration">
+            <IconButton
+              type="button"
+              sx={{ p: "10px" }}
+              aria-label="search configuration"
+              size="large"
+              onClick={() => setConfigModalOpen(true)}
+            >
+              <Settings sx={{ fontSize: 24, color: BCDesignTokens.themeGray60 }} />
+            </IconButton>
+          </Tooltip>
+        }
         {isPending ? (
           <Tooltip title="Cancel search">
             <IconButton
@@ -515,16 +540,20 @@ function Search() {
       )}
 
       {/* Location Control */}
-      <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'center' }}>
-        <LocationControl showInSearch />
-      </Box>
+      {isAdmin &&
+        <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'center' }}>
+          <LocationControl showInSearch />
+        </Box>
+      }
 
-      <SearchConfigModal
-        open={configModalOpen}
-        onClose={() => setConfigModalOpen(false)}
-        currentStrategy={searchStrategy}
-        onSave={handleSaveSearchStrategy}
-      />
+      {isAdmin &&
+        <SearchConfigModal
+          open={configModalOpen}
+          onClose={() => setConfigModalOpen(false)}
+          currentStrategy={searchStrategy}
+          onSave={handleSaveSearchStrategy}
+        />
+      }
       <FilterModal
         open={filterModalOpen}
         onClose={() => setFilterModalOpen(false)}

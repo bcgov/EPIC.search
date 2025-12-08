@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router'
 // Import Routes
 
 import { Route as rootRoute } from './routes/__root'
+import { Route as UnauthorizedImport } from './routes/unauthorized'
 import { Route as TestNoAuthImport } from './routes/test-no-auth'
 import { Route as StatsImport } from './routes/stats'
 import { Route as SearchImport } from './routes/search'
@@ -41,6 +42,11 @@ const AboutLazyRoute = AboutLazyImport.update({
   path: '/about',
   getParentRoute: () => rootRoute,
 } as any).lazy(() => import('./routes/about.lazy').then((d) => d.Route))
+
+const UnauthorizedRoute = UnauthorizedImport.update({
+  path: '/unauthorized',
+  getParentRoute: () => rootRoute,
+} as any)
 
 const TestNoAuthRoute = TestNoAuthImport.update({
   path: '/test-no-auth',
@@ -143,6 +149,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TestNoAuthImport
       parentRoute: typeof rootRoute
     }
+    '/unauthorized': {
+      id: '/unauthorized'
+      path: '/unauthorized'
+      fullPath: '/unauthorized'
+      preLoaderRoute: typeof UnauthorizedImport
+      parentRoute: typeof rootRoute
+    }
     '/about': {
       id: '/about'
       path: '/about'
@@ -208,6 +221,7 @@ export const routeTree = rootRoute.addChildren({
   SearchRoute,
   StatsRoute,
   TestNoAuthRoute,
+  UnauthorizedRoute,
   AboutLazyRoute,
   NewpageLazyRoute,
   EaoPlansPlanIdRoute,
@@ -228,6 +242,7 @@ export const routeTree = rootRoute.addChildren({
         "/search",
         "/stats",
         "/test-no-auth",
+        "/unauthorized",
         "/about",
         "/newpage",
         "/eao-plans/$planId",
@@ -256,6 +271,9 @@ export const routeTree = rootRoute.addChildren({
     },
     "/test-no-auth": {
       "filePath": "test-no-auth.tsx"
+    },
+    "/unauthorized": {
+      "filePath": "unauthorized.tsx"
     },
     "/about": {
       "filePath": "about.lazy.tsx"

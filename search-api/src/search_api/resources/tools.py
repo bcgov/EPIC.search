@@ -21,7 +21,7 @@ API = Namespace("tools", description="Tools and metadata endpoints")
 @API.route("/projects", methods=["GET", "OPTIONS"])
 class ProjectsList(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Get lightweight list of all projects")
     def get():
         """Get a lightweight list of all projects with IDs and names."""
@@ -58,7 +58,7 @@ class ProjectsList(Resource):
 @API.route("/document-types", methods=["GET", "OPTIONS"])
 class DocumentTypes(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Get all document types with metadata and aliases")
     def get():
         """Get all document types with names, aliases, and grouped legacy format."""
@@ -95,7 +95,7 @@ class DocumentTypes(Resource):
 @API.route("/document-types/<string:type_id>", methods=["GET", "OPTIONS"])
 class DocumentTypeDetails(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Get detailed information for a specific document type")
     def get(type_id):
         """Get detailed information for a specific document type including aliases."""
@@ -133,7 +133,7 @@ class DocumentTypeDetails(Resource):
 @API.route("/search-strategies", methods=["GET", "OPTIONS"])
 class SearchStrategies(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Get available search strategies for search configuration")
     def get():
         """Get all available search strategies that can be used for query configuration."""
@@ -171,7 +171,7 @@ class SearchStrategies(Resource):
 @API.route("/inference-options", methods=["GET", "OPTIONS"])
 class InferenceOptions(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Get available ML inference options and capabilities")
     def get():
         """Get all available ML inference options and capabilities for intelligent search."""
@@ -208,7 +208,7 @@ class InferenceOptions(Resource):
 @API.route("/api-capabilities", methods=["GET", "OPTIONS"])
 class ApiCapabilities(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Get complete API metadata and capabilities")
     def get():
         """Get comprehensive API metadata for adaptive clients and frontend integration."""

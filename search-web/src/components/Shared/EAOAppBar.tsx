@@ -7,8 +7,11 @@ import { BCDesignTokens } from "epic.theme";
 import { Link } from "@tanstack/react-router";
 import useAuth from "@/hooks/useAuth";
 import { LocationControl } from "@/components/Location";
+import { useRoles } from "@/hooks/useRoles";
+import { useNavigate } from "@tanstack/react-router";
 
 export default function EAOAppBar() {
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading, user, login, logout } = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
@@ -24,6 +27,8 @@ export default function EAOAppBar() {
     handleUserMenuClose();
     await logout();
   };
+
+  const { isAdmin, isViewer } = useRoles();
 
   return (
     <>
@@ -63,23 +68,30 @@ export default function EAOAppBar() {
             {/* Stats & Metrics Button - only show when authenticated */}
             {isAuthenticated && (
               <>
-                <LocationControl compact />
-                <Link to="/stats">
-                  <Button
-                    variant="outlined"
-                    startIcon={<BarChart />}
-                    sx={{ 
-                      borderColor: BCDesignTokens.themePrimaryBlue,
-                      color: BCDesignTokens.themePrimaryBlue,
-                      '&:hover': {
-                        borderColor: BCDesignTokens.themeBlue70,
-                        backgroundColor: BCDesignTokens.themeBlue10,
-                      }
-                    }}
-                  >
-                    Stats & Metrics
-                  </Button>
-                </Link>
+                {isAdmin &&
+                  <LocationControl compact />
+                }
+                <Button
+                  variant="outlined"
+                  startIcon={<BarChart />}
+                  sx={{
+                    borderColor: BCDesignTokens.themePrimaryBlue,
+                    color: BCDesignTokens.themePrimaryBlue,
+                    '&:hover': {
+                      borderColor: BCDesignTokens.themeBlue70,
+                      backgroundColor: BCDesignTokens.themeBlue10,
+                    },
+                  }}
+                  onClick={() => {
+                    if (isAdmin || isViewer) {
+                      navigate({ to: "/stats" });
+                    } else {
+                      navigate({ to: "/unauthorized" });
+                    }
+                  }}
+                >
+                  Stats & Metrics
+                </Button>
               </>
             )}
 
