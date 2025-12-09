@@ -115,7 +115,7 @@ class DocumentDownload(Resource):
         current_app.logger.info("DocumentDownload resource initialized")    
     
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="View a document from S3 (supports PDF, Word, Excel, images, and text files)")    
     @API.param('key', 'The S3 key of the document to view (URL encoded)')
     @API.param('file_name', 'The filename to display in the browser (URL encoded)')

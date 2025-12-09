@@ -16,7 +16,7 @@ import logging
 from functools import wraps
 from http import HTTPStatus
 
-from flask import g, request, jsonify
+from flask import g, request, current_app
 from flask_jwt_oidc import JwtManager
 from flask_jwt_oidc.exceptions import AuthError
 
@@ -65,6 +65,35 @@ class Auth:  # pylint: disable=too-few-public-methods
 
         return decorated
 
+
+    @classmethod
+    def requires_epic_search_role(cls, allowed_roles=None):
+        """
+        Decorator to allow only users with specified Epic Search roles.
+
+        Args:
+            allowed_roles (list[str], optional): List of allowed roles. Defaults to ["viewer", "admin"].
+        """
+        if allowed_roles is None:
+            allowed_roles = ["viewer", "admin"]
+
+        def decorator(f):
+            @cls.require  # Ensure user is authenticated first
+            @wraps(f)
+            def wrapper(*args, **kwargs):
+                token_info = g.token_info or {}
+                app_name = current_app.config.get("JWT_OIDC_AUDIENCE")
+                roles = token_info.get("resource_access", {}).get(app_name, {}).get("roles", [])
+
+                if not any(role in allowed_roles for role in roles):
+                    return {
+                        "error": "Forbidden",
+                        "message": "User does not have permission to access this endpoint"
+                    }, HTTPStatus.FORBIDDEN
+
+                return f(*args, **kwargs)
+            return wrapper
+        return decorator
 
 auth = (
     Auth()

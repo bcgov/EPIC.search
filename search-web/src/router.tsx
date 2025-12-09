@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "react-oidc-context";
 import { routeTree } from "@/routeTree.gen";
 import { OidcConfig } from "@/utils/config";
 import { LocationProvider } from "@/contexts/LocationContext";
+import { AuthRolesProvider } from "@/contexts/AuthContext";
 
 // Create a new router instance
 const router = createRouter({
@@ -24,7 +25,9 @@ function RouterWithAuth() {
   
   return (
     <LocationProvider>
-      <RouterProvider router={router} context={{ authentication: auth }} />
+      <AuthRolesProvider>
+        <RouterProvider router={router} context={{ authentication: auth }} />
+      </AuthRolesProvider>
     </LocationProvider>
   )
 }

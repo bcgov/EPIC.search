@@ -83,7 +83,7 @@ export const getStoredSearchMode = (): SearchMode => {
   } catch (error) {
     console.warn("Failed to read search mode from localStorage:", error);
   }
-  return 'rag'; // Default to RAG mode
+  return 'agent'; // Default to RAG mode
 };
 
 export const setStoredSearchMode = (mode: SearchMode): void => {

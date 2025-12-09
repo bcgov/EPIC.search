@@ -52,7 +52,7 @@ feedback_model = ApiHelper.convert_ma_schema_to_restx_model(
 class Search(Resource):
     """Resource for search."""    
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Search Query")
     @API.expect(search_request_model)
     @API.response(400, "Bad Request")
@@ -131,7 +131,7 @@ class Search(Resource):
 @API.route("/document-similarity", methods=["POST", "OPTIONS"])
 class DocumentSimilaritySearch(Resource):
     @staticmethod
-    @auth.require
+    @auth.requires_epic_search_role(["viewer", "admin"])
     @ApiHelper.swagger_decorators(API, endpoint_description="Find documents similar to a specific document using document-level embeddings (new endpoint).")
     @API.expect(similar_request_model)
     def post():
