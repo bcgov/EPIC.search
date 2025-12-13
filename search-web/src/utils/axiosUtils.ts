@@ -116,9 +116,7 @@ client.interceptors.response.use(
           authority: OidcConfig.authority,
           client_id: OidcConfig.client_id,
           redirect_uri: OidcConfig.redirect_uri,
-          response_type: OidcConfig.response_type,
           scope: OidcConfig.scope,
-          automaticSilentRenew: OidcConfig.automaticSilentRenew,
           silent_redirect_uri: window.location.origin + '/silent-renew.html',
           silentRequestTimeoutInSeconds: 10
         });
