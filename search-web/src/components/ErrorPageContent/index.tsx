@@ -14,9 +14,9 @@ export default function ErrorPage() {
   return (
     <Container id="Error">
       <Paper
-        elevation={3}
+        elevation={0}
         sx={{
-          padding: "1rem",
+          padding: "6rem",
           marginTop: "2rem",
           textAlign: "center",
         }}

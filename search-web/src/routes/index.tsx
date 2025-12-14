@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button, Paper } from "@mui/material";
+import { useNavigate } from "@tanstack/react-router";
 import { useAuth } from "react-oidc-context";
 import { OidcConfig } from "@/utils/config";
 
@@ -7,8 +9,10 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-function Index() { 
+function Index() {
   const auth = useAuth();
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
 
   const handleLogin = () => {
     auth.signinRedirect({
@@ -16,6 +20,12 @@ function Index() {
       prompt: "login",
     });
   };
+  // If user is already authenticated, immediately go to /search
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate({ to: "/search" });
+    }
+  }, [isAuthenticated, navigate]);
 
   return (
     <>

@@ -1,37 +1,46 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import useAuth from "@/hooks/useAuth";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { useAuth } from "react-oidc-context";
 import { getUserRolesFromToken } from "@/utils";
 
-interface AuthRolesContextType {
-  roles: string[];
-  refreshRoles: () => void;
+export interface RoleContext {
+  roles: string[] | null; // null = loading, [] = loaded, no roles
+  isAdmin: boolean;
+  isViewer: boolean;
+  hasAnyRole: boolean;
 }
 
-const AuthRolesContext = createContext<AuthRolesContextType>({
-  roles: [],
-  refreshRoles: () => {},
+const AuthRolesContext = createContext<RoleContext>({
+  roles: null,
+  isAdmin: false,
+  isViewer: false,
+  hasAnyRole: false,
 });
 
-export const AuthRolesProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { rawUser, getAccessToken } = useAuth();
-  const [roles, setRoles] = useState<string[]>([]);
-
-  const refreshRoles = () => {
-    const token = getAccessToken();
-    const userRoles = getUserRolesFromToken(token ?? undefined);
-    setRoles(userRoles);
-  };
+export function AuthRolesProvider({ children }: { children: ReactNode }) {
+  const auth = useAuth();
+  const [roles, setRoles] = useState<string[] | null>(null);
 
   useEffect(() => {
-    // refresh roles whenever user changes (after login)
-    refreshRoles();
-  }, [rawUser]);
+    if (auth.isAuthenticated) {
+      const token = auth.user?.access_token;
+      const parsedRoles = token ? getUserRolesFromToken(token) : [];
+      setRoles(parsedRoles);
+    } else {
+      setRoles(null);
+    }
+  }, [auth.isAuthenticated, auth.user]);
+
+  const isAdmin = roles?.includes("admin") ?? false;
+  const isViewer = roles?.includes("viewer") ?? false;
+  const hasAnyRole = (roles?.length ?? 0) > 0;
 
   return (
-    <AuthRolesContext.Provider value={{ roles, refreshRoles }}>
+    <AuthRolesContext.Provider value={{ roles, isAdmin, isViewer, hasAnyRole }}>
       {children}
     </AuthRolesContext.Provider>
   );
-};
+}
 
-export const useRolesContext = () => useContext(AuthRolesContext);
+export function useRoles() {
+  return useContext(AuthRolesContext);
+}
