@@ -13,18 +13,18 @@ import {
   Paper,
   Button,
 } from "@mui/material";
-import FilterListIcon from '@mui/icons-material/FilterList';
 import CloseIcon from '@mui/icons-material/Close';
 import {
   Search as SearchIcon,
   ExpandLess,
   ExpandMore,
   ChevronLeft,
+  ChevronRight,
 } from "@mui/icons-material";
-import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
-import { useProjects } from "@/hooks/useProjects";
 
 interface FilterSidebarProps {
+  rawProjects: any[];
+  rawDocTypes: any;
   selectedProjects: string[];
   selectedDocTypes: string[];
   onProjectToggle: (projectId: string) => void;
@@ -34,12 +34,9 @@ interface FilterSidebarProps {
   onCollapseToggle?: () => void;
 }
 
-interface NormalizedProject {
-  id: string;
-  name: string;
-}
-
 export function FilterSidebar({
+  rawProjects,
+  rawDocTypes,
   selectedProjects,
   selectedDocTypes,
   onProjectToggle,
@@ -48,19 +45,13 @@ export function FilterSidebar({
   collapsed = false,
   onCollapseToggle,
 }: FilterSidebarProps) {
-  const { data: rawProjects, isLoading: loadingProjects, isError: projectError } = useProjects();
-  const {
-    data: rawDocTypes,
-    isLoading: loadingDocTypes,
-    isError: docTypeError,
-  } = useDocumentTypeMappings();
   const [projectSearch, setProjectSearch] = useState("");
   const [docTypeSearch, setDocTypeSearch] = useState("");
   const [expandedActs, setExpandedActs] = useState<string[]>(["2018", "2002"]);
   const isCollapsed = collapsed;
 
-  const projectList: NormalizedProject[] = useMemo(() => {
-    return (rawProjects ?? []).map((p: any) => ({
+  const projectList = useMemo(() => {
+    return rawProjects.map((p: any) => ({
       id: p.project_id,
       name: p.project_name,
     }));
@@ -135,7 +126,7 @@ export function FilterSidebar({
             size="small"
             sx={isCollapsed ? { ml: 1 } : undefined}
             >
-            {isCollapsed ? <FilterListIcon /> : <ChevronLeft />}
+            {isCollapsed ? <ChevronRight /> : <ChevronLeft />}
         </IconButton>
       </Box>
         {!isCollapsed && (

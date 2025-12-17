@@ -11,7 +11,7 @@ import {
   ListItemIcon,
   ListItemText
 } from "@mui/material";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { FilterSidebar } from '../components/App/Filters/FilterSideBar';
 import { BCDesignTokens } from "epic.theme";
 import { useRoles } from "@/contexts/AuthContext";
@@ -27,6 +27,9 @@ import SearchSkelton from "@/components/App/Search/SearchSkelton";
 import SearchResult from "@/components/App/Search/SearchResult";
 import { ThumbUp, ThumbDown } from "@mui/icons-material";
 import FeedbackModal from "@/components/App/Feedback/FeedbackModal";
+import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
+import { useProjects } from "@/hooks/useProjects";
+import { PageLoader } from "@/components/PageLoader";
 
 const SIDEBAR_WIDTH = 280;
 const COLLAPSED_WIDTH = 56;
@@ -52,6 +55,13 @@ export const Route = createFileRoute("/search")({
 });
 
 function Search() {
+  const { data: rawProjects, isLoading: loadingProjects, isError: projectError } = useProjects();
+  const {
+    data: rawDocTypes,
+    isLoading: loadingDocTypes,
+    isError: docTypeError,
+  } = useDocumentTypeMappings();
+
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       const raw = localStorage.getItem("collapsed");
@@ -262,6 +272,10 @@ function Search() {
     }
   }, [searchText]);
 
+
+  if (loadingProjects || loadingDocTypes) return <PageLoader />;
+  if (projectError || docTypeError) return <Navigate to="/error" />;
+
   return (
     <Box
       sx={{
@@ -286,6 +300,8 @@ function Search() {
         }}
       >
         <FilterSidebar
+          rawProjects={rawProjects ?? []}
+          rawDocTypes={rawDocTypes}
           selectedProjects={selectedProjects}
           selectedDocTypes={selectedDocTypes}
           onProjectToggle={handleProjectToggle}
