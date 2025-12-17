@@ -18,6 +18,8 @@ import { Route as TestNoAuthImport } from './routes/test-no-auth'
 import { Route as StatsImport } from './routes/stats'
 import { Route as SearchImport } from './routes/search'
 import { Route as OidcCallbackImport } from './routes/oidc-callback'
+import { Route as LogoutImport } from './routes/logout'
+import { Route as ErrorImport } from './routes/error'
 import { Route as AuthenticatedImport } from './routes/_authenticated'
 import { Route as IndexImport } from './routes/index'
 import { Route as EaoPlansIndexImport } from './routes/eao-plans/index'
@@ -65,6 +67,16 @@ const SearchRoute = SearchImport.update({
 
 const OidcCallbackRoute = OidcCallbackImport.update({
   path: '/oidc-callback',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const LogoutRoute = LogoutImport.update({
+  path: '/logout',
+  getParentRoute: () => rootRoute,
+} as any)
+
+const ErrorRoute = ErrorImport.update({
+  path: '/error',
   getParentRoute: () => rootRoute,
 } as any)
 
@@ -119,6 +131,20 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: ''
       preLoaderRoute: typeof AuthenticatedImport
+      parentRoute: typeof rootRoute
+    }
+    '/error': {
+      id: '/error'
+      path: '/error'
+      fullPath: '/error'
+      preLoaderRoute: typeof ErrorImport
+      parentRoute: typeof rootRoute
+    }
+    '/logout': {
+      id: '/logout'
+      path: '/logout'
+      fullPath: '/logout'
+      preLoaderRoute: typeof LogoutImport
       parentRoute: typeof rootRoute
     }
     '/oidc-callback': {
@@ -217,6 +243,8 @@ export const routeTree = rootRoute.addChildren({
     AuthenticatedStatsRoute,
     AuthenticatedUsersIndexRoute,
   }),
+  ErrorRoute,
+  LogoutRoute,
   OidcCallbackRoute,
   SearchRoute,
   StatsRoute,
@@ -238,6 +266,8 @@ export const routeTree = rootRoute.addChildren({
       "children": [
         "/",
         "/_authenticated",
+        "/error",
+        "/logout",
         "/oidc-callback",
         "/search",
         "/stats",
@@ -259,6 +289,12 @@ export const routeTree = rootRoute.addChildren({
         "/_authenticated/stats",
         "/_authenticated/users/"
       ]
+    },
+    "/error": {
+      "filePath": "error.tsx"
+    },
+    "/logout": {
+      "filePath": "logout.tsx"
     },
     "/oidc-callback": {
       "filePath": "oidc-callback.tsx"

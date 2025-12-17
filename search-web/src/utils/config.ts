@@ -33,13 +33,7 @@ export const OidcConfig = {
   client_id: CLIENT_ID,
   redirect_uri: `${APP_URL}/oidc-callback`,
   post_logout_redirect_uri: `${APP_URL}/`,
-  response_type: "code",
   scope: "openid profile email",
   revokeTokensOnSignout: true,
-  automaticSilentRenew: true,
-  loadUserInfo: false,
-  monitorSession: true,
-  checkSessionInterval: 30000, // Check every 30 seconds
-  silentRequestTimeoutInSeconds: 10,
-  accessTokenExpiringNotificationTimeInSeconds: 60, // Notify 1 minute before expiration
+  extraQueryParams: { kc_idp_hint: "idir" },
 };
