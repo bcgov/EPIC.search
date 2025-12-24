@@ -110,10 +110,11 @@ export function FilterSidebar({
       <Box
         sx={{
           display: "flex",
+          flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
           paddingTop: "20px",
-          height: "100%",
+          width: "100%",
         }}
       >
         {!isCollapsed && (

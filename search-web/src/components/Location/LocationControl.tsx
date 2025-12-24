@@ -1,336 +1,96 @@
-import React, { useState } from 'react';
-import {
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  IconButton,
-  Switch,
-  FormControlLabel,
-  Typography,
-  Alert,
-  CircularProgress,
-  Tooltip
-} from '@mui/material';
-import {
-  LocationOn,
-  LocationOff,
-  MyLocation,
-  Refresh,
-  Close
-} from '@mui/icons-material';
+import React from 'react';
+import { Box, Typography, Switch, CircularProgress, IconButton, Tooltip, Alert } from '@mui/material';
+import { LocationOn, Refresh, LocationOff } from '@mui/icons-material';
 import { useLocation } from '@/contexts/LocationContext';
 
-interface LocationControlProps {
-  showInSearch?: boolean;
-  compact?: boolean;
-}
-
-const LocationControl: React.FC<LocationControlProps> = ({ 
-  showInSearch = false, 
-  compact = false 
-}) => {
+const LocationControl: React.FC = () => {
   const {
     locationData,
     isLoading,
     error,
-    hasPermission,
     isLocationEnabled,
     requestLocation,
     clearLocation,
     setLocationEnabled,
-    refreshLocation
+    refreshLocation,
   } = useLocation();
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const handleLocationToggle = async () => {
+  const handleToggle = async () => {
     if (!isLocationEnabled) {
       setLocationEnabled(true);
-      if (hasPermission !== false) {
-        await requestLocation();
-      }
+      await requestLocation(); // force prompt on user click
     } else {
       setLocationEnabled(false);
+      clearLocation();
     }
   };
 
   const getLocationDisplay = () => {
     if (!locationData) return null;
-    
-    if (locationData.city && locationData.region) {
-      return `${locationData.city}, ${locationData.region}`;
-    } else if (locationData.city) {
-      return locationData.city;
-    } else if (locationData.region) {
-      return locationData.region;
-    } else {
-      return `${locationData.latitude.toFixed(2)}, ${locationData.longitude.toFixed(2)}`;
-    }
+    if (locationData.city && locationData.region) return `${locationData.city}, ${locationData.region}`;
+    return `${locationData.latitude.toFixed(2)}, ${locationData.longitude.toFixed(2)}`;
   };
-
-  const LocationChip = () => {
-    if (!isLocationEnabled) {
-      return (
-        <Chip
-          icon={<LocationOff />}
-          label="Location Off"
-          variant="outlined"
-          size="small"
-          onClick={() => setSettingsOpen(true)}
-        />
-      );
-    }
-
-    if (isLoading) {
-      return (
-        <Chip
-          icon={<CircularProgress size={16} />}
-          label="Getting Location..."
-          variant="outlined"
-          size="small"
-        />
-      );
-    }
-
-    if (error) {
-      return (
-        <Chip
-          icon={<LocationOff />}
-          label="Location Error"
-          color="error"
-          variant="outlined"
-          size="small"
-          onClick={() => setSettingsOpen(true)}
-        />
-      );
-    }
-
-    if (locationData) {
-      return (
-        <Chip
-          icon={<LocationOn />}
-          label={getLocationDisplay()}
-          color="primary"
-          variant="outlined"
-          size="small"
-          onClick={() => setSettingsOpen(true)}
-          onDelete={compact ? undefined : clearLocation}
-        />
-      );
-    }
-
-    // isLocationEnabled is true but no locationData yet - need to request location
-    if (isLocationEnabled) {
-      return (
-        <Chip
-          icon={<MyLocation />}
-          label="Request Location"
-          variant="outlined"
-          size="small"
-          onClick={handleLocationToggle}
-        />
-      );
-    }
-
-    // Fallback - location not enabled
-    return (
-      <Chip
-        icon={<MyLocation />}
-        label="Enable Location"
-        variant="outlined"
-        size="small"
-        onClick={handleLocationToggle}
-      />
-    );
-  };
-
-  if (compact) {
-    return (
-      <>
-        <LocationChip />
-        <LocationSettingsDialog 
-          open={settingsOpen} 
-          onClose={() => setSettingsOpen(false)} 
-        />
-      </>
-    );
-  }
 
   return (
-    <Box display="flex" alignItems="center" gap={1}>
-      {showInSearch && (
-        <Typography variant="body2" color="text.secondary">
-          Location:
-        </Typography>
-      )}
-      
-      <LocationChip />
-      
-      {isLocationEnabled && locationData && (
-        <Tooltip title="Refresh location">
-          <IconButton 
-            size="small" 
-            onClick={refreshLocation}
-            disabled={isLoading}
+    <Box display="flex" flexDirection="column" gap={1}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          px: 2,
+          py: 1.25,
+          borderRadius: "8px",
+          cursor: "pointer",
+          minHeight: "45px",
+          backgroundColor: isLocationEnabled ? "#F1F8FE" : "#F3F4F6",
+          transition: "background-color 0.2s ease",
+          "&:hover": {
+            backgroundColor: isLocationEnabled ? "#E6F2FD" : "#E5E7EB",
+          },
+        }}
+        onClick={handleToggle}
+      >
+        {isLocationEnabled ? <LocationOn sx={{ fontSize: 20, color: "#013366" }} />
+        : <LocationOff sx={{ fontSize: 20, color: "#6B7280" }} />}
+        <Box sx={{ display: "flex", flexDirection: "column", flex: 1 }}>
+          <Typography
+            sx={{
+              fontSize: "0.875rem", // text-sm
+              fontWeight: 400,
+              color: isLocationEnabled ? "#013366" : "#374151",
+              lineHeight: 1.3,
+            }}
           >
-            <Refresh />
-          </IconButton>
-        </Tooltip>
-      )}
-
-      <LocationSettingsDialog 
-        open={settingsOpen} 
-        onClose={() => setSettingsOpen(false)} 
-      />
-    </Box>
-  );
-};
-
-interface LocationSettingsDialogProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-const LocationSettingsDialog: React.FC<LocationSettingsDialogProps> = ({ open, onClose }) => {
-  const {
-    locationData,
-    isLoading,
-    error,
-    hasPermission,
-    isLocationEnabled,
-    requestLocation,
-    clearLocation,
-    setLocationEnabled,
-    refreshLocation
-  } = useLocation();
-
-  const handleEnableLocation = async () => {
-    setLocationEnabled(true);
-    await requestLocation();
-  };
-
-  const handleDisableLocation = () => {
-    setLocationEnabled(false);
-    clearLocation();
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Box display="flex" alignItems="center" gap={1}>
-            <LocationOn />
-            Location Settings
-          </Box>
-          <IconButton onClick={onClose} size="small">
-            <Close />
-          </IconButton>
-        </Box>
-      </DialogTitle>
-      
-      <DialogContent>
-        <Box display="flex" flexDirection="column" gap={2}>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={isLocationEnabled}
-                onChange={(e) => setLocationEnabled(e.target.checked)}
-              />
-            }
-            label="Use my location for search"
-          />
-
-          <Typography variant="body2" color="text.secondary">
-            Enable location to get more relevant search results for "near me" queries. 
-            Your location is only used for search and is not stored on our servers.
+            Use my location for nearby results
           </Typography>
+          <Typography
+            sx={{
+              fontSize: "0.75rem", // text-xs
+              fontWeight: 400,
+              color: "#6B7280",
+            }}
+          >
+            Your location is only used for search and not stored
+          </Typography>
+        </Box>
+        <Switch checked={isLocationEnabled} onChange={handleToggle} color="primary" onClick={e => e.stopPropagation()} />
+      </Box>
 
-          {error && (
-            <Alert severity="error">
-              {error}
-              {hasPermission === false && (
-                <Box mt={1}>
-                  <Typography variant="body2">
-                    Please allow location access in your browser settings and try again.
-                  </Typography>
-                </Box>
-              )}
-            </Alert>
-          )}
-
-          {isLocationEnabled && locationData && (
-            <Box>
-              <Typography variant="subtitle2" gutterBottom>
-                Current Location:
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {locationData.city && `${locationData.city}, `}
-                {locationData.region && `${locationData.region}, `}
-                {locationData.country}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Last updated: {new Date(locationData.timestamp).toLocaleString()}
-              </Typography>
-            </Box>
-          )}
-
-          {isLocationEnabled && !locationData && !isLoading && !error && (
-            <Alert severity="info">
-              Click "Request Location" to detect your current location.
-            </Alert>
+      {isLocationEnabled && (
+        <Box display="flex" alignItems="center" gap={1}>
+          {isLoading && <CircularProgress size={16} />}
+          {locationData && <Typography variant="body2" color="text.secondary">{getLocationDisplay()}</Typography>}
+          {locationData && (
+            <Tooltip title="Refresh location">
+              <IconButton size="small" onClick={refreshLocation} disabled={isLoading}><Refresh /></IconButton>
+            </Tooltip>
           )}
         </Box>
-      </DialogContent>
+      )}
 
-      <DialogActions>
-        <Button onClick={onClose}>
-          Close
-        </Button>
-        
-        {isLocationEnabled && (
-          <>
-            {locationData && (
-              <Button 
-                onClick={refreshLocation} 
-                disabled={isLoading}
-                startIcon={isLoading ? <CircularProgress size={16} /> : <Refresh />}
-              >
-                Refresh
-              </Button>
-            )}
-            
-            {!locationData && !error && (
-              <Button 
-                onClick={requestLocation} 
-                disabled={isLoading}
-                variant="contained"
-                startIcon={isLoading ? <CircularProgress size={16} /> : <MyLocation />}
-              >
-                Request Location
-              </Button>
-            )}
-            
-            <Button onClick={handleDisableLocation} color="error">
-              Disable Location
-            </Button>
-          </>
-        )}
-
-        {!isLocationEnabled && (
-          <Button 
-            onClick={handleEnableLocation} 
-            variant="contained"
-            startIcon={<LocationOn />}
-          >
-            Enable Location
-          </Button>
-        )}
-      </DialogActions>
-    </Dialog>
+      {error && <Alert severity="error">{error}</Alert>}
+    </Box>
   );
 };
 

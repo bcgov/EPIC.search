@@ -104,82 +104,38 @@ const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultPro
       {/* AI Summary Section */}
       <Box
         sx={{
-          width: "calc(100% - 32px)",
-          mt: 1,
-          mb: 3,
-          background: BCDesignTokens.themeBlue10,
-          padding: 2,
-          borderRadius: "16px",
-          position: "relative",
-          overflow: "hidden",
-          "&::before": {
-            content: '""',
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            borderRadius: "16px",
-            padding: "3px",
-            background: `linear-gradient(45deg, ${BCDesignTokens.themeBlue60}, ${BCDesignTokens.themeGold50})`,
-            WebkitMask:
-              "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
-            WebkitMaskComposite: "xor",
-            maskComposite: "exclude",
-            pointerEvents: "none",
-          },
-          boxShadow: "0 0 4px rgba(62, 216, 255, 0.5)",
-          animation: "glowing 2s ease-in-out infinite alternate",
-          "@keyframes glowing": {
-            "0%": {
-              boxShadow: "0 0 4px rgba(63, 212, 249, 0.66)",
-            },
-            "100%": {
-              boxShadow: "0 0 8px rgba(233, 239, 45, 0.8)",
-            },
-          },
+          mb: 6,
+          border: '1px solid',
+          borderColor: BCDesignTokens.themeBlue50,
+          backgroundColor: BCDesignTokens.themeBlue10,
+          borderRadius: "8px",
+          p: 2,
         }}
       >
-        <Typography variant="body1">
-          {searchResults.result.response}
-        </Typography>
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: "bold",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: 1,
-          }}
-        >
-          {searchMode === 'rag' && (
-            <>
-              <CategoryTwoTone color="primary" /> 
-              Search Results {hasDocumentChunks && hasDocuments ? "(Documents & Chunks)" : hasDocumentChunks ? "(Document Chunks)" : "(Documents)"}
-            </>
-          )}
-          {searchMode !== 'rag' && (
-            <Box
-              sx={{
-                ml: 1,
-                px: 1,
-                py: 0.5,
-                backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
-                color: BCDesignTokens.iconsColorSuccess,
-                borderRadius: "12px",
-                fontSize: "0.7rem",
-                fontWeight: "bold",
-                display: "flex",
-                alignItems: "center",
-                gap: 0.5,
-              }}
-            >
-              <AutoAwesomeTwoTone sx={{ fontSize: 12 }} />
-              AI MODE
-            </Box>
-          )}
-        </Typography>
+        <Box display="flex" alignItems="flex-start" gap={2}>
+          {/* Icon on the left */}
+          <Box mt={0.5} flexShrink={0}>
+            {searchMode === 'rag' ? (
+              <CategoryTwoTone sx={{ fontSize: 20, color: 'primary.main' }} />
+            ) : (
+              <AutoAwesomeTwoTone sx={{ fontSize: 30, color: BCDesignTokens.themeBlue80 }} />
+            )}
+          </Box>
+
+          {/* Main content */}
+          <Box flex={1}>
+              <Typography
+                component="p"
+                sx={{
+                  color: '#374151', // Tailwind's text-gray-700
+                  fontSize: '0.875rem', // text-sm
+                  lineHeight: 1.625, // leading-relaxed
+                }}
+              >
+              {searchResults.result.response}
+            </Typography>
+          </Box>
+        </Box>
       </Box>
 
       {/* Render Document Chunks if they exist */}
@@ -228,17 +184,16 @@ const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultPro
               }}
             >
               <Typography
-                variant="h4"
+                variant="h3"
                 sx={{
                   pb: 1,
-                  color: BCDesignTokens.themeBlue80,
+                  color: BCDesignTokens.themeBlue100,
                   display: "flex",
                   alignItems: "center",
                   gap: 1,
                 }}
                 aria-label={`Project ${projectId}`}
               >
-                <CategoryTwoTone />
                 {projectGroup.projectName}
               </Typography>
               
@@ -260,7 +215,7 @@ const SearchResult = ({ searchResults, searchText, searchMode }: SearchResultPro
                         md={6}
                         lg={4}
                         key={`chunk-${chunkIndex}`}
-                        sx={{ display: "flex" }}
+                        sx={{ display: "flex", marginLeft: '50px' }}
                       >
                         <SearchDocumentCard
                           document={chunk}
