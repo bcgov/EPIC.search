@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Cancel, Search as SearchIcon, Settings, Psychology, SmartToy, Summarize, FindInPage } from "@mui/icons-material";
+import { Cancel, Search as SearchIcon, Settings, Psychology, AutoAwesomeTwoTone, Summarize, FindInPage } from "@mui/icons-material";
 import {
   Box,
+  Grid,
   Typography,
   Paper,
-  Tooltip,
+  Tooltip, 
   IconButton,
   Menu,
   MenuItem,
@@ -21,8 +22,9 @@ import { InputBase } from "@mui/material";
 import { useSearchQuery, SearchStrategy, SearchRequest } from "@/hooks/useSearch";
 import { SearchResponse } from "@/models/Search";
 import { LocationControl } from "@/components/Location";
+import { FeedbackControl } from "@/components/App/Feedback";
 import SearchConfigModal from "@/components/App/Search/SearchConfigModal";
-import SearchLanding from "@/components/App/Search/SearchLanding";
+import SearchLandingAccordion from "@/components/App/Search/SearchLanding";
 import SearchSkelton from "@/components/App/Search/SearchSkelton";
 import SearchResult from "@/components/App/Search/SearchResult";
 import { ThumbUp, ThumbDown } from "@mui/icons-material";
@@ -165,7 +167,7 @@ function Search() {
       case 'ai':
         return <Psychology sx={{ fontSize: 24 }} />;
       case 'agent':
-        return <SmartToy sx={{ fontSize: 24 }} />;
+        return <AutoAwesomeTwoTone sx={{ fontSize: 24, color: BCDesignTokens.themeBlue100 }} />;
       case 'summary':
         return <Summarize sx={{ fontSize: 24 }} />;
       default:
@@ -280,7 +282,8 @@ function Search() {
     <Box
       sx={{
         display: "flex",
-        height: "100%",
+        flexDirection: "row",
+        minHeight: "100vh",
         width: "100%",
         paddingTop: "60px",
       }}
@@ -290,13 +293,10 @@ function Search() {
         sx={{
           width: collapsed ? COLLAPSED_WIDTH : SIDEBAR_WIDTH,
           minWidth: collapsed ? COLLAPSED_WIDTH : SIDEBAR_WIDTH,
-          height: "100%",
-          minHeight: "calc(100vh - 60px)",
-          backgroundColor: "#F1F8FE",
+          backgroundColor: `${BCDesignTokens.themeBlue10}`,
           display: "flex",
           flexDirection: "column",
           borderRight: "1px solid rgba(0,0,0,0.12)",
-          overflow: "hidden",
         }}
       >
         <FilterSidebar
@@ -325,22 +325,21 @@ function Search() {
             variant="h2"
             sx={{
               mb: 0,
-              mt: 2,
-              textAlign: "center",
+              textAlign: "left",
             }}
           >
             Document Search
           </Typography>
           <Typography
-            variant="body1"
-            sx={{ mb: 4, textAlign: "center" }}
+            variant="body2"
+            sx={{ mt: 1, mb: 4, textAlign: "left", color: BCDesignTokens.themeGray80, fontSize: "16px" }}
           >
             Search for documents by entering a keyword or phrase below.
           </Typography>
           <Paper
             component="form"
             sx={{
-              borderRadius: "16px",
+              borderRadius: "8px",
               display: "flex",
               alignItems: "center",
               padding: "8px 16px",
@@ -365,7 +364,6 @@ function Search() {
                     minWidth: "48px",
                     height: "48px",
                     color: BCDesignTokens.iconsColorSuccess,
-                    backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
                     "&:hover": {
                       backgroundColor: BCDesignTokens.supportSurfaceColorSuccess,
                     },
@@ -480,7 +478,7 @@ function Search() {
                 }}
               >
                 <ListItemIcon sx={{ minWidth: '36px' }}>
-                  <SmartToy sx={{ fontSize: 20, color: BCDesignTokens.themePrimaryBlue }} />
+                  <AutoAwesomeTwoTone sx={{ fontSize: 20, color: BCDesignTokens.themeBlue100 }} />
                 </ListItemIcon>
                 <ListItemText 
                   primary="Agent Search"
@@ -570,12 +568,20 @@ function Search() {
               </Tooltip>
             )}
           </Paper>
-          {/* Location Control */}
-          {isAdmin &&
-            <Box sx={{ mt: 2, mb: 1, display: 'flex', justifyContent: 'center' }}>
-              <LocationControl showInSearch />
-            </Box>
-          }
+          <Grid
+            container
+            spacing={2}
+            alignItems="stretch"
+            sx={{ mt: 2, mb: 1 }}
+          >
+            <Grid item xs={12} md={6}>
+              <FeedbackControl />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <LocationControl />
+            </Grid>
+          </Grid>
           {isAdmin &&
             <SearchConfigModal
               open={configModalOpen}
@@ -589,11 +595,11 @@ function Search() {
               mt: 2,
               display: "flex",
               flexDirection: "column",
-              alignContent: "center",
-              alignItems: "center",
+              alignContent: "left",
+              alignItems: "left",
             }}
           >
-            {!searchResults && !isPending && !error && <SearchLanding />}
+            {!searchResults && !isPending && !error && <SearchLandingAccordion />}
             {isPending && <SearchSkelton />}
             {error && (
               <Box 

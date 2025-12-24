@@ -1,8 +1,9 @@
-import { Box, Typography, Button, Tooltip } from "@mui/material";
+import { Box, Typography, Tooltip, IconButton } from "@mui/material";
 import { BCDesignTokens } from "epic.theme";
 import { Document } from "@/models/Search";
-import { DescriptionTwoTone, FindInPage, Business } from "@mui/icons-material";
+import { DescriptionTwoTone, FindInPage, Business, OpenInNew } from "@mui/icons-material";
 import FileLink from "@/components/Shared/FileLink";
+import DocumentTypeChip, { getDocumentTypeIconColor } from "@/components/Shared/DocumentTypeChip";
 
 interface SearchDocumentGroupHeaderProps {
   document: Document;
@@ -26,140 +27,111 @@ const SearchDocumentGroupHeader = ({ document, onSimilarSearch }: SearchDocument
     <Box
       sx={{
         mb: 2,
-        background: BCDesignTokens.themeGray10,
+        background: BCDesignTokens.themeBlue10,
         padding: 2,
         borderRadius: 2,
         border: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
         position: "relative",
       }}
     >
-      <FileLink
-        s3Key={document.s3_key || null}
-        fileName={document.document_saved_name}
-        projectId={document.project_id}
-        documentName={document.document_name}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+        }}
       >
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 2,
-            cursor: "pointer",
-            "&:hover": {
-              "& .document-icon": {
-                color: BCDesignTokens.themeBlue80,
-              },
-              "& .document-title": {
-                color: BCDesignTokens.themeBlue80,
-              },
-            },
+        <DescriptionTwoTone
+          className="document-icon"
+          sx={{ 
+            fontSize: 25,
+            color: getDocumentTypeIconColor(document.document_type),
+            mb: "40px",
           }}
-        >
-          <DescriptionTwoTone
-            className="document-icon"
-            color="primary"
-            sx={{ 
-              fontSize: 32,
+        />
+        <Box sx={{ flex: 1 }}>
+          <Typography
+            className="document-title"
+            variant="body1"
+            sx={{
+              fontWeight: 400,
+              lineHeight: 1.2,
               transition: "color 0.2s ease",
             }}
-          />
-          <Box sx={{ flex: 1 }}>
-            <Typography
-              className="document-title"
-              variant="h6"
-              sx={{
-                color: BCDesignTokens.themeGray80,
-                fontWeight: 600,
-                lineHeight: 1.2,
-                transition: "color 0.2s ease",
-              }}
-            >
-              {document.document_display_name}
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{
-                color: BCDesignTokens.themeGray60,
-                fontWeight: 400,
-                fontSize: "0.85rem",
-                fontStyle: "italic",
-                mt: 0.25,
-              }}
-            >
-              {document.document_name}
-            </Typography>
-            {document.document_type && (
-              <Typography
-                variant="caption"
+          >
+            {document.document_display_name}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              color: BCDesignTokens.themeGray70,
+              fontWeight: 400,
+              fontSize: "0.85rem",
+              mt: 0.25,
+            }}
+          >
+            {document.document_name}
+          </Typography>
+          {document.document_type && (
+            <Box sx={{ mt: 0.5 }}>
+              <DocumentTypeChip documentType={document.document_type} />
+            </Box>
+          )}
+        </Box>
+      </Box>
+
+      <Box sx={{ position: "absolute", top: 12, right: 12, display: "flex", alignItems: "center" }}>
+        {document.s3_key && (
+          <FileLink
+            s3Key={document.s3_key}
+            fileName={document.document_saved_name}
+            projectId={document.project_id}
+            documentName={document.document_name}
+          >
+            <Tooltip title="Open document in a new tab">
+              <IconButton
+                size="small"
                 sx={{
-                  color: BCDesignTokens.themeGray70,
-                  fontWeight: 500,
-                  fontSize: "0.75rem",
-                  mt: 0.25,
-                  backgroundColor: BCDesignTokens.themeGray20,
-                  borderRadius: 1,
-                  padding: "1px 6px",
-                  display: "inline-block",
+                  backgroundColor: BCDesignTokens.themeBlue10,
+                  "&:hover": { backgroundColor: BCDesignTokens.themeGray40 },
                 }}
               >
-                {document.document_type}
-              </Typography>
-            )}
-          </Box>
-        </Box>
-      </FileLink>
-      
-      {onSimilarSearch && (
-        <Box
-          sx={{
-            position: "absolute",
-            top: 8,
-            right: 8,
-            display: "flex",
-            gap: 0.5,
-            flexDirection: "row",
-          }}
-        >
-          <Tooltip title="Find similar documents in this project only">
-            <Button
-              size="small"
-              variant="outlined"
-              color="secondary"
-              onClick={handleSimilarThisProject}
-              sx={{
-                fontSize: "0.6rem",
-                padding: "4px",
-                minWidth: "auto",
-                backgroundColor: "rgba(255, 255, 255, 0.95)",
-                "&:hover": {
-                  backgroundColor: "rgba(255, 255, 255, 1)",
-                },
-              }}
-            >
-              <Business sx={{ fontSize: 16 }} />
-            </Button>
-          </Tooltip>
-          <Tooltip title="Find similar documents across all projects">
-            <Button
-              size="small"
-              variant="outlined"
-              color="primary"
-              onClick={handleSimilarAllProjects}
-              sx={{
-                fontSize: "0.6rem",
-                padding: "4px",
-                minWidth: "auto",
-                backgroundColor: "rgba(255, 255, 255, 0.95)",
-                "&:hover": {
-                  backgroundColor: "rgba(255, 255, 255, 1)",
-                },
-              }}
-            >
-              <FindInPage sx={{ fontSize: 16 }} />
-            </Button>
-          </Tooltip>
-        </Box>
-      )}
+                <OpenInNew sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </FileLink>
+        )}
+        {onSimilarSearch && (
+          <>
+            <Tooltip title="Find similar documents in this project only">
+              <IconButton
+                size="small"
+                sx={{
+                  backgroundColor: BCDesignTokens.themeBlue10,
+                  "&:hover": { backgroundColor: BCDesignTokens.themeGray40 },
+                  color: 'secondary.main',
+                }}
+                onClick={handleSimilarThisProject}
+              >
+                <Business sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Find similar documents across all projects">
+              <IconButton
+                size="small"
+                sx={{
+                  backgroundColor: BCDesignTokens.themeBlue10,
+                  "&:hover": { backgroundColor: BCDesignTokens.themeGray40 },
+                  color: 'primary.main',
+                }}
+                onClick={handleSimilarAllProjects}
+              >
+                <FindInPage sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </>
+        )}
+      </Box>
     </Box>
   );
 };

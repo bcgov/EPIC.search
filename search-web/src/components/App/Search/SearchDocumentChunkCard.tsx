@@ -65,11 +65,10 @@ const SearchDocumentChunkCard = ({
   return (
     <Box
       sx={{
-        my: 1,
-        background: BCDesignTokens.themeBlue10,
+        border: `1px solid ${BCDesignTokens.surfaceColorBorderDefault}`,
         padding: 2,
         borderRadius: 2,
-        height: expanded ? "auto" : 260,
+        height: expanded ? "auto" : 180,
         display: "flex",
         flexDirection: "column",
         whiteSpace: "normal",
@@ -84,12 +83,10 @@ const SearchDocumentChunkCard = ({
             position: "absolute",
             top: 8,
             right: 8,
-            backgroundColor: "rgba(255, 255, 255, 0.95)",
-            "&:hover": {
-              backgroundColor: "rgba(255, 255, 255, 1)",
-            },
+            "&:hover": { backgroundColor: BCDesignTokens.themeGray40 },
             width: 32,
             height: 32,
+            padding: 3,
           }}
         >          
           <FileLink
@@ -105,25 +102,25 @@ const SearchDocumentChunkCard = ({
       </Tooltip>
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-        <DescriptionTwoTone color="primary" sx={{ fontSize: 20 }} />
         <Chip
           size="small"
-          color="primary"
           variant="outlined"
           label={`Page ${document.page_number}`}
+          icon={<DescriptionTwoTone sx={{ fontSize: 20, color: BCDesignTokens.themeBlue80 }} />}
           sx={{
-            fontWeight: "bold",
             my: 0.75,
             borderRadius: 1.5,
+            display: "flex",
+            alignItems: "center",
+            backgroundColor: BCDesignTokens.themeGray20,
+            border: `1px solid #FFF`,
+            padding: 1,
           }}
         />
       </Box>
       <Box
         sx={{
           position: "relative",
-          overflow: "hidden",
-          height: expanded ? "auto" : "150px",
-          transition: "height 0.3s ease",
           flex: 1,
         }}
       >
@@ -131,40 +128,36 @@ const SearchDocumentChunkCard = ({
           ref={contentRef}
           variant="body2"
           color={BCDesignTokens.themeGray80}
+          sx={{
+            display: "-webkit-box",
+            WebkitLineClamp: expanded ? "none" : 5,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
         >
-          " {highlightSearchText(document.content, searchText)} "
+          {highlightSearchText(document.content, searchText)}
         </Typography>
-        {!expanded && contentOverflows && (
-          <Box
-            sx={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: "50px",
-              background:
-                "linear-gradient(transparent, rgba(230, 242, 255, 0.9))",
-            }}
-          />
-        )}
       </Box>
-      {contentOverflows && (
-        <Box sx={{ display: "flex", justifyContent: "center" }}>
-          <Button
-            variant="text"
-            size="small"
-            onClick={toggleExpand}
-            sx={{
-              color: BCDesignTokens.themeBlue80,
-              "&:hover": {
-                backgroundColor: "rgba(85, 149, 217, 0.1)",
-              },
-            }}
-          >
-            {expanded ? "Read Less" : "Read More"}
-          </Button>
-        </Box>
-      )}
+        {contentOverflows && (
+          <Box sx={{ display: "flex", justifyContent: "left" }}>
+            <Typography
+              component="a"
+              onClick={toggleExpand}
+              sx={{
+                cursor: "pointer",
+                color: BCDesignTokens.themeBlue100,
+                fontSize: "0.875rem",
+                "&:hover": {
+                  color: BCDesignTokens.themeBlue80,
+                },
+                paddingTop: 1,
+              }}
+            >
+              {expanded ? "Read Less" : "Read More"}
+            </Typography>
+          </Box>
+        )}
     </Box>
   );
 };
