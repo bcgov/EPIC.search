@@ -382,25 +382,29 @@ class Feedback(Resource):
         try:
             data = request.get_json() or {}
             session_id = data.get("sessionId")
-            feedback = data.get("feedback")
-            comments = data.get("comments")
-
-            if not session_id or not feedback:
+            if not session_id:
                 return Response(
-                    response=json.dumps({"error": "sessionId and feedback are required"}),
+                    response=json.dumps({"error": "sessionId is required"}),
                     status=HTTPStatus.BAD_REQUEST,
                     mimetype="application/json"
                 )
 
+            # Optional feedback fields
             updated = ToolsService.update_feedback(
                 session_id=session_id,
-                feedback=feedback,
-                comments=comments
+                feedback=data.get("feedback"),
+                comments=data.get("comments"),
+                summary_helpful=data.get("summary_helpful"),
+                summary_accurate=data.get("summary_accurate"),
+                doc_helpful=data.get("doc_helpful"),
+                doc_accurate=data.get("doc_accurate"),
+                summary_improvement=data.get("summary_improvement"),
+                doc_improvement=data.get("doc_improvement"),
             )
 
             if not updated:
                 return Response(
-                    response=json.dumps({"error": "No feedback record found for the given sessionId"}),
+                    response=json.dumps({"error": "No feedback record found or no fields updated"}),
                     status=HTTPStatus.BAD_REQUEST,
                     mimetype="application/json"
                 )
@@ -408,6 +412,14 @@ class Feedback(Resource):
             return Response(
                 response=json.dumps({"message": "Feedback updated successfully"}),
                 status=HTTPStatus.OK,
+                mimetype="application/json"
+            )
+
+        except ValueError as ve:
+            # For validation errors (e.g. slider range)
+            return Response(
+                response=json.dumps({"error": str(ve)}),
+                status=HTTPStatus.BAD_REQUEST,
                 mimetype="application/json"
             )
 

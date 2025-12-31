@@ -14,6 +14,27 @@ def ensure_primary_key(conn, table, pk_column):
         conn.commit()
     else:
         print(f"Primary key already exists for {table}.")
+
+def ensure_search_feedback_columns(conn):
+    """
+    Ensure new feedback columns exist on search_feedback table.
+    """
+    from sqlalchemy import text
+
+    print("Ensuring search_feedback feedback columns exist...")
+
+    conn.execute(text("""
+        ALTER TABLE search_feedback
+        ADD COLUMN IF NOT EXISTS summary_helpful INTEGER,
+        ADD COLUMN IF NOT EXISTS summary_accurate INTEGER,
+        ADD COLUMN IF NOT EXISTS doc_helpful INTEGER,
+        ADD COLUMN IF NOT EXISTS doc_accurate INTEGER,
+        ADD COLUMN IF NOT EXISTS summary_improvement TEXT,
+        ADD COLUMN IF NOT EXISTS doc_improvement TEXT;
+    """))
+
+    conn.commit()
+
 from .vector_store import VectorStore
 from sqlalchemy.orm import sessionmaker
 
@@ -138,6 +159,9 @@ def init_vec_db(skip_hnsw=False):
         ensure_primary_key(conn, 'projects', 'project_id')
         ensure_primary_key(conn, 'processing_logs', 'id')
         ensure_primary_key(conn, 'search_feedback', 'id')
+
+        ensure_search_feedback_columns(conn)
+        
         create_index(conn,
             """CREATE INDEX IF NOT EXISTS idx_documents_metadata_type_id 
             ON documents ((document_metadata->>'document_type_id'));""",

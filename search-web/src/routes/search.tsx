@@ -27,8 +27,6 @@ import SearchConfigModal from "@/components/App/Search/SearchConfigModal";
 import SearchLandingAccordion from "@/components/App/Search/SearchLanding";
 import SearchSkelton from "@/components/App/Search/SearchSkelton";
 import SearchResult from "@/components/App/Search/SearchResult";
-import { ThumbUp, ThumbDown } from "@mui/icons-material";
-import FeedbackModal from "@/components/App/Feedback/FeedbackModal";
 import { useDocumentTypeMappings } from "@/hooks/useDocumentTypeMappings";
 import { useProjects } from "@/hooks/useProjects";
 import { PageLoader } from "@/components/PageLoader";
@@ -88,8 +86,6 @@ function Search() {
   const [feedbackSessionId, setFeedbackSessionId] = useState<string | null>(null);
   const [rankingConfig, setRankingConfig] = useState<RankingConfig>(getStoredRankingConfig());
   const [configModalOpen, setConfigModalOpen] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackType, setFeedbackType] = useState<'up' | 'down' | null>(null);
 
   const { isAdmin, isViewer } = useRoles();
 
@@ -260,11 +256,6 @@ function Search() {
       mode: isViewer ? 'agent' : searchMode,
     };
     doSearch(searchRequest);
-  };
-
-  const handleFeedbackClick = (type: 'up' | 'down') => {
-    setFeedbackType(type);
-    setFeedbackOpen(true);
   };
 
   useEffect(() => {
@@ -575,7 +566,7 @@ function Search() {
             sx={{ mt: 2, mb: 1 }}
           >
             <Grid item xs={12} md={6}>
-              <FeedbackControl />
+              <FeedbackControl sessionId={feedbackSessionId ?? undefined}/>
             </Grid>
 
             <Grid item xs={12} md={6}>
@@ -631,52 +622,6 @@ function Search() {
               />
             )}
           </Box>
-          {/* Feedback Modal */}
-          {isSuccess && searchResults?.result && (
-            <Box
-              sx={{
-                position: 'fixed',
-                bottom: 24,
-                right: 24,
-                zIndex: 2000,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                p: 1.5,
-                borderRadius: 2,
-                backgroundColor: BCDesignTokens.themeBlue10,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-              }}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                Was this search helpful?
-              </Typography>
-              <Tooltip title="Yes, this was helpful">
-                <IconButton
-                  size="small"
-                  color="success"
-                  onClick={() => handleFeedbackClick('up')}
-                >
-                  <ThumbUp fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="No, this was not helpful">
-                <IconButton
-                  size="small"
-                  color="error"
-                  onClick={() => handleFeedbackClick('down')}
-                >
-                  <ThumbDown fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          )}
-          <FeedbackModal
-            sessionId={feedbackSessionId ?? undefined}
-            open={feedbackOpen}
-            onClose={() => setFeedbackOpen(false)}
-            initialFeedback={feedbackType}
-          />
         </Paper>
       </Box>
     </Box>

@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { OnErrorType, OnSuccessType, request } from "@/utils/axiosUtils";
 
-export type FeedbackValue = "useful" | "not_useful" | "neutral";
+export type FeedbackValue = "up" | "down";
 
 export interface FeedbackRequest {
   sessionId?: string;
@@ -9,7 +9,12 @@ export interface FeedbackRequest {
   projectIds?: string[];
   documentTypeIds?: string[];
   feedback?: FeedbackValue;
-  comments?: string;
+  summaryHelpful?: number;
+  summaryAccurate?: number;
+  docHelpful?: number;
+  docAccurate?: number;
+  summaryImprovement?: string;
+  docImprovement?: string;
 }
 
 export interface FeedbackResponse {

@@ -1,67 +1,88 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Box, Typography, IconButton } from '@mui/material';
 import { ThumbUp, ThumbDown } from '@mui/icons-material';
+import FeedbackModal from './FeedbackModal';
 
 interface FeedbackControlProps {
-  onFeedbackClick?: (type: 'positive' | 'negative') => void;
+  sessionId?: string;
 }
 
-const FeedbackControl: React.FC<FeedbackControlProps> = ({ onFeedbackClick }) => {
+const FeedbackControl: React.FC<FeedbackControlProps> = ({ sessionId }) => {
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<'up' | 'down' | null>(null);
+
+  const handleFeedbackClick = (type: 'up' | 'down') => {
+    setFeedbackType(type);
+    setFeedbackOpen(true);
+  };
+
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1.5,
-        px: 2,
-        py: 1.5,
-        borderRadius: "8px",
-        backgroundColor: '#FEF8E8',
-        flex: 1,
-        minHeight: "42px",
-      }}
-    >
-      {/* Feedback Text */}
-      <Typography
+    <>
+      <Box
         sx={{
-          fontSize: '0.875rem', // text-sm
-          color: '#374151', // gray-700
-          fontWeight: 400,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          px: 2,
+          py: 1.5,
+          borderRadius: '8px',
+          backgroundColor: '#FEF8E8',
           flex: 1,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
+          minHeight: '42px',
         }}
       >
-        Please provide us your feedback on this search.
-      </Typography>
+        {/* Feedback Text */}
+        <Typography
+          sx={{
+            fontSize: '0.875rem',
+            color: '#374151',
+            fontWeight: 400,
+            flex: 1,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          Please provide us your feedback on this search.
+        </Typography>
 
-      {/* Positive Feedback */}
-      <IconButton
-        size="small"
-        onClick={() => onFeedbackClick?.('positive')}
-        sx={{
-          p: 1,
-          '&:hover': { backgroundColor: '#F3F4F6' }, // gray-100 hover
-          flexShrink: 0,
-        }}
-      >
-        <ThumbUp sx={{ fontSize: 20, color: '#4B5563' }} /> {/* gray-600 */}
-      </IconButton>
+        {/* Positive Feedback */}
+        <IconButton
+          size="small"
+          onClick={() => handleFeedbackClick('up')}
+          sx={{
+            p: 1,
+            '&:hover': { backgroundColor: '#F3F4F6' },
+            flexShrink: 0,
+          }}
+        >
+          <ThumbUp sx={{ fontSize: 20, color: '#4B5563' }} />
+        </IconButton>
 
-      {/* Negative Feedback */}
-      <IconButton
-        size="small"
-        onClick={() => onFeedbackClick?.('negative')}
-        sx={{
-          p: 1,
-          '&:hover': { backgroundColor: '#F3F4F6' },
-          flexShrink: 0,
-        }}
-      >
-        <ThumbDown sx={{ fontSize: 20, color: '#4B5563' }} />
-      </IconButton>
-    </Box>
+        {/* Negative Feedback */}
+        <IconButton
+          size="small"
+          onClick={() => handleFeedbackClick('down')}
+          sx={{
+            p: 1,
+            '&:hover': { backgroundColor: '#F3F4F6' },
+            flexShrink: 0,
+          }}
+        >
+          <ThumbDown sx={{ fontSize: 20, color: '#4B5563' }} />
+        </IconButton>
+      </Box>
+
+      {/* Feedback Modal */}
+      {feedbackType && (
+        <FeedbackModal
+          sessionId={sessionId}
+          isOpen={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+          feedbackType={feedbackType}
+        />
+      )}
+    </>
   );
 };
 
