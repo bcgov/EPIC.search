@@ -280,10 +280,53 @@ class FeedbackSchema(Schema):
         metadata={"description": "Feedback session ID for the search query"}
     )
     feedback = fields.Str(
-        required=True,
-        metadata={"description": "User feedback value (e.g., 'useful', 'not_useful')"}
+        required=False,
+        validate=validate.OneOf(
+            ["up", "down",]
+        ),
+        metadata={"description": "Overall feedback value"}
     )
     comments = fields.Str(
         required=False,
-        metadata={"description": "Optional comments from the user"}
+        metadata={"description": "Optional general comments from the user"}
+    )
+
+    summary_helpful = fields.Int(
+        required=False,
+        data_key="summaryHelpful",
+        validate=validate.Range(min=1, max=5),
+        metadata={"description": "How helpful the AI summary was (1-5)"}
+    )
+
+    summary_accurate = fields.Int(
+        required=False,
+        data_key="summaryAccurate",
+        validate=validate.Range(min=1, max=5),
+        metadata={"description": "How accurate the AI summary was (1-5)"}
+    )
+
+    doc_helpful = fields.Int(
+        required=False,
+        data_key="docHelpful",
+        validate=validate.Range(min=1, max=5),
+        metadata={"description": "How helpful the document search results were (1-5)"}
+    )
+
+    doc_accurate = fields.Int(
+        required=False,
+        data_key="docAccurate",
+        validate=validate.Range(min=1, max=5),
+        metadata={"description": "How accurate the document search results were (1-5)"}
+    )
+
+    summary_improvement = fields.Str(
+        required=False,
+        data_key="summaryImprovement",
+        metadata={"description": "Suggestions to improve the AI summary"}
+    )
+
+    doc_improvement = fields.Str(
+        required=False,
+        data_key="docImprovement",
+        metadata={"description": "Suggestions to improve document search results"}
     )

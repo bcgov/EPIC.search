@@ -246,7 +246,12 @@ class Feedback(Resource):
 
             session_id = data.get("sessionId")
             feedback = data.get("feedback")
-            comments = data.get("comments")
+            summary_helpful = data.get("summaryHelpful")
+            summary_accurate = data.get("summaryAccurate")
+            doc_helpful = data.get("docHelpful")
+            doc_accurate = data.get("docAccurate")
+            summary_improvement = data.get("summaryImprovement")
+            doc_improvement = data.get("docImprovement")
 
             if not session_id or not feedback:
                 return Response(
@@ -258,7 +263,12 @@ class Feedback(Resource):
             success = VectorSearchClient.update_feedback(
                 session_id=session_id,
                 feedback=feedback,
-                comments=comments
+                summary_helpful=summary_helpful,
+                summary_accurate=summary_accurate,
+                doc_helpful=doc_helpful,
+                doc_accurate=doc_accurate,
+                summary_improvement=summary_improvement,
+                doc_improvement=doc_improvement
             )
 
             if success:

@@ -291,7 +291,18 @@ class ToolsService:
             return None
 
     @classmethod
-    def update_feedback(cls, session_id: str, feedback: str, comments: Optional[str] = None) -> bool:
+    def update_feedback(
+        cls,
+        session_id: str,
+        feedback: Optional[str] = None,
+        comments: Optional[str] = None,
+        summary_helpful: Optional[int] = None,
+        summary_accurate: Optional[int] = None,
+        doc_helpful: Optional[int] = None,
+        doc_accurate: Optional[int] = None,
+        summary_improvement: Optional[str] = None,
+        doc_improvement: Optional[str] = None,
+    ) -> bool:
         """
         Update an existing feedback record based on session_id using raw SQL.
 
@@ -299,17 +310,39 @@ class ToolsService:
             bool: True if update succeeded, False otherwise
         """
         try:
-            update_query = """
+            fields = []
+            values = []
+
+            def add(field_name, value):
+                if value is not None:
+                    fields.append(f"{field_name} = %s")
+                    values.append(value)
+
+            add("feedback", feedback)
+            add("comments", comments)
+            add("summary_helpful", summary_helpful)
+            add("summary_accurate", summary_accurate)
+            add("doc_helpful", doc_helpful)
+            add("doc_accurate", doc_accurate)
+            add("summary_improvement", summary_improvement)
+            add("doc_improvement", doc_improvement)
+
+            if not fields:
+                logging.warning("No feedback fields provided for update")
+                return False
+
+            update_query = f"""
                 UPDATE search_feedback
-                SET feedback = %s,
-                    comments = %s
+                SET {", ".join(fields)}
                 WHERE session_id = %s;
             """
+
+            values.append(session_id)
 
             conn_params = current_app.vector_settings.database_url
             with psycopg.connect(conn_params) as conn:
                 with conn.cursor() as cur:
-                    cur.execute(update_query, (feedback, comments, session_id))
+                    cur.execute(update_query, values)
                     if cur.rowcount == 0:
                         logging.warning(f"No feedback record found for session {session_id}")
                         return False

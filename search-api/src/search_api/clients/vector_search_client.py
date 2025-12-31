@@ -47,6 +47,7 @@ The vector API uses both parameters:
 
 import os
 import requests
+from typing import Optional
 from flask import current_app
 from ..utils.cache import cache_with_ttl
 from ..utils.token_info import get_user_id
@@ -604,7 +605,17 @@ class VectorSearchClient:
             return None
 
     @staticmethod
-    def update_feedback(session_id: str, feedback: str, comments: str = None) -> bool:
+    def update_feedback(        
+        session_id: str,
+        feedback: Optional[str] = None,
+        comments: Optional[str] = None,
+        summary_helpful: Optional[int] = None,
+        summary_accurate: Optional[int] = None,
+        doc_helpful: Optional[int] = None,
+        doc_accurate: Optional[int] = None,
+        summary_improvement: Optional[str] = None,
+        doc_improvement: Optional[str] = None
+    ) -> bool:
         """
         Update an existing feedback session in the vector DB.
 
@@ -623,7 +634,13 @@ class VectorSearchClient:
             payload = {
                 "sessionId": session_id,
                 "feedback": feedback,
-                "comments": comments
+                "comments": comments,
+                "summary_helpful": summary_helpful,
+                "summary_accurate": summary_accurate,
+                "doc_helpful": doc_helpful,
+                "doc_accurate": doc_accurate,
+                "summary_improvement": summary_improvement,
+                "doc_improvement": doc_improvement,
             }
 
             current_app.logger.info(f"Updating feedback via PATCH {url} with payload: {payload}")
