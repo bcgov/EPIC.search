@@ -54,28 +54,75 @@ class AgentHandler(BaseSearchHandler):
         """
         start_time = time.time()
         current_app.logger.info("🤖 AGENT MODE: Starting complete agent processing...")
-        
+
+        # Stage timers — filled in as each stage completes
+        _agent_exec_ms = 0
+        _summary_ms = 0
+
         try:
-            # Call agent stub with all user-provided parameters
-            from search_api.services.search_handlers.agent.agent_stub import handle_agent_query
+            import os
             from search_api.services.generation.factories import LLMClientFactory
-            
+
             # Create LLM client for agent planning
             llm_client = LLMClientFactory.create_client()
-            
-            agent_result = handle_agent_query(
-                query=query,
-                reason="Agent mode requested",
-                llm_client=llm_client,
-                user_location=user_location,
-                project_ids=project_ids,
-                document_type_ids=document_type_ids,
-                search_strategy=search_strategy,
-                ranking=ranking,                
-                project_status=project_status,
-                years=years
-            )
-            
+
+            # Check if enhanced agent is enabled via environment variable
+            use_enhanced_agent = os.getenv("USE_ENHANCED_AGENT", "false").lower() == "true"
+
+            _agent_exec_start = time.time()
+            if use_enhanced_agent:
+                current_app.logger.info("🚀 AGENT MODE: Using ENHANCED agent with planning, evaluation, and refinement")
+
+                # Import enhanced agent components
+                from search_api.services.search_handlers.agent.enhanced_agent_wrapper import create_enhanced_agent
+                from search_api.services.search_handlers.agent.agent_stub import VectorSearchAgent
+
+                # Create base agent
+                base_agent = VectorSearchAgent(
+                    llm_client=llm_client,
+                    user_location=user_location,
+                    project_ids=project_ids,
+                    document_type_ids=document_type_ids,
+                    search_strategy=search_strategy,
+                    ranking=ranking,
+                    project_status=project_status,
+                    years=years
+                )
+
+                # Wrap with enhanced capabilities
+                enhanced_agent = create_enhanced_agent(base_agent, llm_client)
+
+                # Execute with enhancements
+                agent_result = enhanced_agent.execute_with_enhancements(
+                    query=query,
+                    reason="Agent mode requested",
+                    context={
+                        'discovered_project_ids': [],
+                        'discovered_document_type_ids': [],
+                        'project_name_to_id_mapping': {},
+                        'document_type_name_to_id_mapping': {},
+                        'search_results': []
+                    }
+                )
+            else:
+                current_app.logger.info("🤖 AGENT MODE: Using STANDARD agent")
+
+                # Use existing agent
+                from search_api.services.search_handlers.agent.agent_stub import handle_agent_query
+
+                agent_result = handle_agent_query(
+                    query=query,
+                    reason="Agent mode requested",
+                    llm_client=llm_client,
+                    user_location=user_location,
+                    project_ids=project_ids,
+                    document_type_ids=document_type_ids,
+                    search_strategy=search_strategy,
+                    ranking=ranking,
+                    project_status=project_status,
+                    years=years
+                )
+            _agent_exec_ms = round((time.time() - _agent_exec_start) * 1000, 2)
             current_app.logger.info("🤖 AGENT MODE: Agent processing completed successfully")
             
             # Handle validation failure - return early with suggested response
@@ -83,11 +130,18 @@ class AgentHandler(BaseSearchHandler):
                 current_app.logger.info("🤖 AGENT MODE: Query validation failed - returning early response")
                 total_time = round((time.time() - start_time) * 1000, 2)
                 metrics["total_time_ms"] = total_time
-                metrics["agent_processing_time_ms"] = total_time
+                metrics["agent_processing_time_ms"] = _agent_exec_ms
                 metrics["agent_stub_called"] = True
                 metrics["validation_failed"] = True
                 metrics["validation_result"] = agent_result.get("validation_result", {})
-                
+                metrics["timing"] = {
+                    "agent_execution_ms":    _agent_exec_ms,
+                    "summary_generation_ms": 0,
+                    "total_ms":              total_time,
+                    "speculative_used":      False,
+                    "cache_hit":             False,
+                    "mode":                  "agent",
+                }
                 return {
                     "result": {
                         "response": agent_result.get("suggested_response", "This query appears to be outside the scope of EAO's mandate. Please ask about environmental assessments, projects, or regulatory processes in British Columbia."),
@@ -178,6 +232,18 @@ class AgentHandler(BaseSearchHandler):
                 tool_suggestions = agent_result.get("tool_suggestions", [])
                 if tool_suggestions:
                     metrics["tool_suggestions"] = tool_suggestions
+
+                # Extracted parameters — what the AI pulled from the query
+                if "extracted_parameters" in agent_result:
+                    ep = agent_result["extracted_parameters"]
+                    metrics["extracted_parameters"] = {
+                        k: v for k, v in ep.items()
+                        if k != "user_location" and v not in (None, [], {}, "")
+                    }
+
+                # Method-level call trace
+                if "trace" in agent_result:
+                    metrics["trace"] = agent_result["trace"]
             
             # Extract consolidated results from agent
             agent_documents = []
@@ -196,7 +262,11 @@ class AgentHandler(BaseSearchHandler):
                     agent_document_chunks = agent_result.get("document_chunks", [])
                 
                 current_app.logger.info(f"🤖 AGENT MODE: Agent returned {len(agent_documents)} documents and {len(agent_document_chunks)} chunks")
-            
+                metrics["result_counts"] = {
+                    "documents": len(agent_documents),
+                    "chunks": len(agent_document_chunks),
+                }
+
             # Use agent-generated summary if available, otherwise generate fallback
             if agent_result and ("summary_result" in agent_result or "consolidated_summary" in agent_result):
                 if "consolidated_summary" in agent_result:
@@ -225,15 +295,16 @@ class AgentHandler(BaseSearchHandler):
             else:
                 # Fallback: generate summary if agent didn't include summarization step
                 current_app.logger.info("🤖 AGENT MODE: Agent summary not available, generating fallback summary...")
-                
+
                 try:
                     from search_api.services.generation.factories import SummarizerFactory
-                    
+
                     summarizer = SummarizerFactory.create_summarizer()
-                    
+
                     # Combine documents and chunks for summarization
                     all_results = agent_documents + agent_document_chunks
-                    
+
+                    _summary_start = time.time()
                     if all_results:
                         summary_result = summarizer.summarize_search_results(query, all_results)
                         final_response = summary_result.get("summary", "No summary available")
@@ -241,7 +312,8 @@ class AgentHandler(BaseSearchHandler):
                     else:
                         final_response = "The agent processing completed but no relevant documents were found."
                         current_app.logger.info("🤖 AGENT MODE: No results to summarize")
-                        
+                    _summary_ms = round((time.time() - _summary_start) * 1000, 2)
+
                     metrics["summary_generated"] = True
                     metrics["summary_method"] = "fallback_generation"
                     
@@ -250,10 +322,44 @@ class AgentHandler(BaseSearchHandler):
                     final_response = "The agent found relevant information but summary generation failed."
                     metrics["summary_error"] = str(e)
             
-            # Calculate final metrics
+            # Calculate final metrics and build timing breakdown
             total_time = round((time.time() - start_time) * 1000, 2)
             metrics["total_time_ms"] = total_time
-            
+            metrics["agent_processing_time_ms"] = _agent_exec_ms
+
+            # Pull per-step timings from agent result (populated by agent_stub)
+            _step = (agent_result or {}).get("step_timings", {})
+            _relevance_ms       = _step.get("relevance_check_ms", 0)
+            _param_extract_ms   = _step.get("parameter_extraction_ms", 0)
+            _vector_ms          = _step.get("vector_search_ms", 0)
+            _consolidation_ms   = _step.get("consolidation_ms", 0)
+            # summary_generation_ms: prefer the agent's own measurement; fall back to _summary_ms
+            # (which is only non-zero when the fallback summarizer ran instead)
+            _agent_summary_ms   = _step.get("summary_generation_ms", 0) or _summary_ms
+
+            metrics["timing"] = {
+                "agent_execution_ms":       _agent_exec_ms,
+                "relevance_check_ms":       _relevance_ms,
+                "parameter_extraction_ms":  _param_extract_ms,
+                "vector_search_ms":         _vector_ms,
+                "consolidation_ms":         _consolidation_ms,
+                "summary_generation_ms":    _agent_summary_ms,
+                "total_ms":                 total_time,
+                "speculative_used":         False,
+                "cache_hit":                False,
+                "mode":                     "agent",
+            }
+
+            current_app.logger.info(
+                f"⏱️ TIMING (agent) | "
+                f"relevance={_relevance_ms}ms | "
+                f"extract={_param_extract_ms}ms | "
+                f"search={_vector_ms}ms | "
+                f"consolidate={_consolidation_ms}ms | "
+                f"summary={_agent_summary_ms}ms | "
+                f"TOTAL={total_time}ms"
+            )
+
             # Return complete response (without full agent_result to avoid duplication)
             return {
                 "result": {
@@ -267,13 +373,22 @@ class AgentHandler(BaseSearchHandler):
                     "agent_processing": True
                 }
             }
-            
+
         except Exception as e:
             current_app.logger.error(f"🤖 AGENT MODE: Agent processing failed: {e}")
+            total_time = round((time.time() - start_time) * 1000, 2)
             metrics["agent_fallback"] = True
             metrics["agent_error"] = str(e)
-            metrics["total_time_ms"] = round((time.time() - start_time) * 1000, 2)
-            
+            metrics["total_time_ms"] = total_time
+            metrics["timing"] = {
+                "agent_execution_ms":    _agent_exec_ms,
+                "summary_generation_ms": 0,
+                "total_ms":              total_time,
+                "speculative_used":      False,
+                "cache_hit":             False,
+                "mode":                  "agent",
+            }
+
             # Return error response - fallback will be handled at higher level if needed
             return {
                 "result": {

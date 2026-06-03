@@ -1,7 +1,7 @@
 """OpenAI summarizer implementation."""
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Generator, List, Dict, Any, Optional
 from flask import current_app
 from .openai_client import OpenAIClient
 from ...abstractions.summarizer import Summarizer
@@ -22,29 +22,37 @@ class OpenAISummarizer(Summarizer):
         self.max_context_length = getattr(current_app.config, 'LLM_MAX_CONTEXT_LENGTH', 8192)
     
     def summarize_search_results(
-        self, 
-        query: str, 
+        self,
+        query: str,
         documents_or_chunks: List[Dict[str, Any]],
         search_context: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """Summarize search results using OpenAI.
-        
+
         Args:
             query: Original search query
             documents_or_chunks: List of document/chunk dictionaries
-            search_context: Additional context about the search
-            
+            search_context: Additional context about the search (may include project_metadata)
+
         Returns:
             Dict containing summarization result
         """
         try:
             logger.info(f"Summarizing {len(documents_or_chunks)} documents/chunks using OpenAI")
-            
+
+            # Build context string including project metadata if available
+            context = search_context.get('context') if search_context else None
+            project_metadata = search_context.get('project_metadata') if search_context else None
+
+            if project_metadata:
+                logger.info(f"Project metadata available for summary: {project_metadata.get('project_name', 'unknown')}")
+
             # Use the existing summarize_documents method
             summary_text = self.summarize_documents(
                 documents=documents_or_chunks,
                 query=query,
-                context=search_context.get('context') if search_context else None
+                context=context,
+                project_metadata=project_metadata
             )
             
             return {
@@ -71,43 +79,71 @@ class OpenAISummarizer(Summarizer):
         self,
         documents: List[Dict[str, Any]],
         query: str,
-        context: Optional[str] = None
+        context: Optional[str] = None,
+        project_metadata: Optional[Dict] = None
     ) -> str:
         """Summarize a list of documents in relation to a query using OpenAI.
-        
+
         Args:
             documents: List of document dictionaries with content and metadata.
             query: The original search query for context.
             context: Optional additional context for summarization.
-            
+            project_metadata: Optional project metadata (description, status, etc.)
+
         Returns:
             str: A comprehensive summary of the documents.
-            
+
         Raises:
             Exception: If summarization fails.
         """
         try:
             if not documents:
                 return "No documents found to summarize."
-            
-            # Build the summarization prompt
-            prompt = self._build_summarization_prompt(query, context)
-            
+
+            # Build the summarization prompt with project metadata
+            prompt = self._build_summarization_prompt(query, context, project_metadata)
+
             # Prepare document content
             doc_content = self._prepare_document_content(documents)
-            
+
+            # Log metadata availability for debugging
+            is_project_query = self._is_project_level_query(query) if project_metadata else False
+            logger.info(f"Summarizer received project_metadata: {project_metadata is not None}, is_project_level_query: {is_project_query}")
+            if project_metadata:
+                logger.info(f"Project metadata keys: {list(project_metadata.keys())}, status='{project_metadata.get('status', '')}', description='{str(project_metadata.get('description', ''))[:80]}...'")
+
+            # Build user message - include project metadata directly when available
+            # for project-level queries so the LLM uses it as primary source
+            if project_metadata and is_project_query:
+                # For project-level queries, put verified data FIRST and minimize document content
+                # This ensures the LLM prioritizes the official metadata
+                formatted_metadata = self._format_project_metadata_for_message(project_metadata)
+
+                # Limit document content to avoid overwhelming the metadata
+                limited_doc_content = doc_content[:1500] if doc_content else ""
+
+                user_content = f"""Query: {query}
+
+YOU MUST ANSWER THIS QUERY USING THE VERIFIED PROJECT DATA BELOW AS YOUR PRIMARY SOURCE.
+State the facts from the verified data directly in your response.
+
+{formatted_metadata}
+
+Additional context from project documents (use only to supplement, NOT to override the verified data above):
+{limited_doc_content}"""
+
+                logger.info(f"PROJECT-LEVEL QUERY: Using verified metadata as primary source. Metadata formatted length: {len(formatted_metadata)}")
+            else:
+                user_content = f"Query: {query}\n\nSummarize the key regulatory findings, project implications, and compliance notes from these documents:\n{doc_content}"
+
             messages = [
                 {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Query: {query}\n\n"
-                        f"Summarize the key regulatory findings, project implications, and compliance notes from these documents:\n{doc_content}"
-                    )
-                }
+                {"role": "user", "content": user_content}
             ]
-            
+
+            # Log the final user content for debugging (truncated)
             logger.info(f"Summarizing {len(documents)} documents using OpenAI")
+            logger.info(f"User content preview (first 500 chars): {user_content[:500]}")
             response = self.client.chat_completion(
                 messages=messages,
                 temperature=self.temperature,
@@ -167,25 +203,161 @@ class OpenAISummarizer(Summarizer):
             # Return the summary as fallback
             return f"Based on the available documents, here's what I found:\n\n{summary}"
     
-    def _build_summarization_prompt(self, query: str, context: Optional[str] = None) -> str:
-        """Build a summarization prompt tailored for EAO content."""
-        prompt = f"""
-You are an expert analyst specializing in Environmental Assessment Office (EAO) reports and regulatory documentation. 
-Your task is to create a concise summary of the provided documents that directly addresses the user's query.
+    def summarize_documents_stream(
+        self,
+        documents: List[Dict[str, Any]],
+        query: str,
+        context: Optional[str] = None,
+        project_metadata: Optional[Dict] = None
+    ) -> Generator[str, None, None]:
+        """Stream summary tokens for a list of documents.
 
-Key instructions:
+        Identical prompt logic to summarize_documents() but uses the streaming
+        OpenAI API so the caller can forward tokens to the client immediately.
+
+        Yields:
+            str: Text token chunks as they arrive from the API.
+        """
+        if not documents:
+            yield "No documents found to summarize."
+            return
+
+        prompt = self._build_summarization_prompt(query, context, project_metadata)
+        doc_content = self._prepare_document_content(documents)
+        is_project_query = self._is_project_level_query(query) if project_metadata else False
+
+        if project_metadata and is_project_query:
+            formatted_metadata = self._format_project_metadata_for_message(project_metadata)
+            limited_doc_content = doc_content[:1500] if doc_content else ""
+            user_content = (
+                f"Query: {query}\n\n"
+                "YOU MUST ANSWER THIS QUERY USING THE VERIFIED PROJECT DATA BELOW AS YOUR PRIMARY SOURCE.\n"
+                "State the facts from the verified data directly in your response.\n\n"
+                f"{formatted_metadata}\n\n"
+                "Additional context from project documents (use only to supplement, NOT to override the verified data above):\n"
+                f"{limited_doc_content}"
+            )
+        else:
+            user_content = (
+                f"Query: {query}\n\n"
+                "Summarize the key regulatory findings, project implications, and compliance notes "
+                f"from these documents:\n{doc_content}"
+            )
+
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+        try:
+            yield from self.client.chat_completion_stream(
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=min(self.max_tokens, 2000),
+            )
+        except Exception as e:
+            logger.error(f"Streaming summarization failed: {e}")
+            yield self._fallback_summary(documents, query)
+
+    def _is_project_level_query(self, query: str) -> bool:
+        """Check if the query is asking about the project itself (overview, status, etc.)."""
+        query_lower = query.lower()
+        project_level_indicators = [
+            "what is", "tell me about", "describe", "overview of", "summary of",
+            "about the", "all about", "information on", "details of", "details about",
+            "current status", "what status", "project status", "status of", "phase of",
+            "current phase", "what phase", "who is the proponent", "proponent of",
+            "proponent for", "where is", "location of", "what type", "type of project",
+            "what region", "region of", "decision on", "ea decision", "eac decision",
+            "when was", "decision date", "who owns", "who operates",
+            "description of", "description for",
+        ]
+        return any(indicator in query_lower for indicator in project_level_indicators)
+
+    def _format_project_metadata_for_message(self, project_metadata: Dict) -> str:
+        """Format project metadata as a clear, structured block for the user message."""
+        parts = ["--- VERIFIED PROJECT DATA (from official registry) ---"]
+        field_map = [
+            ("project_name", "Project Name"),
+            ("description", "Description"),
+            ("status", "Current Status/Phase"),
+            ("type", "Project Type"),
+            ("sector", "Sector"),
+            ("proponent", "Proponent"),
+            ("region", "Region"),
+            ("location", "Location"),
+            ("commodity", "Commodity"),
+            ("ea_status", "EA Status"),
+            ("ea_decision", "EA Decision"),
+            ("decision_date", "Decision Date"),
+            ("legislation", "Legislation"),
+        ]
+        for key, label in field_map:
+            value = project_metadata.get(key, "")
+            if value:
+                parts.append(f"{label}: {value}")
+        parts.append("--- END PROJECT DATA ---")
+        return "\n".join(parts)
+
+    def _build_summarization_prompt(self, query: str, context: Optional[str] = None,
+                                    project_metadata: Optional[Dict] = None) -> str:
+        """Build a summarization prompt tailored for EAO content."""
+
+        # Build project context section if metadata is available
+        project_context = ""
+        if project_metadata:
+            project_parts = []
+            if project_metadata.get("project_name"):
+                project_parts.append(f"**Project Name:** {project_metadata['project_name']}")
+            if project_metadata.get("description"):
+                project_parts.append(f"**Project Description:** {project_metadata['description']}")
+            if project_metadata.get("status"):
+                project_parts.append(f"**Current Status/Phase:** {project_metadata['status']}")
+            if project_metadata.get("type"):
+                project_parts.append(f"**Project Type:** {project_metadata['type']}")
+            if project_metadata.get("proponent"):
+                project_parts.append(f"**Proponent:** {project_metadata['proponent']}")
+            if project_metadata.get("region"):
+                project_parts.append(f"**Region:** {project_metadata['region']}")
+            if project_metadata.get("location"):
+                project_parts.append(f"**Location:** {project_metadata['location']}")
+            if project_metadata.get("sector"):
+                project_parts.append(f"**Sector:** {project_metadata['sector']}")
+            if project_metadata.get("commodity"):
+                project_parts.append(f"**Commodity:** {project_metadata['commodity']}")
+            if project_metadata.get("ea_status"):
+                project_parts.append(f"**EA Status:** {project_metadata['ea_status']}")
+            if project_metadata.get("ea_decision"):
+                project_parts.append(f"**EA Decision:** {project_metadata['ea_decision']}")
+            if project_metadata.get("decision_date"):
+                project_parts.append(f"**Decision Date:** {project_metadata['decision_date']}")
+            if project_metadata.get("legislation"):
+                project_parts.append(f"**Legislation:** {project_metadata['legislation']}")
+
+            if project_parts:
+                project_context = "\n\n**PROJECT INFORMATION (use this to provide accurate context in your summary):**\n" + "\n".join(project_parts)
+
+        prompt = f"""You are an expert analyst specializing in Environmental Assessment Office (EAO) reports and regulatory documentation.
+Your task is to create a concise summary that directly addresses the user's query.
+{project_context}
+
+CRITICAL RULES (MUST FOLLOW):
+1. When the user message contains "VERIFIED PROJECT DATA", you MUST base your answer primarily on that data.
+2. For questions about project status, phase, description, proponent, location, type, or EA decision: COPY the relevant facts directly from the VERIFIED PROJECT DATA section. Do NOT paraphrase with different facts.
+3. DO NOT ignore the verified project data in favor of document content. The verified data is the authoritative source.
+4. You may use document content to ADD detail, but never to CONTRADICT or REPLACE the verified project data.
+5. Start your response by directly answering the question using the verified data before adding any supplementary information.
+
+Additional guidelines:
 1. Focus only on information relevant to the query: "{query}"
-2. Highlight regulatory considerations, project implications, and critical findings
-3. Provide a short summary in 2-3 paragraphs maximum
-4. Use professional, clear language suitable for stakeholders and project reviewers
-5. Include references to document types, sections, or dates if critical
-6. Avoid lengthy legal or technical excerpts; summarize the essence
-7. Emphasize insights, decisions, or compliance-related points
+2. Provide a short summary in 2-3 paragraphs maximum
+3. Use professional, clear language suitable for stakeholders and project reviewers
+4. Highlight regulatory considerations, project implications, and critical findings
+5. Avoid lengthy legal or technical excerpts; summarize the essence
 
 {f"Additional context: {context}" if context else ""}
 
-Provide a concise summary tailored for EAO-related decision making that answers the query directly.
-"""
+Provide a concise summary tailored for EAO-related decision making that answers the query directly."""
         return prompt
     
     def _build_response_prompt(self, metadata: Optional[Dict[str, Any]] = None) -> str:

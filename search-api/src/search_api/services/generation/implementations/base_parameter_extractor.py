@@ -2,14 +2,39 @@
 Base Parameter Extractor Implementation
 Contains common logic for parameter extraction approach.
 """
+import hashlib
 import json
 import logging
+import re as _re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Any, Union
 
 from search_api.services.generation.abstractions.parameter_extractor import ParameterExtractor
 
 logger = logging.getLogger(__name__)
+
+# Module-level LLM extraction result cache with TTL (avoids redundant LLM calls for repeated queries)
+_extraction_cache: Dict = {}
+_EXTRACTION_CACHE_TTL = 900  # 15 minutes
+
+
+def _make_extraction_cache_key(*parts) -> str:
+    combined = "|".join(str(p) for p in parts)
+    return hashlib.md5(combined.encode()).hexdigest()
+
+
+def _cache_get(key: str):
+    entry = _extraction_cache.get(key)
+    if entry and time.time() - entry[1] < _EXTRACTION_CACHE_TTL:
+        return entry[0]
+    if entry:
+        del _extraction_cache[key]
+    return None
+
+
+def _cache_set(key: str, value) -> None:
+    _extraction_cache[key] = (value, time.time())
 
 class BaseParameterExtractor(ParameterExtractor):
     """Base implementation of parameter extractor with common logic."""
@@ -55,30 +80,26 @@ class BaseParameterExtractor(ParameterExtractor):
         logger.info(f"Query to extract from: '{query}'")
         logger.info(f"Use parallel execution: {use_parallel}")
        
-        # Log available context data - SHOW ALL DATA (no truncation)
+        # Log available context data - SUMMARY ONLY (avoid logging all projects for performance)
         logger.info("=== AVAILABLE CONTEXT DATA ===")
         if available_projects:
-            logger.info(f"Available Projects Array ({len(available_projects)}):")
-            for project in available_projects:  # Show ALL projects
+            logger.info(f"Available Projects: {len(available_projects)} total")
+            # Only log first 5 as sample to avoid I/O overhead with large datasets
+            for project in available_projects[:5]:
                 if isinstance(project, dict) and 'project_name' in project and 'project_id' in project:
                     logger.info(f"  - '{project['project_name']}' -> {project['project_id']}")
+            if len(available_projects) > 5:
+                logger.info(f"  ... and {len(available_projects) - 5} more")
         else:
             logger.info("Available Projects: None provided")
-           
+
         if available_document_types:
-            logger.info(f"Available Document Types Array ({len(available_document_types)}):")
-            for doc_type in available_document_types:  # Show ALL document types
-                if isinstance(doc_type, dict) and 'document_type_id' in doc_type:
-                    name = doc_type.get('document_type_name', 'Unknown')
-                    aliases = doc_type.get('aliases', [])
-                    logger.info(f"  - '{name}' (ID: {doc_type['document_type_id']}) - Aliases: {aliases}")
+            logger.info(f"Available Document Types: {len(available_document_types)} total")
         else:
             logger.info("Available Document Types: None provided")
-           
+
         if available_strategies:
-            logger.info(f"Available Strategies ({len(available_strategies)}):")
-            for name, description in available_strategies.items():
-                logger.info(f"  - '{name}': {description}")
+            logger.info(f"Available Strategies: {len(available_strategies)} total")
         else:
             logger.info("Available Strategies: None provided")
            
@@ -150,8 +171,8 @@ class BaseParameterExtractor(ParameterExtractor):
             Dict containing extracted parameters.
         """
         try:
-            logger.info("Starting sequential parameter extraction")
-           
+            logger.info("Starting sequential parameter extraction (optimized: 2 calls instead of 5)")
+
             # Step 1: Extract project IDs (skip if already provided)
             if supplied_project_ids:
                 project_ids = supplied_project_ids
@@ -159,53 +180,34 @@ class BaseParameterExtractor(ParameterExtractor):
             else:
                 project_ids = self._extract_project_ids(query, available_projects_metadata or available_projects)
                 logger.info(f"Step 1 - Extracted project IDs: {project_ids}")
-           
-            # Step 2: Extract document type IDs (skip if already provided)
-            if supplied_document_type_ids:
-                document_type_ids = supplied_document_type_ids
-                logger.info(f"Step 2 - Using supplied document type IDs: {document_type_ids}")
-            else:
-                document_type_ids = self._extract_document_types(query, available_document_types)
-                logger.info(f"Step 2 - Extracted document type IDs: {document_type_ids}")
-           
-            # Step 3: Extract search strategy (skip if already provided)
-            if supplied_search_strategy:
-                search_strategy = supplied_search_strategy
-                logger.info(f"Step 3 - Using supplied search strategy: {search_strategy}")
-            else:
-                search_strategy = self._extract_search_strategy(query, available_strategies)
-                logger.info(f"Step 3 - Extracted search strategy: {search_strategy}")
-           
-            # Step 4: Extract/optimize semantic query (usually always run for query optimization)
-            semantic_query = self._extract_semantic_query(query)
-            logger.info(f"Step 4 - Optimized semantic query: {semantic_query}")
-           
-            # Step 5: Extract temporal parameters (location, project_status, years) using LLM
-            if supplied_location is not None or supplied_project_status is not None or supplied_years is not None:
-                # Use supplied temporal parameters
-                location = supplied_location
-                project_status = supplied_project_status
-                years = supplied_years
-                logger.info(f"Step 5 - Using supplied temporal parameters: location={location}, status={project_status}, years={years}")
-                temporal_sources = {
-                    "location": "supplied" if supplied_location is not None else "fallback",
-                    "project_status": "supplied" if supplied_project_status is not None else "fallback",
-                    "years": "supplied" if supplied_years is not None else "fallback"
+
+            # Step 2: Combined extraction for doc types, strategy, semantic query, temporal/location
+            # This replaces 4 separate LLM calls with 1
+            if (supplied_document_type_ids and supplied_search_strategy and
+                supplied_location is not None and supplied_project_status is not None and supplied_years is not None):
+                # All parameters already supplied
+                combined = {
+                    "document_type_ids": supplied_document_type_ids,
+                    "search_strategy": supplied_search_strategy,
+                    "semantic_query": query,
+                    "location": supplied_location,
+                    "project_status": supplied_project_status,
+                    "years": supplied_years
                 }
+                logger.info(f"Step 2 - All non-project parameters supplied, skipping LLM call")
             else:
-                # Extract temporal and location parameters using LLM
-                temporal_result = self._extract_temporal_and_location_parameters(query, user_location)
-                location = temporal_result.get("location")
-                project_status = temporal_result.get("project_status")
-                years = temporal_result.get("years", [])
-                logger.info(f"Step 5 - Extracted temporal and location parameters: location={location}, status={project_status}, years={years}")
-                temporal_sources = {
-                    "location": "llm_extracted" if location is not None else "fallback",
-                    "project_status": "llm_extracted" if project_status is not None else "fallback",
-                    "years": "llm_extracted" if years else "fallback"
-                }
-           
-            # Combine results
+                combined = self._extract_combined_non_project_parameters(
+                    query, available_document_types, available_strategies, user_location
+                )
+                logger.info(f"Step 2 - Combined extraction: {combined}")
+
+            document_type_ids = supplied_document_type_ids or combined.get("document_type_ids", [])
+            search_strategy = supplied_search_strategy or combined.get("search_strategy", "HYBRID_PARALLEL")
+            semantic_query = combined.get("semantic_query", query)
+            location = supplied_location if supplied_location is not None else combined.get("location")
+            project_status = supplied_project_status if supplied_project_status is not None else combined.get("project_status")
+            years = supplied_years if supplied_years is not None else combined.get("years", [])
+
             return {
                 "project_ids": project_ids,
                 "document_type_ids": document_type_ids,
@@ -217,19 +219,17 @@ class BaseParameterExtractor(ParameterExtractor):
                 "confidence": 0.8,
                 "extraction_sources": {
                     "project_ids": "supplied" if supplied_project_ids else "llm_sequential",
-                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_sequential",
-                    "search_strategy": "supplied" if supplied_search_strategy else "llm_sequential",
-                    "semantic_query": "llm_sequential",
-                    **temporal_sources
+                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_combined",
+                    "search_strategy": "supplied" if supplied_search_strategy else "llm_combined",
+                    "semantic_query": "llm_combined",
+                    "location": "supplied" if supplied_location is not None else ("llm_combined" if location is not None else "fallback"),
+                    "project_status": "supplied" if supplied_project_status is not None else ("llm_combined" if project_status is not None else "fallback"),
+                    "years": "supplied" if supplied_years is not None else ("llm_combined" if years else "fallback")
                 }
             }
-           
+
         except Exception as e:
             logger.error(f"Sequential parameter extraction failed: {e}")
-            return self._fallback_extraction(query, available_projects, available_document_types, available_strategies, supplied_project_ids, supplied_document_type_ids, supplied_search_strategy)
-           
-        except Exception as e:
-            logger.error(f"Multi-step parameter extraction failed: {e}")
             return self._fallback_extraction(query, available_projects, available_document_types, available_strategies, supplied_project_ids, supplied_document_type_ids, supplied_search_strategy)
    
     def _extract_parameters_parallel(
@@ -266,10 +266,13 @@ class BaseParameterExtractor(ParameterExtractor):
         try:
             logger.info("Starting parallel parameter extraction")
            
-            # Prepare tasks for parallel execution
+            # OPTIMIZED: Use 2 parallel LLM calls instead of 5
+            # Call 1: Project ID extraction (needs full project list)
+            # Call 2: Combined extraction for doc types, strategy, semantic query, temporal/location
             tasks = []
             task_names = []
             projects_for_llm = []
+
             # Task 1: Extract project IDs (if not supplied)
             if not supplied_project_ids:
                 if available_projects_metadata:
@@ -284,76 +287,75 @@ class BaseParameterExtractor(ParameterExtractor):
 
                 tasks.append(lambda projects=projects_for_llm: self._extract_project_ids(query, projects))
                 task_names.append("project_ids")
-           
-            # Task 2: Extract document type IDs (if not supplied)
-            if not supplied_document_type_ids:
-                tasks.append(lambda: self._extract_document_types(query, available_document_types))
-                task_names.append("document_type_ids")
-           
-            # Task 3: Extract search strategy (if not supplied)
-            if not supplied_search_strategy:
-                tasks.append(lambda: self._extract_search_strategy(query, available_strategies))
-                task_names.append("search_strategy")
-           
-            # Task 4: Extract semantic query (always run for optimization)
-            tasks.append(lambda: self._extract_semantic_query(query))
-            task_names.append("semantic_query")
-           
-            # Task 5: Extract temporal and location parameters (if not supplied)
-            if supplied_location is None or supplied_project_status is None or supplied_years is None:
-                tasks.append(lambda: self._extract_temporal_and_location_parameters(query, user_location))
-                task_names.append("temporal_and_location_parameters")
-           
-            # Execute tasks in parallel using ThreadPoolExecutor
+
+            # Task 2: Combined extraction (doc types + strategy + semantic query + temporal/location)
+            # This replaces 4 separate LLM calls with 1
+            needs_combined = (
+                not supplied_document_type_ids or
+                not supplied_search_strategy or
+                supplied_location is None or
+                supplied_project_status is None or
+                supplied_years is None
+            )
+            if needs_combined:
+                tasks.append(lambda: self._extract_combined_non_project_parameters(
+                    query, available_document_types, available_strategies, user_location
+                ))
+                task_names.append("combined_params")
+
+            # Execute tasks in parallel using ThreadPoolExecutor (max 2 calls now)
             results = {}
-           
+
             if tasks:
-                with ThreadPoolExecutor(max_workers=min(len(tasks), 4)) as executor:
-                    # Submit all tasks
+                logger.info(f"Running {len(tasks)} parallel LLM calls (optimized from 5): {task_names}")
+                with ThreadPoolExecutor(max_workers=min(len(tasks), 2)) as executor:
                     future_to_name = {
                         executor.submit(task): name
                         for task, name in zip(tasks, task_names)
                     }
-                   
-                    # Collect results with timeout
+
                     for future in as_completed(future_to_name, timeout=timeout):
                         task_name = future_to_name[future]
                         try:
                             result = future.result()
                             results[task_name] = result
-                            logger.info(f"Parallel task '{task_name}' completed: {result}")
+                            logger.info(f"Parallel task '{task_name}' completed successfully")
                         except Exception as e:
                             logger.warning(f"Parallel task '{task_name}' failed: {e}")
-                            # Use fallback for failed task
                             results[task_name] = self._get_fallback_for_task(
                                 task_name, query, available_projects,
                                 available_document_types, available_strategies
                             )
-           
-            # Extract temporal and location parameters from results or use supplied values
-            temporal_result = results.get("temporal_and_location_parameters", {})
-            location = supplied_location if supplied_location is not None else temporal_result.get("location")
-            project_status = supplied_project_status if supplied_project_status is not None else temporal_result.get("project_status")
-            years = supplied_years if supplied_years is not None else temporal_result.get("years", [])
-           
-            # Combine results with supplied values
+
+            # Extract combined results
+            combined = results.get("combined_params", {})
+
+            # Build final parameters from combined result + supplied values
+            document_type_ids = supplied_document_type_ids or combined.get("document_type_ids", [])
+            search_strategy = supplied_search_strategy or combined.get("search_strategy", "HYBRID_PARALLEL")
+            semantic_query = combined.get("semantic_query", query)
+            location = supplied_location if supplied_location is not None else combined.get("location")
+            project_status = supplied_project_status if supplied_project_status is not None else combined.get("project_status")
+            years = supplied_years if supplied_years is not None else combined.get("years", [])
+
             return {
                 "project_ids": supplied_project_ids or results.get("project_ids", []),
-                "document_type_ids": supplied_document_type_ids or results.get("document_type_ids", []),
-                "search_strategy": supplied_search_strategy or results.get("search_strategy", "HYBRID_PARALLEL"),
-                "semantic_query": results.get("semantic_query", query),
+                "document_type_ids": document_type_ids,
+                "search_strategy": search_strategy,
+                "semantic_query": semantic_query,
                 "location": location,
                 "project_status": project_status,
                 "years": years,
                 "confidence": 0.8,
+                "embedding_fast_path_used": getattr(self, "_embedding_fast_path_used", False),
                 "extraction_sources": {
                     "project_ids": "supplied" if supplied_project_ids else "llm_parallel",
-                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_parallel",
-                    "search_strategy": "supplied" if supplied_search_strategy else "llm_parallel",
-                    "semantic_query": "llm_parallel",
-                    "location": "supplied" if supplied_location is not None else ("llm_parallel" if location is not None else "fallback"),
-                    "project_status": "supplied" if supplied_project_status is not None else ("llm_parallel" if project_status is not None else "fallback"),
-                    "years": "supplied" if supplied_years is not None else ("llm_parallel" if years else "fallback")
+                    "document_type_ids": "supplied" if supplied_document_type_ids else "llm_combined",
+                    "search_strategy": "supplied" if supplied_search_strategy else "llm_combined",
+                    "semantic_query": "llm_combined",
+                    "location": "supplied" if supplied_location is not None else ("llm_combined" if location is not None else "fallback"),
+                    "project_status": "supplied" if supplied_project_status is not None else ("llm_combined" if project_status is not None else "fallback"),
+                    "years": "supplied" if supplied_years is not None else ("llm_combined" if years else "fallback")
                 }
             }
            
@@ -396,18 +398,59 @@ class BaseParameterExtractor(ParameterExtractor):
             logger.info("=== PROJECT ID EXTRACTION END ===")
             return []
        
-        logger.info(f"Available projects for matching ({len(available_projects)}):")
-        if isinstance(available_projects, dict):
-            for name, proj_id in available_projects.items():
-                logger.info(f"  - '{name}' -> {proj_id}")
-        elif isinstance(available_projects, list):
-            for proj in available_projects:
-                project_id = proj.get("project_id", "")
-                project_name = proj.get("project_name", "")
-                logger.info(f"  - '{project_name}' -> {project_id}")
-        else:
-            logger.warning("available_projects is neither dict nor list; cannot log contents")
-       
+        logger.info(f"Available projects for matching: {len(available_projects)} total")
+
+        # Cache check: skip LLM if same query was answered recently
+        _project_count = len(available_projects) if isinstance(available_projects, (list, dict)) else 0
+        _cache_key = _make_extraction_cache_key("project_ids", query.lower().strip(), _project_count)
+        _cached = _cache_get(_cache_key)
+        if _cached is not None:
+            logger.info("🚀 CACHE HIT: project_ids (LLM call skipped)")
+            logger.info("=== PROJECT ID EXTRACTION END ===")
+            return _cached
+
+        # ---------------------------------------------------------------
+        # FAST PATH: embedding-based project matching (~30-80ms vs ~800ms LLM)
+        # High-confidence threshold is intentionally strict to avoid false
+        # positives on generic topic queries (e.g. "fish habitat transmission
+        # lines") that share vocabulary with specific project names.
+        # ---------------------------------------------------------------
+        try:
+            from search_api.clients.vector_search_client import VectorSearchClient
+            emb_matches = VectorSearchClient.match_projects_by_embedding(query, top_k=5, threshold=0.70)
+
+            if emb_matches:
+                # Validate against the known project IDs
+                available_ids = {
+                    p.get("project_id") for p in (available_projects if isinstance(available_projects, list) else [])
+                }
+                if available_ids:
+                    emb_matches = [m for m in emb_matches if m["project_id"] in available_ids]
+
+                top_score = emb_matches[0]["score"] if emb_matches else 0.0
+                second_score = emb_matches[1]["score"] if len(emb_matches) >= 2 else 0.0
+                gap = top_score - second_score
+
+                if emb_matches and top_score >= 0.82 and gap >= 0.12:
+                    # High confidence AND distinctive — skip LLM, return only the top match
+                    result = [emb_matches[0]["project_id"]]
+                    logger.info(f"⚡ EMBEDDING FAST PATH: {result} (top={top_score:.3f}, gap={gap:.3f}) — LLM skipped")
+                    _cache_set(_cache_key, result)
+                    # Signal to extract_parameters that fast-path was used (for dynamic fetch counts)
+                    self._embedding_fast_path_used = True
+                    logger.info("=== PROJECT ID EXTRACTION END ===")
+                    return result
+
+                elif emb_matches and top_score >= 0.75 and gap >= 0.08:
+                    # Medium confidence — narrow project list for LLM (max 5 candidates)
+                    candidate_ids = {m["project_id"] for m in emb_matches[:3]}
+                    if isinstance(available_projects, list):
+                        available_projects = [p for p in available_projects if p.get("project_id") in candidate_ids]
+                    logger.info(f"⚡ EMBEDDING HINTS: reduced project list to {len(available_projects)} candidates (top={top_score:.3f}, gap={gap:.3f})")
+
+        except Exception as _emb_err:
+            logger.warning(f"Embedding fast path error (falling back to LLM): {_emb_err}")
+
         # Try LLM extraction with validation and retry
         for attempt in range(3):  # Maximum 3 attempts
             try:
@@ -430,6 +473,7 @@ class BaseParameterExtractor(ParameterExtractor):
                 if result:
                     logger.info(f"Project extraction successful on attempt {attempt + 1}: {result}")
                     logger.info("=== PROJECT ID EXTRACTION END ===")
+                    _cache_set(_cache_key, result)
                     return result
                 else:
                     logger.warning(f"Project extraction attempt {attempt + 1} failed validation, will retry")
@@ -445,11 +489,30 @@ class BaseParameterExtractor(ParameterExtractor):
         result = self._fallback_project_extraction(query, available_projects)
         logger.info(f"Fallback extraction result: {result}")
         logger.info("=== PROJECT ID EXTRACTION END ===")
+        _cache_set(_cache_key, result)
         return result
    
     def _extract_project_ids_single_attempt(self, query: str, available_projects: List[Dict], attempt: int) -> List[str]:
         """Single attempt at project ID extraction using both project names and selected metadata context."""
         try:
+            # Pre-filter large project lists to keep LLM prompt size manageable
+            _MAX_PROJECTS = 80
+            if len(available_projects) > _MAX_PROJECTS:
+                _query_kws = {w.lower() for w in _re.sub(r'[^\w\s]', '', query).split() if len(w) > 3}
+                if _query_kws:
+                    _scored = [(p, sum(1 for w in _query_kws if w in ' '.join([
+                        p.get('project_name', ''),
+                        (p.get('project_metadata') or {}).get('type', ''),
+                        (p.get('project_metadata') or {}).get('region', ''),
+                        (p.get('project_metadata') or {}).get('description', '')[:150]
+                    ]).lower())) for p in available_projects]
+                    _scored.sort(key=lambda x: x[1], reverse=True)
+                    available_projects = [p for p, _ in _scored[:_MAX_PROJECTS]]
+                    logger.info(f"Pre-filtered projects to {len(available_projects)} for LLM prompt")
+                else:
+                    available_projects = available_projects[:_MAX_PROJECTS]
+                    logger.info(f"Pre-filtered projects to {_MAX_PROJECTS} (capped)")
+
             # ✅ Extract and format relevant fields from metadata for the LLM
             project_lines = []
             for proj in available_projects:
@@ -457,13 +520,21 @@ class BaseParameterExtractor(ParameterExtractor):
                 project_name = proj.get("project_name", "")
                 meta = proj.get("project_metadata", {}) or {}
 
-                # Only include selected fields
+                # Only include selected fields (handle nested dicts safely)
+                proponent_raw = meta.get("proponent", "")
+                if isinstance(proponent_raw, dict):
+                    proponent_name = proponent_raw.get("name", proponent_raw.get("company", ""))
+                elif proponent_raw:
+                    proponent_name = str(proponent_raw)
+                else:
+                    proponent_name = ""
+
                 relevant_meta = {
                     "type": meta.get("type", ""),
                     "region": meta.get("region", ""),
                     "sector": meta.get("sector", ""),
                     "status": meta.get("status", ""),
-                    "proponent": meta.get("proponent", {}).get("name", ""),
+                    "proponent": proponent_name,
                     "description": meta.get("description", ""),
                     "location": meta.get("location", "")
                 }
@@ -491,62 +562,74 @@ You are given a user query and a list of projects. Each project has the followin
 - description
 
 Task:
-Return a ranked list of projects most relevant to the query, using all metadata. Consider:
+Return a ranked list of projects that match the query. You MUST follow these strict matching rules:
 
-1. Exact and partial matches in project_name, type, sector, and description.
-2. Synonyms, related terms, and alternate phrases:
-   - 'marine port facilities' → 'port', 'terminal', 'jetty', 'wharf', 'dock'
-   - 'hydroelectric' → 'run-of-river', 'power plant', 'generating station'
-   - 'energy storage' → 'LNG', 'gas storage', 'tank', 'facility'
-   - 'tourist destination' → 'resort', 'hotel', 'marina', 'golf', 'recreation'
-   - Include any other relevant synonyms implied by context.
-3. Region relevance: prioritize exact region matches but include nearby or functionally relevant regions.
-4. Proponent relevance: prioritize projects if the proponent or company is mentioned in the query.
-5. Status relevance: prioritize operational, post-decision, or under-construction projects, but include others if highly relevant.
-6. Multiple metadata fields aligning with the query increases confidence.
+### CRITICAL MATCHING RULES (in priority order):
+
+1. **EXACT PROJECT NAME MATCH IS HIGHEST PRIORITY**:
+   - If the query mentions a specific project name (e.g., "Cariboo Gold", "Blackwater Gold", "KSM"),
+     ONLY return projects whose name contains that EXACT phrase.
+   - "Cariboo Gold" should ONLY match projects with "Cariboo Gold" in the name, NOT "Blackwater Gold".
+   - "Blackwater Gold" should ONLY match "Blackwater Gold", NOT "Cariboo Gold".
+   - Do NOT match projects just because they share a common word like "Gold", "Mine", "River", etc.
+
+2. **DISAMBIGUATION RULE**:
+   - When multiple projects share similar words (e.g., "X Gold" vs "Y Gold"), the FULL distinctive
+     portion of the name must match.
+   - "Cariboo" is distinctive. "Gold" is generic. Match on "Cariboo", not on "Gold".
+   - Always prefer projects where MORE words from the query match the project name.
+
+3. **PARTIAL/SEMANTIC MATCHING (only if no exact name match)**:
+   - If no specific project name is mentioned, then use synonyms and related terms:
+     - 'marine port facilities' → 'port', 'terminal', 'jetty', 'wharf', 'dock'
+     - 'hydroelectric' → 'run-of-river', 'power plant', 'generating station'
+     - 'energy storage' → 'LNG', 'gas storage', 'tank', 'facility'
+   - Consider region, proponent, type, sector, and description for broader queries.
+
+4. **CONFIDENCE SCORING**:
+   - 0.95-1.0: Exact project name match (e.g., query mentions "Cariboo Gold" and project is "Cariboo Gold")
+   - 0.80-0.94: Strong match on multiple distinctive terms
+   - 0.60-0.79: Partial match with some relevant metadata
+   - Below 0.60: Weak match, only generic terms match - DO NOT INCLUDE
 
 For each project, return:
 - project_id
 - project_name
-- proponent
-- location
-- region
-- type
-- sector
-- status
-- description
 - confidence (0-1)
 - reason (explain why this project is relevant)
 
-Examples:
+### EXAMPLES:
 
-Query: “certificate for marine port facilities near Lower Mainland”
+Query: "get me the schedule b for Cariboo Gold"
+Correct Response:
+- Cariboo Gold Project | Confidence: 0.98 | Reason: Exact project name match "Cariboo Gold".
+WRONG Response (DO NOT DO THIS):
+- Blackwater Gold Project | Confidence: 0.85 | Reason: Contains "Gold" <- THIS IS WRONG!
+
+Query: "documents for Blackwater Gold mine"
+Correct Response:
+- Blackwater Gold Project | Confidence: 0.98 | Reason: Exact project name match "Blackwater Gold".
+WRONG Response (DO NOT DO THIS):
+- Cariboo Gold Project | Confidence: 0.80 | Reason: Contains "Gold" <- THIS IS WRONG!
+
+Query: "certificate for marine port facilities near Lower Mainland"
 Projects:
-- Tilbury Marine Jetty | Confidence: 0.95 | Reason: Marine port facility in Lower Mainland, directly matches query.
-- Roberts Bank Terminal 2 | Confidence: 0.90 | Reason: Major port facility in Lower Mainland, relevant to query.
-- Vancouver Convention Centre Expansion | Confidence: 0.75 | Reason: Waterfront infrastructure in Lower Mainland, partially relevant to port facilities.
+- Tilbury Marine Jetty | Confidence: 0.95 | Reason: Marine port facility in Lower Mainland.
+- Roberts Bank Terminal 2 | Confidence: 0.90 | Reason: Major port facility in Lower Mainland.
 
-Query: “hydroelectric projects by BC Hydro”
+Query: "hydroelectric projects by BC Hydro"
 Projects:
 - Stave Falls Powerplant | Confidence: 0.95 | Reason: Hydro plant operated by BC Hydro.
-- Waneta Generating Station Upgrade | Confidence: 0.85 | Reason: Co-proponent BC Hydro, hydroelectric generation.
+- Waneta Generating Station Upgrade | Confidence: 0.85 | Reason: Co-proponent BC Hydro.
 
-Query: “LNG storage facilities by FortisBC”
-Projects:
-- Tilbury Phase 2 LNG Expansion | Confidence: 0.95 | Reason: LNG storage facility in Delta, proponent FortisBC, directly relevant to query.
-- WCC LNG | Confidence: 0.85 | Reason: LNG project in Skeena region, relevant to LNG query.
-
-Instructions:
-- Include multiple relevant projects even if only partially matching.
-- Rank results by confidence descending.
-- Use all metadata fields (project_name, type, sector, description, region, location, proponent, status) to maximize relevance.
-- If the query mentions a region or company explicitly, prioritize those matches.
-- Include reasoning for each project to justify relevance.
-
-Available Projects: 
+Available Projects:
 {chr(10).join(project_lines)}
 
 Query: "{query}"
+
+IMPORTANT: Return ONLY projects with confidence >= 0.50. If the query mentions a specific project name,
+that project MUST have the highest confidence. Do NOT return projects that only match on generic words.
+Be generous with confidence scores when a distinctive project name (like "Brucejack", "Cariboo", etc.) appears in the query.
 """
 
             logger.info("=== PROJECT EXTRACTION PROMPT (METADATA-AWARE) ===")
@@ -586,11 +669,12 @@ Query: "{query}"
                         logger.info(f"Match: {project_name} (ID: {project_id}) - Confidence: {confidence} - Reason: {reason}")
                        
                         # Validate project ID exists in available projects
-                        if project_id in valid_ids and confidence >= 0.7:
+                        # Lowered threshold from 0.7 to 0.5 to handle large datasets better
+                        if project_id in valid_ids and confidence >= 0.5:
                             matched_ids.append(project_id)
-                            logger.info(f"  → ACCEPTED: {project_name} added to results")
+                            logger.info(f"  → ACCEPTED: {project_name} added to results (confidence: {confidence})")
                         else:
-                            logger.info(f"  → REJECTED: Confidence too low ({confidence}) or invalid ID")
+                            logger.info(f"  → REJECTED: Confidence too low ({confidence} < 0.5) or invalid ID")
                    
                     logger.info(f"Final matched project IDs: {matched_ids}")
                     logger.info("=== END PROJECT MATCHES ANALYSIS ===")
@@ -605,6 +689,79 @@ Query: "{query}"
                     logger.warning(f"Using fallback array format, got {len(result)} project IDs: {result}")
                     logger.info("=== PROJECT ID EXTRACTION END ===")
                     return result[:3]  # Limit to 3 for focused results
+                elif '|' in content and 'Confidence:' in content:
+                    # Handle pipe-delimited format: "Project Name | Confidence: 0.95 | Reason: ..."
+                    logger.info("Detected pipe-delimited LLM response format, parsing...")
+
+                    # Parse the pipe-delimited format
+                    parts = [p.strip() for p in content.split('|')]
+                    if len(parts) >= 2:
+                        project_name_from_llm = parts[0].strip()
+
+                        # Extract confidence score
+                        confidence = 0.0
+                        for part in parts:
+                            if 'Confidence:' in part:
+                                try:
+                                    conf_str = part.split('Confidence:')[1].strip()
+                                    confidence = float(conf_str)
+                                except (ValueError, IndexError):
+                                    confidence = 0.0
+
+                        logger.info(f"Parsed from pipe format: project='{project_name_from_llm}', confidence={confidence}")
+
+                        # Find matching project by name (case-insensitive)
+                        valid_ids = {p.get("project_id") for p in available_projects if p.get("project_id")}
+                        matched_project_id = None
+                        best_match_score = 0.0
+
+                        # Debug: Show first few available projects to verify structure
+                        if available_projects:
+                            sample_project = available_projects[0]
+                            logger.info(f"Sample project structure: {list(sample_project.keys())[:5] if isinstance(sample_project, dict) else 'not a dict'}")
+                            logger.info(f"Searching {len(available_projects)} available projects for match...")
+
+                        for project in available_projects:
+                            # Support both 'project_name' (API format) and 'name' (dict format) keys
+                            proj_name = (project.get("project_name") or project.get("name", "")).lower()
+                            proj_id = project.get("project_id")
+                            llm_name_lower = project_name_from_llm.lower()
+
+                            if not proj_name:
+                                continue  # Skip if no name found
+
+                            # Exact match
+                            if proj_name == llm_name_lower:
+                                matched_project_id = proj_id
+                                best_match_score = 1.0
+                                logger.info(f"  Exact name match: '{proj_name}' -> ID: {proj_id}")
+                                break
+
+                            # Substring match (LLM name in project name or vice versa)
+                            if llm_name_lower in proj_name or proj_name in llm_name_lower:
+                                # Calculate match quality based on length overlap
+                                overlap = len(set(llm_name_lower.split()) & set(proj_name.split()))
+                                total_words = max(len(llm_name_lower.split()), len(proj_name.split()))
+                                score = overlap / total_words if total_words > 0 else 0
+
+                                if score > best_match_score:
+                                    best_match_score = score
+                                    matched_project_id = proj_id
+                                    logger.info(f"  Substring match: '{proj_name}' score={score:.2f} -> ID: {proj_id}")
+
+                        if matched_project_id and confidence >= 0.5:
+                            logger.info(f"Pipe-delimited parsing successful: project_id={matched_project_id}, confidence={confidence}")
+                            logger.info("=== PROJECT ID EXTRACTION END ===")
+                            return [matched_project_id]
+                        else:
+                            logger.warning(f"Pipe-delimited parsing found match but confidence too low ({confidence} < 0.5) or no match found, using fallback")
+                    else:
+                        logger.warning("Pipe-delimited format not parseable, using fallback")
+
+                    result = self._fallback_project_extraction(query, available_projects)
+                    logger.info(f"Fallback extraction result: {result}")
+                    logger.info("=== PROJECT ID EXTRACTION END ===")
+                    return result
                 else:
                     logger.warning("LLM response not in expected JSON format, using fallback")
                     result = self._fallback_project_extraction(query, available_projects)
@@ -633,11 +790,7 @@ Query: "{query}"
             logger.info("=== DOCUMENT TYPE EXTRACTION END ===")
             return []
        
-        logger.info(f"Available document types for matching ({len(available_document_types)}):")
-        for doc_id, doc_data in available_document_types.items():  # Show ALL document types, no truncation
-            name = doc_data.get('name', 'Unknown')
-            aliases = doc_data.get('aliases', [])
-            logger.info(f"  - '{name}' (ID: {doc_id}) - Aliases: {aliases}")
+        logger.info(f"Available document types for matching: {len(available_document_types)} total")
        
         try:
             # Build comprehensive document type info including aliases
@@ -697,7 +850,9 @@ Return `[]` (no specific types) only if:
 | application, form, submission materials | **Application Materials**, **Application Information Requirement** |
 | plan, management plan, mitigation plan | **Plan**, **Management Plan** |
 | report, study, technical paper, analysis | **Report/Study**, **Scientific Memo**, **Independent Memo** |
-| certificate, EA certificate, permit | **Certificate Package**, **Order** |
+| certificate, EA certificate, permit, EAC | **Certificate Package**, **Order** |
+| Schedule B, conditions, certificate conditions | **Certificate Package**, **Order** (Schedule B contains certificate conditions) |
+| Schedule A, certified project description | **Certificate Package**, **Order** (Schedule A contains project description) |
 | notification, announcement, advertisement | **Notification**, **Ad/News Release** |
 | inspection, compliance check | **Inspection Record** |
 | agreement, MOU | **Agreement** |
@@ -705,6 +860,11 @@ Return `[]` (no specific types) only if:
 | project description, overview | **Project Description**, **Project Descriptions** |
 | presentation, slides | **Presentation** |
 | tracking, index | **Tracking Table** |
+
+**IMPORTANT**: Schedule B and Schedule A are part of Environmental Assessment Certificates:
+- **Schedule B** = Certificate Conditions (requirements the proponent must meet)
+- **Schedule A** = Certified Project Description
+When users ask about "Schedule B" or "conditions", match to **Certificate Package** or **Order** document types.
 
 ---
 
@@ -1000,47 +1160,312 @@ Return ONLY the optimized semantic query (no quotes, no explanation).
             logger.info("=== SEMANTIC QUERY EXTRACTION END ===")
             return query
    
-    def _fallback_project_extraction(self, query: str, available_projects: Dict) -> List[str]:
-        """Enhanced fallback project extraction with focus on distinctive name components."""
+    def _extract_combined_non_project_parameters(
+        self,
+        query: str,
+        available_document_types: Optional[Dict] = None,
+        available_strategies: Optional[Dict] = None,
+        user_location: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Extract document types, search strategy, semantic query, and temporal/location in a SINGLE LLM call.
+
+        This replaces 4 separate LLM calls with 1, saving ~2-3 seconds per request.
+
+        Returns:
+            Dict with keys: document_type_ids, search_strategy, semantic_query, location, project_status, years
+        """
+        logger.info("=== COMBINED NON-PROJECT EXTRACTION START ===")
+
+        # Cache check: skip LLM if same query+context was answered recently
+        _user_city = (user_location or {}).get('city', '') if user_location else ''
+        _doc_count = len(available_document_types) if available_document_types else 0
+        _cache_key_combined = _make_extraction_cache_key("combined", query.lower().strip(), _doc_count, _user_city)
+        _cached_combined = _cache_get(_cache_key_combined)
+        if _cached_combined is not None:
+            logger.info("🚀 CACHE HIT: combined_params (LLM call skipped)")
+            logger.info("=== COMBINED NON-PROJECT EXTRACTION END ===")
+            return _cached_combined
+
+        # Build document type context
+        doc_context_lines = []
+        if available_document_types:
+            for doc_id, doc_data in available_document_types.items():
+                name = doc_data.get('name', 'Unknown')
+                aliases = doc_data.get('aliases', [])
+                alias_text = f" (aliases: {', '.join(aliases)})" if aliases else ""
+                doc_context_lines.append(f"  - {name}{alias_text} (ID: {doc_id})")
+
+        doc_types_section = chr(10).join(doc_context_lines) if doc_context_lines else "  (none available)"
+
+        # Build strategies list
+        strategies_list = list((available_strategies or {}).keys()) or ["HYBRID_PARALLEL", "SEMANTIC_ONLY", "KEYWORD_ONLY"]
+
+        import datetime
+        current_year = datetime.datetime.now().year
+
+        prompt = f"""You are a search parameter extraction specialist for the Environmental Assessment Office (EAO) of British Columbia.
+Analyze the query and extract ALL of the following parameters in a single JSON response.
+
+QUERY: "{query}"
+USER LOCATION: {user_location if user_location else "Not provided"}
+CURRENT YEAR: {current_year}
+
+=== TASK 1: DOCUMENT TYPES ===
+Select document type IDs relevant to the query. Return [] if the query is general (e.g., "what is the status", "who is the proponent") and not about specific document types.
+Available document types:
+{doc_types_section}
+
+Common mappings: "letter/correspondence" → Letter, "report/study" → Report/Study, "Schedule B/conditions" → Certificate Package or Order, "meeting notes" → Meeting Notes, "application" → Application Materials.
+
+=== TASK 2: SEARCH STRATEGY ===
+Pick exactly one: {', '.join(strategies_list)}
+- Default: "HYBRID_PARALLEL" (use for most queries)
+- "KEYWORD_ONLY": only for exact phrase/literal searches
+- "SEMANTIC_ONLY": only for conceptual/thematic queries
+
+=== TASK 3: SEMANTIC QUERY ===
+Optimize the query for vector search by extracting core search terms.
+Remove filler words like "can you get me", "show me", "tell me about".
+Keep project names, locations, environmental terms, regulatory terms (Schedule B, condition, certificate).
+Return 2-10 key terms.
+
+=== TASK 4: TEMPORAL & LOCATION ===
+- location: Extract geographic references as a string (e.g., "Vancouver, BC", "Peace River region"). Return null if query is about a specific project, not a geographic search.
+- project_status: Extract lifecycle indicators (active, completed, recent, ongoing). Return null if none mentioned.
+- years: Extract specific document years ONLY when the user explicitly asks for documents from certain years (e.g., "2020 annual report", "reports from 2018 to 2022"). Map "recently" → last 2-3 years, "this year" → [{current_year}].
+  IMPORTANT: For project approval/certification date patterns ("approved after 2010", "certified since 2018", "mines before 2015", "between 2012 and 2020", "last 3 years of approvals"), return years: [] — these refer to project decision dates, NOT document dates, and are handled by a separate filter.
+
+Respond with ONLY this JSON (no explanation):
+{{
+    "document_type_ids": [],
+    "search_strategy": "HYBRID_PARALLEL",
+    "semantic_query": "optimized search terms",
+    "location": null,
+    "project_status": null,
+    "years": []
+}}"""
+
+        try:
+            response = self._make_llm_call(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1
+            )
+
+            content = response["choices"][0]["message"]["content"].strip()
+            logger.info(f"Combined extraction raw response: {content[:500]}")
+
+            # Parse JSON response
+            # Strip markdown code fences if present
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1] if "\n" in content else content[3:]
+                if content.endswith("```"):
+                    content = content[:-3].strip()
+                elif "```" in content:
+                    content = content[:content.rfind("```")].strip()
+
+            result = json.loads(content)
+
+            # Validate document_type_ids
+            doc_type_ids = result.get("document_type_ids", [])
+            if doc_type_ids and available_document_types:
+                valid_ids = set(available_document_types.keys())
+                doc_type_ids = [dtid for dtid in doc_type_ids if dtid in valid_ids]
+
+            # Validate search strategy
+            search_strategy = result.get("search_strategy", "HYBRID_PARALLEL")
+            if search_strategy not in strategies_list:
+                search_strategy = "HYBRID_PARALLEL"
+
+            # Validate semantic query
+            semantic_query = result.get("semantic_query", query)
+            if not semantic_query or len(semantic_query) > len(query) * 1.5:
+                semantic_query = query
+
+            extracted = {
+                "document_type_ids": doc_type_ids,
+                "search_strategy": search_strategy,
+                "semantic_query": semantic_query,
+                "location": result.get("location"),
+                "project_status": result.get("project_status"),
+                "years": result.get("years", [])
+            }
+
+            logger.info(f"Combined extraction result: doc_types={doc_type_ids}, strategy={search_strategy}, "
+                         f"semantic='{semantic_query}', location={extracted['location']}, "
+                         f"status={extracted['project_status']}, years={extracted['years']}")
+            logger.info("=== COMBINED NON-PROJECT EXTRACTION END ===")
+            _cache_set(_cache_key_combined, extracted)
+            return extracted
+
+        except Exception as e:
+            logger.warning(f"Combined extraction failed: {e}, using defaults")
+            logger.info("=== COMBINED NON-PROJECT EXTRACTION END ===")
+            return {
+                "document_type_ids": self._fallback_document_extraction(query, available_document_types or {}),
+                "search_strategy": "HYBRID_PARALLEL",
+                "semantic_query": query,
+                "location": None,
+                "project_status": None,
+                "years": []
+            }
+
+    def _fallback_project_extraction(self, query: str, available_projects: Union[Dict, List]) -> List[str]:
+        """Enhanced fallback project extraction with strict name matching and similarity scoring.
+
+        Uses a scoring system that prioritizes:
+        1. Exact project name matches (highest score)
+        2. Distinctive word matches (project-specific identifiers)
+        3. Penalizes matches on generic terms only
+        """
         query_lower = query.lower()
-        matched_projects = []
-       
-        # Common geographic/facility descriptors that are less distinctive
-        generic_terms = {'mountain', 'river', 'creek', 'lake', 'park', 'resort', 'wind', 'reservoir', 'project'}
-       
-        for project_name, project_id in available_projects.items():
-            project_name_lower = project_name.lower()
-           
-            # Check for exact match first
-            if project_name_lower in query_lower or query_lower in project_name_lower:
-                matched_projects.append(project_id)
+        scored_projects = []
+
+        # Common generic terms that should not drive matching
+        # Includes industry terms, geographic regions, and generic project words
+        generic_terms = {
+            # Geographic/terrain features
+            'mountain', 'river', 'creek', 'lake', 'park', 'resort', 'wind', 'reservoir',
+            'island', 'valley', 'coast', 'coastal', 'bay', 'inlet', 'sound', 'strait',
+            # Geographic regions (should not match on location alone)
+            'mainland', 'lower', 'upper', 'interior', 'northern', 'southern', 'eastern', 'western',
+            'north', 'south', 'east', 'west', 'central', 'vancouver', 'victoria', 'bc', 'british', 'columbia',
+            # Industry terms (but NOT project-distinctive words like 'marine', 'tilbury', etc.)
+            'project', 'mine', 'gold', 'copper', 'silver', 'coal', 'gas', 'oil', 'lng',
+            'power', 'energy', 'terminal', 'port', 'pipeline', 'transmission', 'line',
+            'facility', 'plant', 'station', 'expansion', 'upgrade', 'phase', 'development',
+            # Additional generic terms
+            'clean', 'hydro', 'electric', 'solar', 'thermal', 'nuclear',
+            'storage', 'processing', 'refinery', 'smelter', 'mill', 'quarry',
+            # Query terms that shouldn't drive matching
+            'impact', 'impacts', 'effect', 'effects', 'salmon', 'fish', 'water', 'air',
+            'environment', 'environmental', 'assessment', 'near', 'due', 'ports'
+        }
+        stop_words = {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by', 'a', 'an', 'get', 'me', 'show', 'find'}
+
+        # Convert available_projects to consistent format
+        projects_iter = []
+        if isinstance(available_projects, dict):
+            projects_iter = [(name, pid) for name, pid in available_projects.items()]
+        elif isinstance(available_projects, list):
+            for proj in available_projects:
+                if isinstance(proj, dict):
+                    projects_iter.append((proj.get('project_name', ''), proj.get('project_id', '')))
+
+        for project_name, project_id in projects_iter:
+            if not project_name or not project_id:
                 continue
-           
-            # Smart keyword matching - focus on distinctive parts
-            project_words = set(project_name_lower.split())
-            query_words = set(query_lower.split())
-           
-            # Filter out common words and generic geographic terms
-            distinctive_project_words = project_words - {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by'} - generic_terms
-            distinctive_query_words = query_words - {'the', 'and', 'or', 'of', 'in', 'at', 'to', 'for', 'with', 'by', 'projects'} - generic_terms
-           
-            # Find matching distinctive words
-            distinctive_matches = distinctive_project_words & distinctive_query_words
-           
-            # Also check for generic terms if there are other supporting matches
-            generic_matches = (project_words & generic_terms) & (query_words & generic_terms)
-           
-            if len(distinctive_matches) > 0:
-                # Strong match - has distinctive identifiers
-                matched_projects.append(project_id)
-            elif len(distinctive_matches) == 0 and len(generic_matches) > 0:
-                # Only generic matches - be very selective
-                # Only include if the query is very specific and short (likely targeting this type)
-                if len(query_words) <= 3 and any(word in project_name_lower for word in query_words if len(word) > 4):
-                    matched_projects.append(project_id)
-       
-        # Limit to 3 for focused results
-        return matched_projects[:3]
+
+            project_name_lower = project_name.lower()
+            score = 0.0
+            match_reason = []
+
+            # Priority 1: Exact full project name in query (highest score)
+            if project_name_lower in query_lower:
+                score = 1.0
+                match_reason.append("exact_name_match")
+            # Priority 2: Query contained in project name
+            elif query_lower in project_name_lower and len(query_lower) > 5:
+                score = 0.9
+                match_reason.append("query_in_name")
+            else:
+                # Priority 3: Word-by-word matching with scoring
+                project_words = set(project_name_lower.split())
+                query_words = set(query_lower.split())
+
+                # Remove stop words from both
+                project_words_clean = project_words - stop_words
+                query_words_clean = query_words - stop_words
+
+                # Separate distinctive vs generic words
+                distinctive_project_words = project_words_clean - generic_terms
+                distinctive_query_words = query_words_clean - generic_terms
+
+                generic_project_words = project_words_clean & generic_terms
+                generic_query_words = query_words_clean & generic_terms
+
+                # Calculate matches
+                distinctive_matches = distinctive_project_words & distinctive_query_words
+                generic_matches = generic_project_words & generic_query_words
+
+                # Score based on distinctive matches (these are the key identifiers)
+                if distinctive_matches:
+                    # Calculate what percentage of distinctive project words matched
+                    if distinctive_project_words:
+                        distinctive_coverage = len(distinctive_matches) / len(distinctive_project_words)
+                        score = 0.5 + (distinctive_coverage * 0.4)  # Range: 0.5 - 0.9
+                        match_reason.append(f"distinctive_match:{distinctive_matches}")
+
+                    # Bonus if generic terms also match (confirms context)
+                    if generic_matches:
+                        score += 0.05
+                        match_reason.append(f"generic_support:{generic_matches}")
+                elif generic_matches:
+                    # ONLY generic matches - this is weak and often wrong
+                    # Only score if it's a very short query targeting a type
+                    if len(query_words_clean) <= 2:
+                        score = 0.2  # Very low score
+                        match_reason.append(f"generic_only:{generic_matches}")
+                    # Otherwise, don't include - too likely to be wrong match
+
+                # Check for substring matches of distinctive words (e.g., "Cariboo" in "Cariboo Gold")
+                for dw in distinctive_query_words:
+                    if len(dw) >= 4:  # Only check meaningful words
+                        for pw in distinctive_project_words:
+                            if dw in pw or pw in dw:
+                                if score < 0.6:
+                                    score = 0.6
+                                    match_reason.append(f"substring_match:{dw}->{pw}")
+
+                # Check for multi-word phrases in query that match project name
+                # E.g., "cariboo gold" should strongly match "Cariboo Gold Project"
+                for ngram_len in range(2, 5):  # Check 2-4 word ngrams
+                    query_words_list = query_lower.split()
+                    for i in range(len(query_words_list) - ngram_len + 1):
+                        ngram = ' '.join(query_words_list[i:i + ngram_len])
+                        if len(ngram) >= 5 and ngram in project_name_lower:
+                            # Check if ngram is composed only of generic/location terms
+                            ngram_words = set(ngram.split())
+                            ngram_distinctive_words = ngram_words - generic_terms - stop_words
+
+                            # If ngram has no distinctive words, reduce its weight significantly
+                            # E.g., "lower mainland" matches many projects but isn't project-specific
+                            if not ngram_distinctive_words:
+                                # Generic-only ngram - much lower score
+                                new_score = 0.4  # Weak signal
+                                if new_score > score:
+                                    score = new_score
+                                    match_reason.append(f"ngram_match_generic:{ngram}")
+                            else:
+                                # Strong signal: multi-word phrase with distinctive words
+                                coverage = len(ngram) / len(project_name_lower)
+                                if coverage >= 0.5:
+                                    new_score = 0.95 + (coverage * 0.05)
+                                elif coverage >= 0.3:
+                                    new_score = 0.85 + (coverage * 0.1)
+                                else:
+                                    new_score = 0.7 + (coverage * 0.1)
+                                if new_score > score:
+                                    score = new_score
+                                    match_reason.append(f"ngram_match:{ngram}")
+
+            # Only include projects with meaningful scores
+            # Lowered threshold from 0.5 to 0.33 to handle projects with multiple distinctive words
+            # e.g., "Pretium Brucejack" where only "brucejack" matches (score = 0.5)
+            if score >= 0.33:
+                scored_projects.append((project_id, project_name, score, match_reason))
+                logger.debug(f"Fallback match: '{project_name}' score={score:.2f} reasons={match_reason}")
+
+        # Sort by score descending
+        scored_projects.sort(key=lambda x: x[2], reverse=True)
+
+        # Log the scoring for debugging
+        if scored_projects:
+            logger.info(f"Fallback project scoring for query '{query}':")
+            for pid, pname, score, reasons in scored_projects[:5]:
+                logger.info(f"  - '{pname}' (ID: {pid}) Score: {score:.2f} Reasons: {reasons}")
+
+        # Return top 3 project IDs
+        return [p[0] for p in scored_projects[:3]]
    
     def _fallback_document_extraction(self, query: str, available_document_types: Dict) -> List[str]:
         """Fallback document type extraction using comprehensive alias matching."""
@@ -1060,7 +1485,10 @@ Return ONLY the optimized semantic query (no quotes, no explanation).
             return []
        
         # Only do text matching for queries that explicitly mention document types
-        document_type_keywords = ["letter", "report", "memo", "correspondence", "transcript", "assessment", "presentation"]
+        document_type_keywords = [
+            "letter", "report", "memo", "correspondence", "transcript", "assessment", "presentation",
+            "schedule", "condition", "certificate", "eac", "order", "package", "application", "agreement"
+        ]
         if not any(keyword in query_lower for keyword in document_type_keywords):
             logger.info(f"Query does not mention specific document types - returning empty array")
             logger.info("=== END FALLBACK DOCUMENT TYPE EXTRACTION ===")

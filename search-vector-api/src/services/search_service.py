@@ -1,14 +1,7 @@
 """Search service facade for accessing vector and keyword search functionality.
 
 This service module provides a high-level interface for search operations,
-abstracting th            if inferred_project_ids and project_confidence > 0.8:
-                project_ids = inferred_project_ids
-                # Only clean the query if it's NOT a generic request (to preserve generic patterns)
-                if not is_generic_request:
-                    project_cleaned_query = project_inference_service.clean_query_after_inference(cleaned_query, project_inference_metadata)
-                    cleaned_query = project_cleaned_query
-                logging.info(f"Project inference successful: Using inferred projects {inferred_project_ids} with confidence {project_confidence:.3f}")
-                logging.info(f"Query after project cleaning: '{cleaned_query}'")exity of the underlying search implementation. It acts as a 
+abstracting the complexity of the underlying search implementation. It acts as a
 facade between the API layer and the core search engine components, providing:
 
 1. A clean, simplified interface for the REST API endpoints
@@ -39,7 +32,7 @@ class SearchService:
     """
 
     @classmethod
-    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None, search_strategy: str = None, semantic_query: str = None) -> Dict[str, Any]:
+    def get_documents_by_query(cls, query: str, project_ids: List[str] = None, document_type_ids: List[str] = None, inference: List[str] = None, min_relevance_score: float = None, top_n: int = None, search_strategy: str = None, semantic_query: str = None, semantic_fetch_count: int = None, keyword_fetch_count: int = None) -> Dict[str, Any]:
         """Retrieve relevant documents using an advanced two-stage search strategy with intelligent project inference.
         
         This method implements a modern search approach that leverages document-level
@@ -230,13 +223,20 @@ class SearchService:
         
         # Extract results from pipeline
         search_query = inference_results["query_processing"]["final_query"]
-        
-        # Use inferred IDs if inference was successful
-        if inference_results["project_inference"]["applied"]:
+
+        # Use inferred IDs ONLY if inference was successful AND no explicit IDs were provided by user
+        # This ensures user-provided IDs are NEVER overwritten by inference results
+        if inference_results["project_inference"]["applied"] and not original_project_ids:
             project_ids = inference_results["project_inference"]["inferred_project_ids"]
-            
-        if inference_results["document_type_inference"]["applied"]:
+            logging.info(f"Using inferred project IDs (no explicit IDs provided): {project_ids}")
+        elif original_project_ids:
+            logging.info(f"Preserving user-provided project IDs (ignoring inference): {original_project_ids}")
+
+        if inference_results["document_type_inference"]["applied"] and not original_document_type_ids:
             document_type_ids = inference_results["document_type_inference"]["inferred_document_type_ids"]
+            logging.info(f"Using inferred document type IDs (no explicit IDs provided): {document_type_ids}")
+        elif original_document_type_ids:
+            logging.info(f"Preserving user-provided document type IDs (ignoring inference): {original_document_type_ids}")
         
         # Debug logging to see what IDs are being passed
         logging.info(f"About to call search with: project_ids={project_ids}, document_type_ids={document_type_ids}, is_generic={is_generic_request}")
@@ -274,7 +274,7 @@ class SearchService:
         
         # Track search stage timing
         search_start_time = time.time()
-        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n, search_strategy, semantic_query)
+        documents, search_metrics = search(final_search_query, project_ids, document_type_ids, min_relevance_score, top_n, search_strategy, semantic_query, semantic_fetch_count=semantic_fetch_count, keyword_fetch_count=keyword_fetch_count)
         search_time_ms = round((time.time() - search_start_time) * 1000, 2)
         
         # Create comprehensive stage-specific metrics
