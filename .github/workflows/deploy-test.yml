@@ -1,0 +1,24 @@
+name: Deploy to Test
+
+# Triggered on every merge to main.
+# Runs CI first, then builds and pushes images tagged with the commit SHA.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  build-push:
+    name: Build and push (test)
+    needs: ci
+    uses: ./.github/workflows/build-push.yml
+    with:
+      environment: test
+      image-tag: ${{ github.sha }}
+      target-env: test
+    secrets: inherit

@@ -1,0 +1,39 @@
+name: Deploy to Production
+
+# Triggered when a GitHub Release is published (the release tag becomes the image tag).
+# Also supports manual dispatch to deploy a specific tag.
+#
+# A required-reviewer gate on the "prod" GitHub Environment provides the approval
+# step before images are pushed.  Configure reviewers in:
+#   Repository Settings → Environments → prod → Required reviewers
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image-tag:
+        description: "Image tag to build and push (defaults to triggering ref)"
+        required: false
+        default: ""
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  build-push:
+    name: Build and push (prod)
+    needs: ci
+    uses: ./.github/workflows/build-push.yml
+    with:
+      environment: prod
+      # Use the workflow_dispatch override if provided, otherwise the release tag or SHA
+      image-tag: >-
+        ${{
+          inputs.image-tag != '' && inputs.image-tag
+          || (github.event_name == 'release' && github.ref_name)
+          || github.sha
+        }}
+      target-env: prod
+    secrets: inherit

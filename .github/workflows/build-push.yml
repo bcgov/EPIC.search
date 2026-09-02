@@ -1,0 +1,88 @@
+name: Build and Push Images
+
+# Reusable workflow — called by deploy-test.yml and deploy-prod.yml.
+# Authenticates to Azure via OIDC (no long-lived secrets) and pushes
+# Docker images for all three services to ACR.
+#
+# Required GitHub Environment variables (set per environment in repo settings):
+#   ACR_NAME  — ACR registry name without .azurecr.io suffix (e.g. epicsearchacrtest)
+#
+# Required GitHub secrets (set per environment):
+#   AZURE_CLIENT_ID       — App registration client ID for OIDC federated credential
+#   AZURE_TENANT_ID       — Azure AD tenant ID
+#   AZURE_SUBSCRIPTION_ID — Azure subscription ID
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment to deploy to (test | prod)"
+        required: true
+        type: string
+      image-tag:
+        description: "Docker image tag (e.g. git SHA or release tag)"
+        required: true
+        type: string
+      target-env:
+        description: "search-web build target (test | prod)"
+        required: true
+        type: string
+
+jobs:
+  build-push:
+    name: Build and push (${{ inputs.environment }})
+    runs-on: [self-hosted, linux]
+    environment: ${{ inputs.environment }}
+
+    permissions:
+      id-token: write   # required for OIDC token exchange
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        # Pinned to v3.0.2 — update SHA when a new release is available
+        uses: azure/login@0949e32778441b2c442592b7a0e6313466dc8f29
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Build and push search-api
+        env:
+          IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/epic-search/search-api:${{ inputs.image-tag }}
+        run: |
+          docker build -t "$IMAGE" ./search-api
+          docker push "$IMAGE"
+
+      - name: Build and push search-vector-api
+        env:
+          IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/epic-search/search-vector-api:${{ inputs.image-tag }}
+        run: |
+          docker build -t "$IMAGE" ./search-vector-api
+          docker push "$IMAGE"
+
+      - name: Build and push search-web
+        env:
+          IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/epic-search/search-web:${{ inputs.image-tag }}
+        run: |
+          docker build \
+            --build-arg TARGET_ENV=${{ inputs.target-env }} \
+            -t "$IMAGE" \
+            ./search-web
+          docker push "$IMAGE"
+
+      - name: Tag as latest
+        env:
+          REGISTRY: ${{ vars.ACR_NAME }}.azurecr.io/epic-search
+          TAG: ${{ inputs.image-tag }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          for svc in search-api search-vector-api search-web; do
+            docker tag "$REGISTRY/$svc:$TAG" "$REGISTRY/$svc:$ENV-latest"
+            docker push "$REGISTRY/$svc:$ENV-latest"
+          done
